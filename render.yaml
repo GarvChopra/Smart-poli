@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: smartpoli
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: SMARTPOLI_JWT_SECRET
+        generateValue: true
+      - key: SMARTPOLI_DATABASE_URL
+        value: sqlite:///./smartpoli.db
+      - key: SMARTPOLI_ALLOWED_ORIGINS
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_NUMBER
+        value: "whatsapp:+14155238886"
+      - key: SMARTPOLI_PUBLIC_BASE_URL
+        sync: false
+      - key: SMARTPOLI_SKIP_TWILIO_SIGNATURE
+        value: "0"

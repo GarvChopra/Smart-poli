@@ -1,0 +1,12 @@
+# Optional — only needed to run the real OCR path (photo-upload prescriptions
+# via TrOCR) locally. `pip install -r requirements.txt -r requirements-ocr.txt`
+# to enable it. Not installed on Render: multi-GB, and the app runs fully
+# without it (manual entry uses the same parser/confidence gate — see
+# CLAUDE.md section 5). ocr_plugin.py already degrades to OCRUnavailable,
+# routed to the manual-entry fallback, if these aren't installed.
+transformers==4.44.0
+sentencepiece==0.2.2
+torch==2.3.1
+torchvision==0.18.1
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
