@@ -145,7 +145,7 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   applyA11yMode();
 });
 
-document.getElementById('newPatientBtn').addEventListener('click', async () => {
+async function createNewPatient() {
   const name = prompt('Patient name?');
   if (!name) return;
   const age = prompt('Age? (optional)');
@@ -155,7 +155,8 @@ document.getElementById('newPatientBtn').addEventListener('click', async () => {
   state.patientId = patient.id;
   document.getElementById('patientSelect').value = patient.id;
   renderActiveTab();
-});
+}
+document.getElementById('newPatientBtn').addEventListener('click', createNewPatient);
 
 document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -192,7 +193,27 @@ hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
 
+function renderNoPatientState() {
+  const view = document.getElementById(`view-${state.activeTab}`);
+  if (!view) return;
+  view.innerHTML = `
+    <div class="card" style="text-align:center;padding:40px 24px;margin-top:24px;">
+      <h3>Let's set up your first patient profile</h3>
+      <p style="color:var(--ink-soft);font-size:14px;margin:10px 0 20px;">
+        Prescriptions, schedules, symptom checks and reports are all tracked
+        per patient. Create one to get started — it only takes a few seconds.
+      </p>
+      <button class="primary" id="createFirstPatientBtn">+ Create patient profile</button>
+    </div>
+  `;
+  document.getElementById('createFirstPatientBtn').addEventListener('click', createNewPatient);
+}
+
 function renderActiveTab() {
+  // Settings is static (patient/language/account) and is how you create
+  // your first patient in the first place, so it must never be replaced
+  // by the no-patient empty state — everything else needs a patient.
+  if (!state.patientId && state.activeTab !== 'settings') { renderNoPatientState(); return; }
   if (!state.patientId) return;
   if (state.activeTab === 'prescriptions') renderPrescriptions();
   if (state.activeTab === 'dashboard') renderDashboard();
