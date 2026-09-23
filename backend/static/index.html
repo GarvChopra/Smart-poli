@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPoli — your care journey</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar no-print">
+    <div class="topbar-row">
+      <button class="hamburger-btn" id="hamburgerBtn" aria-label="Open menu" aria-expanded="false" aria-controls="navDrawer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+      </button>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
+    </div>
+  </header>
+
+  <div class="nav-drawer-overlay no-print" id="navOverlay"></div>
+  <nav class="pill-nav nav-drawer no-print" id="navDrawer" aria-label="Main">
+    <div class="nav-drawer-head">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
+      <button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button>
+    </div>
+    <button data-tab="prescriptions" data-icon="fileText" class="active"><span class="nav-label">Prescription</span></button>
+    <button data-tab="dashboard" data-icon="chartBar"><span class="nav-label">Dashboard</span></button>
+    <button data-tab="safety" data-icon="shield"><span class="nav-label">Safety center</span></button>
+    <button data-tab="triage" data-icon="stethoscope"><span class="nav-label">Symptom check</span></button>
+    <button data-tab="report" data-icon="clipboard"><span class="nav-label">Care report</span></button>
+    <button data-tab="timeline" data-icon="history"><span class="nav-label">Timeline</span></button>
+    <button data-tab="emergency" data-icon="siren"><span class="nav-label">Emergency card</span></button>
+    <button data-tab="settings" data-icon="settings"><span class="nav-label">Settings</span></button>
+  </nav>
+
+  <div class="body-row">
+    <main class="content">
+      <section id="view-prescriptions"></section>
+      <section id="view-dashboard" style="display:none;"></section>
+      <section id="view-safety" style="display:none;"></section>
+      <section id="view-triage" style="display:none;"></section>
+      <section id="view-report" style="display:none;"></section>
+      <section id="view-timeline" style="display:none;"></section>
+      <section id="view-emergency" style="display:none;"></section>
+      <section id="view-settings" style="display:none;">
+        <h2>Settings</h2>
+
+        <div class="card">
+          <div class="card-head"><h3>Patient</h3></div>
+          <div class="field-inline" style="margin-bottom:10px;">
+            <label for="patientSelect">Patient</label>
+            <select id="patientSelect"></select>
+          </div>
+          <button class="ghost small" id="newPatientBtn">+ New patient</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Preferences</h3></div>
+          <div class="field-inline" style="margin-bottom:10px;">
+            <label for="langSelect">Language</label>
+            <select id="langSelect">
+              <option value="en">English</option>
+              <option value="hi">हिन्दी</option>
+            </select>
+          </div>
+          <button class="ghost small" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa Larger text</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Account</h3></div>
+          <div class="session-chip" id="sessionChip"></div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="glance no-print" id="glancePanel"></aside>
+  </div>
+</div>
+
+<button class="fab-voice no-print" id="voiceBtn" title="Voice command" aria-label="Voice command">
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+  <span id="voiceBtnLabel" class="sr-only">Voice</span>
+</button>
+
+<script src="/static/auth.js"></script>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

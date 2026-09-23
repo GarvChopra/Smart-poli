@@ -1,0 +1,19 @@
+{
+  "ruleset_version": "1.0.0",
+  "warnings": [
+    {"drug": "simvastatin", "avoid": "grapefruit or grapefruit juice", "severity": "MODERATE", "description": "Grapefruit can raise drug levels in the blood, increasing the risk of muscle damage."},
+    {"drug": "atorvastatin", "avoid": "grapefruit or grapefruit juice", "severity": "MINOR", "description": "Large amounts of grapefruit can raise drug levels; keep intake modest and consistent."},
+    {"drug": "ciprofloxacin", "avoid": "milk, curd or other dairy, and calcium/iron supplements", "severity": "MODERATE", "description": "Dairy and calcium/iron reduce how much of the antibiotic is absorbed. Take 2 hours apart."},
+    {"drug": "doxycycline", "avoid": "milk, curd or other dairy, and calcium/iron supplements", "severity": "MODERATE", "description": "Dairy and calcium/iron reduce how much of the antibiotic is absorbed. Take 2 hours apart."},
+    {"drug": "tetracycline", "avoid": "milk, curd or other dairy, and calcium/iron supplements", "severity": "MODERATE", "description": "Dairy and calcium/iron reduce how much of the antibiotic is absorbed. Take 2 hours apart."},
+    {"drug": "metronidazole", "avoid": "alcohol", "severity": "CRITICAL", "description": "Alcohol with this medicine can cause severe flushing, nausea and a fast heartbeat."},
+    {"drug": "tinidazole", "avoid": "alcohol", "severity": "CRITICAL", "description": "Alcohol with this medicine can cause severe flushing, nausea and a fast heartbeat."},
+    {"drug": "warfarin", "avoid": "large or sudden changes in leafy green vegetables", "severity": "MODERATE", "description": "Leafy greens are high in vitamin K, which can reduce how well this medicine thins the blood. Keep your usual intake steady rather than avoiding it entirely."},
+    {"drug": "metformin", "avoid": "regular or heavy alcohol", "severity": "MODERATE", "description": "Alcohol increases the risk of a rare but serious condition called lactic acidosis."},
+    {"drug": "paracetamol", "avoid": "regular or heavy alcohol", "severity": "MODERATE", "description": "Regular alcohol use alongside paracetamol increases the risk of liver damage."},
+    {"drug": "iron", "avoid": "tea or coffee within 1 hour", "severity": "MINOR", "description": "Tannins in tea and coffee reduce how much iron is absorbed."},
+    {"drug": "levothyroxine", "avoid": "food, coffee or calcium/iron within 30-60 minutes", "severity": "MODERATE", "description": "Food and some supplements reduce how much of the dose is absorbed. Take on an empty stomach."},
+    {"drug": "alprazolam", "avoid": "alcohol", "severity": "CRITICAL", "description": "Alcohol adds to the sedative effect, increasing the risk of dangerous drowsiness and slowed breathing."},
+    {"drug": "diazepam", "avoid": "alcohol", "severity": "CRITICAL", "description": "Alcohol adds to the sedative effect, increasing the risk of dangerous drowsiness and slowed breathing."}
+  ]
+}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPoli — doctor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar no-print">
+    <div class="topbar-row">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
+      <div class="utility-controls">
+        <button class="ghost small" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa</button>
+        <button class="primary small" id="linkPatientBtn">+ Link a patient</button>
+        <div class="session-chip" id="sessionChip"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="body-row">
+    <main class="content" style="max-width:960px;">
+      <h2>Linked patients</h2>
+      <div id="patientPicker" class="patient-picker-grid"></div>
+      <div id="linkForm" style="display:none;" class="card">
+        <h3>Link a patient</h3>
+        <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
+          SmartPoli app (Emergency card tab → Link doctor), then enter it here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
+          <button class="primary" id="redeemLinkBtn">Link</button>
+          <button class="ghost" id="cancelLinkBtn">Cancel</button>
+        </div>
+        <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
+      </div>
+
+      <section id="detail"></section>
+    </main>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="/static/icons.js"></script>
+<script src="/static/doctor.js"></script>
+</body>
+</html>

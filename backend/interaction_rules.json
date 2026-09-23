@@ -1,0 +1,25 @@
+{
+  "ruleset_version": "1.0.0",
+  "pairs": [
+    {"a": "warfarin", "b": "aspirin", "severity": "CRITICAL", "description": "Both increase bleeding risk; combined use significantly raises the chance of serious bleeding."},
+    {"a": "warfarin", "b": "amoxicillin", "severity": "MODERATE", "description": "Antibiotics can enhance warfarin's effect on clotting, increasing bleeding risk."},
+    {"a": "warfarin", "b": "paracetamol", "severity": "MODERATE", "description": "Regular paracetamol use can enhance warfarin's anticoagulant effect."},
+    {"a": "aspirin", "b": "ibuprofen", "severity": "MODERATE", "description": "Increased risk of gastrointestinal bleeding; ibuprofen may also blunt aspirin's protective effect."},
+    {"a": "aspirin", "b": "clopidogrel", "severity": "MODERATE", "description": "Combined antiplatelet effect increases bleeding risk."},
+    {"a": "tramadol", "b": "sertraline", "severity": "CRITICAL", "description": "Risk of serotonin syndrome when an opioid and an SSRI are combined."},
+    {"a": "tramadol", "b": "alprazolam", "severity": "MODERATE", "description": "Increased sedation and risk of slowed or difficult breathing."},
+    {"a": "tramadol", "b": "diazepam", "severity": "MODERATE", "description": "Increased sedation and risk of slowed or difficult breathing."},
+    {"a": "simvastatin", "b": "clarithromycin", "severity": "CRITICAL", "description": "Increased risk of muscle damage (myopathy/rhabdomyolysis)."},
+    {"a": "atorvastatin", "b": "clarithromycin", "severity": "MODERATE", "description": "May increase the risk of muscle-related side effects."},
+    {"a": "digoxin", "b": "furosemide", "severity": "MODERATE", "description": "Furosemide-induced potassium loss can increase the risk of digoxin toxicity."},
+    {"a": "metformin", "b": "furosemide", "severity": "MINOR", "description": "May slightly raise blood glucose; monitor sugar levels."},
+    {"a": "telmisartan", "b": "furosemide", "severity": "MINOR", "description": "Combined effect may lower blood pressure more than expected; monitor for dizziness."},
+    {"a": "telmisartan", "b": "ibuprofen", "severity": "MODERATE", "description": "NSAIDs can reduce the blood-pressure-lowering effect and may affect kidney function."},
+    {"a": "losartan", "b": "ibuprofen", "severity": "MODERATE", "description": "NSAIDs can reduce the blood-pressure-lowering effect and may affect kidney function."},
+    {"a": "metformin", "b": "alcohol", "severity": "MODERATE", "description": "Increased risk of lactic acidosis, a rare but serious condition."},
+    {"a": "amoxicillin", "b": "methotrexate", "severity": "CRITICAL", "description": "Can raise methotrexate levels to a toxic degree."},
+    {"a": "ciprofloxacin", "b": "theophylline", "severity": "MODERATE", "description": "Can raise theophylline levels, increasing risk of side effects."},
+    {"a": "ibuprofen", "b": "warfarin", "severity": "CRITICAL", "description": "Combined use significantly increases the risk of serious bleeding."},
+    {"a": "aspirin", "b": "enalapril", "severity": "MINOR", "description": "Regular high-dose aspirin may blunt the blood-pressure-lowering effect."}
+  ]
+}

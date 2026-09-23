@@ -1,0 +1,150 @@
+{
+  "ruleset_version": "1.0.0",
+  "symptoms": {
+    "chest_pain": {
+      "label": "Chest pain",
+      "label_hi": "सीने में दर्द",
+      "base": "MODERATE",
+      "questions": [
+        {"id": "difficulty_breathing", "text": "Are you having difficulty breathing?", "text_hi": "क्या आपको सांस लेने में कठिनाई हो रही है?", "type": "boolean"},
+        {"id": "fainting", "text": "Have you felt faint or passed out?", "text_hi": "क्या आपको बेहोशी जैसा महसूस हुआ या आप बेहोश हुए?", "type": "boolean"},
+        {"id": "pain_radiating", "text": "Does the pain spread to your arm, neck or jaw?", "text_hi": "क्या दर्द आपकी बाँह, गर्दन या जॉ तक फैल रहा है?", "type": "boolean"},
+        {"id": "sweating", "text": "Are you sweating more than usual with the pain?", "text_hi": "क्या दर्द के साथ आपको सामान्य से ज्यादा पसीना आ रहा है?", "type": "boolean"}
+      ]
+    },
+    "breathlessness": {
+      "label": "Breathlessness",
+      "label_hi": "सांस लेने में तकलीफ",
+      "base": "MODERATE",
+      "questions": [
+        {"id": "blue_lips", "text": "Are your lips or face turning blue or grey?", "text_hi": "क्या आपके होंठ या चेहरा नीला या धूसर हो रहा है?", "type": "boolean"},
+        {"id": "cannot_speak_full_sentence", "text": "Are you too breathless to speak a full sentence?", "text_hi": "क्या आप सांस की तकलीफ के कारण पूरा वाक्य नहीं बोल पा रहे?", "type": "boolean"},
+        {"id": "at_rest", "text": "Are you breathless even while sitting still?", "text_hi": "क्या आराम से बैठे रहने पर भी सांस फूलती है?", "type": "boolean"}
+      ]
+    },
+    "fever": {
+      "label": "Fever",
+      "label_hi": "बुखार",
+      "base": "LOW",
+      "questions": [
+        {"id": "stiff_neck", "text": "Do you have a stiff neck along with the fever?", "text_hi": "क्या बुखार के साथ गर्दन में जकड़न है?", "type": "boolean"},
+        {"id": "rash_with_fever", "text": "Do you have a rash that doesn't fade when pressed?", "text_hi": "क्या ऐसे दाने हैं जो दबाने पर हल्के नहीं होते?", "type": "boolean"},
+        {"id": "temp_above_103", "text": "Is your temperature above 103°F (39.4°C)?", "text_hi": "क्या आपका तापमान 103°F (39.4°C) से ज्यादा है?", "type": "boolean"},
+        {"id": "duration_over_3_days", "text": "Has the fever lasted more than 3 days?", "text_hi": "क्या बुखार को 3 दिन से ज्यादा हो गए हैं?", "type": "boolean"}
+      ]
+    },
+    "vomiting": {
+      "label": "Vomiting",
+      "label_hi": "उल्टी",
+      "base": "LOW",
+      "questions": [
+        {"id": "blood_in_vomit", "text": "Is there blood in the vomit?", "text_hi": "क्या उल्टी में खून है?", "type": "boolean"},
+        {"id": "unable_to_keep_fluids", "text": "Are you unable to keep any fluids down?", "text_hi": "क्या आप कोई भी तरल पदार्थ नहीं रख पा रहे?", "type": "boolean"},
+        {"id": "severe_abdominal_pain", "text": "Is it accompanied by severe abdominal pain?", "text_hi": "क्या इसके साथ पेट में तेज दर्द है?", "type": "boolean"}
+      ]
+    },
+    "nausea": {
+      "label": "Nausea",
+      "label_hi": "जी मिचलाना",
+      "base": "LOW",
+      "questions": [
+        {"id": "chest_pain_with_nausea", "text": "Do you also have chest pain?", "text_hi": "क्या आपको सीने में दर्द भी है?", "type": "boolean"},
+        {"id": "severe_headache_with_nausea", "text": "Do you also have a severe headache?", "text_hi": "क्या आपको तेज सिरदर्द भी है?", "type": "boolean"}
+      ]
+    },
+    "rash": {
+      "label": "Rash",
+      "label_hi": "त्वचा पर दाने",
+      "base": "LOW",
+      "questions": [
+        {"id": "difficulty_breathing_with_rash", "text": "Are you having difficulty breathing along with the rash?", "text_hi": "क्या दानों के साथ सांस लेने में कठिनाई हो रही है?", "type": "boolean"},
+        {"id": "swelling_face_lips", "text": "Is there swelling of the face or lips?", "text_hi": "क्या चेहरे या होंठों में सूजन है?", "type": "boolean"},
+        {"id": "does_not_fade_when_pressed", "text": "Does the rash stay the same colour when you press it?", "text_hi": "क्या दबाने पर दानों का रंग वैसा ही रहता है?", "type": "boolean"}
+      ]
+    },
+    "dizziness": {
+      "label": "Dizziness",
+      "label_hi": "चक्कर आना",
+      "base": "LOW",
+      "questions": [
+        {"id": "fainted", "text": "Have you fainted or lost consciousness?", "text_hi": "क्या आप बेहोश हुए या होश खो दिया?", "type": "boolean"},
+        {"id": "one_sided_weakness", "text": "Do you have weakness or numbness on one side of your body?", "text_hi": "क्या शरीर के एक तरफ कमजोरी या सुन्नपन है?", "type": "boolean"},
+        {"id": "chest_pain_with_dizziness", "text": "Do you also have chest pain?", "text_hi": "क्या आपको सीने में दर्द भी है?", "type": "boolean"}
+      ]
+    },
+    "abdominal_pain": {
+      "label": "Abdominal pain",
+      "label_hi": "पेट में दर्द",
+      "base": "MODERATE",
+      "questions": [
+        {"id": "rigid_abdomen", "text": "Is your abdomen rigid or hard to the touch?", "text_hi": "क्या आपका पेट सख्त या तख्ते जैसा महसूस हो रहा है?", "type": "boolean"},
+        {"id": "blood_in_stool", "text": "Is there blood in your stool?", "text_hi": "क्या मल में खून है?", "type": "boolean"},
+        {"id": "severe_and_sudden", "text": "Did the pain start suddenly and severely?", "text_hi": "क्या दर्द अचानक और तेज शुरू हुआ?", "type": "boolean"}
+      ]
+    },
+    "headache": {
+      "label": "Headache",
+      "label_hi": "सिरदर्द",
+      "base": "LOW",
+      "questions": [
+        {"id": "worst_ever_sudden", "text": "Is this the worst headache you've ever had, and did it start suddenly?", "text_hi": "क्या यह आपका सबसे तेज सिरदर्द है और यह अचानक शुरू हुआ?", "type": "boolean"},
+        {"id": "confusion", "text": "Are you feeling confused or finding it hard to think clearly?", "text_hi": "क्या आपको भ्रम महसूस हो रहा है या सोचने में कठिनाई हो रही है?", "type": "boolean"},
+        {"id": "fever_and_stiff_neck", "text": "Do you also have a fever and a stiff neck?", "text_hi": "क्या आपको बुखार और गर्दन में जकड़न भी है?", "type": "boolean"},
+        {"id": "vision_changes", "text": "Have you had any changes in your vision?", "text_hi": "क्या आपकी नज़र में कोई बदलाव आया है?", "type": "boolean"}
+      ]
+    },
+    "bleeding": {
+      "label": "Bleeding",
+      "label_hi": "खून बहना",
+      "base": "MODERATE",
+      "questions": [
+        {"id": "does_not_stop_with_pressure", "text": "Does the bleeding continue even with direct pressure?", "text_hi": "क्या दबाव डालने पर भी खून बहना नहीं रुक रहा?", "type": "boolean"},
+        {"id": "heavy_blood_loss", "text": "Would you describe the blood loss as heavy?", "text_hi": "क्या खून बहना ज्यादा है?", "type": "boolean"},
+        {"id": "from_internal_source", "text": "Is this blood in your vomit, stool or urine?", "text_hi": "क्या यह खून उल्टी, मल या पेशाब में है?", "type": "boolean"}
+      ]
+    }
+  },
+  "rules": [
+    {"if": {"symptom": "chest_pain", "answers": {"difficulty_breathing": true}}, "then": "EMERGENCY", "because": "Chest pain with difficulty breathing"},
+    {"if": {"symptom": "chest_pain", "answers": {"fainting": true}}, "then": "EMERGENCY", "because": "Chest pain with fainting or loss of consciousness"},
+    {"if": {"symptom": "chest_pain", "answers": {"pain_radiating": true}}, "then": "EMERGENCY", "because": "Chest pain spreading to arm, neck or jaw"},
+    {"if": {"symptom": "chest_pain", "answers": {"sweating": true}}, "then": "MODERATE", "because": "Chest pain with sweating"},
+
+    {"if": {"symptom": "breathlessness", "answers": {"blue_lips": true}}, "then": "EMERGENCY", "because": "Breathlessness with blue or grey lips or face"},
+    {"if": {"symptom": "breathlessness", "answers": {"cannot_speak_full_sentence": true}}, "then": "EMERGENCY", "because": "Too breathless to speak a full sentence"},
+    {"if": {"symptom": "breathlessness", "answers": {"at_rest": true}}, "then": "MODERATE", "because": "Breathlessness occurring at rest"},
+
+    {"if": {"symptom": "fever", "answers": {"stiff_neck": true}}, "then": "EMERGENCY", "because": "Fever with a stiff neck"},
+    {"if": {"symptom": "fever", "answers": {"rash_with_fever": true}}, "then": "EMERGENCY", "because": "Fever with a rash that does not fade under pressure"},
+    {"if": {"symptom": "fever", "answers": {"temp_above_103": true}}, "then": "MODERATE", "because": "High fever above 103°F (39.4°C)"},
+    {"if": {"symptom": "fever", "answers": {"duration_over_3_days": true}}, "then": "MODERATE", "because": "Fever lasting more than 3 days"},
+
+    {"if": {"symptom": "vomiting", "answers": {"blood_in_vomit": true}}, "then": "EMERGENCY", "because": "Vomiting blood"},
+    {"if": {"symptom": "vomiting", "answers": {"unable_to_keep_fluids": true}}, "then": "MODERATE", "because": "Unable to keep any fluids down"},
+    {"if": {"symptom": "vomiting", "answers": {"severe_abdominal_pain": true}}, "then": "MODERATE", "because": "Vomiting with severe abdominal pain"},
+
+    {"if": {"symptom": "nausea", "answers": {"chest_pain_with_nausea": true}}, "then": "EMERGENCY", "because": "Nausea together with chest pain"},
+    {"if": {"symptom": "nausea", "answers": {"severe_headache_with_nausea": true}}, "then": "MODERATE", "because": "Nausea together with a severe headache"},
+
+    {"if": {"symptom": "rash", "answers": {"difficulty_breathing_with_rash": true}}, "then": "EMERGENCY", "because": "Rash with difficulty breathing"},
+    {"if": {"symptom": "rash", "answers": {"swelling_face_lips": true}}, "then": "EMERGENCY", "because": "Rash with swelling of the face or lips"},
+    {"if": {"symptom": "rash", "answers": {"does_not_fade_when_pressed": true}}, "then": "MODERATE", "because": "Rash that does not fade under pressure"},
+
+    {"if": {"symptom": "dizziness", "answers": {"fainted": true}}, "then": "EMERGENCY", "because": "Dizziness with fainting or loss of consciousness"},
+    {"if": {"symptom": "dizziness", "answers": {"one_sided_weakness": true}}, "then": "EMERGENCY", "because": "Dizziness with weakness or numbness on one side"},
+    {"if": {"symptom": "dizziness", "answers": {"chest_pain_with_dizziness": true}}, "then": "EMERGENCY", "because": "Dizziness together with chest pain"},
+
+    {"if": {"symptom": "abdominal_pain", "answers": {"rigid_abdomen": true}}, "then": "EMERGENCY", "because": "Abdominal pain with a rigid, board-like abdomen"},
+    {"if": {"symptom": "abdominal_pain", "answers": {"blood_in_stool": true}}, "then": "EMERGENCY", "because": "Abdominal pain with blood in stool"},
+    {"if": {"symptom": "abdominal_pain", "answers": {"severe_and_sudden": true}}, "then": "MODERATE", "because": "Sudden, severe abdominal pain"},
+
+    {"if": {"symptom": "headache", "answers": {"worst_ever_sudden": true}}, "then": "EMERGENCY", "because": "Sudden, worst-ever headache"},
+    {"if": {"symptom": "headache", "answers": {"confusion": true}}, "then": "EMERGENCY", "because": "Headache with confusion"},
+    {"if": {"symptom": "headache", "answers": {"fever_and_stiff_neck": true}}, "then": "EMERGENCY", "because": "Headache with fever and a stiff neck"},
+    {"if": {"symptom": "headache", "answers": {"vision_changes": true}}, "then": "MODERATE", "because": "Headache with vision changes"},
+
+    {"if": {"symptom": "bleeding", "answers": {"does_not_stop_with_pressure": true}}, "then": "EMERGENCY", "because": "Bleeding that does not stop with direct pressure"},
+    {"if": {"symptom": "bleeding", "answers": {"heavy_blood_loss": true}}, "then": "EMERGENCY", "because": "Heavy blood loss"},
+    {"if": {"symptom": "bleeding", "answers": {"from_internal_source": true}}, "then": "EMERGENCY", "because": "Suspected internal bleeding (in vomit, stool or urine)"}
+  ]
+}
