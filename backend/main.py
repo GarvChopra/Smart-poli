@@ -134,6 +134,15 @@ def _reminder_sweep_job():
 @app.on_event("startup")
 def on_startup():
     init_db()
+    if os.getenv("SMARTPOLI_AUTO_SEED") == "1":
+        # Opt-in only (e.g. Render, where there's no shell on the free plan
+        # to run `python seed.py` by hand). seed() itself is idempotent —
+        # skips if demo data already exists — so this is safe on every boot.
+        from seed import seed
+        try:
+            seed()
+        except Exception as e:
+            logger.warning(f"Auto-seed skipped/failed (non-fatal): {e}")
     reminder_scheduler.add_job(_reminder_sweep_job, "interval", minutes=5, id="reminder_sweep")
     reminder_scheduler.start()
     logger.info("SmartPoli API up. Manual path only — zero API keys required. Reminder sweep running every 5 minutes.")
