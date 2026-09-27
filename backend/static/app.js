@@ -12,7 +12,7 @@ const state = {
   patients: [],
   patientId: null,
   lang: 'en',            // 'en' | 'hi' — optional Feature G
-  activeTab: 'prescriptions',
+  activeTab: 'dashboard',
   symptoms: [],
   selectedSymptoms: [],
   triageQueue: [],       // [{symptom_id, question}]
@@ -484,6 +484,86 @@ function renderRxResult(result) {
 
 // ---------------------------------------------------------------- dashboard (Feature 2)
 
+/** Groups upcoming doses by calendar day (in the browser's local time, same
+ * as every other date shown on this dashboard) so they render as day-by-day
+ * agenda blocks instead of one flat list — a lightweight calendar look
+ * without pulling in a full calendar-grid dependency. */
+function groupDosesByDay(doses) {
+  const groups = [];
+  const byKey = new Map();
+  doses.forEach(d => {
+    const dt = new Date(d.scheduled_at);
+    const key = dt.toDateString();
+    if (!byKey.has(key)) {
+      const group = { date: dt, doses: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    byKey.get(key).doses.push(d);
+  });
+  return groups;
+}
+
+function dayLabel(date) {
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+  return date.toLocaleDateString([], { weekday: 'short' });
+}
+
+function renderDoseCalendar(doses) {
+  if (!doses.length) return '<div class="empty">Nothing scheduled yet — decode and confirm a prescription first.</div>';
+  const groups = groupDosesByDay(doses);
+  return `<div class="dose-calendar">${groups.map(g => `
+    <div class="dose-calendar-day">
+      <div class="dose-calendar-day-head">
+        <span>${dayLabel(g.date)}</span>
+        <span class="dose-calendar-day-date">${g.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+      </div>
+      <div class="dose-calendar-day-body">
+        ${g.doses.map(d => `
+          <div class="dose-calendar-slot" data-dose-id="${d.id}" data-med-name="${d.medicine_name}" data-scheduled-at="${d.scheduled_at}">
+            <div class="dose-calendar-time">${new Date(d.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            <div class="dose-calendar-dot"></div>
+            <div class="dose-calendar-info">
+              <div class="dose-calendar-med">${d.medicine_name}</div>
+              <div class="dose-calendar-actions">
+                <button class="ghost small" data-act="take">Take</button>
+                <button class="ghost small" data-act="snooze">Snooze</button>
+                <button class="ghost small" data-act="skip">Skip</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
+/** A brief on-screen confirmation for marking a dose taken — a green check
+ * plus the exact medicine/day/time, so the action is visibly acknowledged
+ * beyond just the list quietly re-rendering. Closes on click or after 2.5s. */
+function showTakenPopup(medName, scheduledAt) {
+  document.querySelectorAll('.taken-popup-overlay').forEach(el => el.remove());
+  const when = new Date(scheduledAt);
+  const overlay = el(`
+    <div class="taken-popup-overlay">
+      <div class="taken-popup">
+        <span class="taken-popup-icon">${ICONS.checkCircle}</span>
+        <div class="taken-popup-med">${medName}</div>
+        <div class="taken-popup-when">${when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <div class="taken-popup-label">Marked as taken</div>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(overlay);
+  const dismiss = () => overlay.remove();
+  overlay.addEventListener('click', dismiss);
+  setTimeout(dismiss, 2500);
+}
+
 async function renderDashboard() {
   const view = document.getElementById('view-dashboard');
   view.innerHTML = `<div class="empty">Loading...</div>`;
@@ -542,17 +622,7 @@ async function renderDashboard() {
     </div>
   `).join('') || '<div class="empty">No as-needed medicines.</div>';
 
-  const upcomingHtml = dash.upcoming_doses.map(d => `
-    <div class="dose-row" data-dose-id="${d.id}">
-      <div class="time">${new Date(d.scheduled_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</div>
-      <div style="flex:1;padding:0 10px;">${d.medicine_name}</div>
-      <div class="actions">
-        <button class="ghost small" data-act="take">Take</button>
-        <button class="ghost small" data-act="snooze">Snooze</button>
-        <button class="ghost small" data-act="skip">Skip</button>
-      </div>
-    </div>
-  `).join('') || '<div class="empty">Nothing scheduled yet — decode and confirm a prescription first.</div>';
+  const upcomingHtml = renderDoseCalendar(dash.upcoming_doses);
 
   const nudgesHtml = (dash.nudges || []).map(n => `
     <div class="nudge-banner ${n.level}">${n.text}</div>
@@ -606,6 +676,7 @@ async function renderDashboard() {
   if (heroTakeBtn) {
     heroTakeBtn.addEventListener('click', async () => {
       await api('POST', `/doses/${heroTakeBtn.dataset.heroTake}/take`);
+      showTakenPopup(next.medicine_name, next.scheduled_at);
       renderDashboard();
       renderGlance();
     });
@@ -619,12 +690,15 @@ async function renderDashboard() {
     });
   });
 
-  view.querySelectorAll('.dose-row[data-dose-id]').forEach(row => {
+  view.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
     const doseId = row.dataset.doseId;
     row.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const act = btn.dataset.act;
-        if (act === 'take') await api('POST', `/doses/${doseId}/take`);
+        if (act === 'take') {
+          await api('POST', `/doses/${doseId}/take`);
+          showTakenPopup(row.dataset.medName, row.dataset.scheduledAt);
+        }
         else if (act === 'snooze') await api('POST', `/doses/${doseId}/snooze`);
         else if (act === 'skip') {
           const reason = prompt('Reason for skipping this dose?');
@@ -664,27 +738,29 @@ function renderTriagePicker() {
     <h2>${t('triageHeading')}</h2>
     <p style="color:var(--ink-soft)">Rule-based only — this grades urgency, it never gives a diagnosis.</p>
 
-    ${state.llmAvailable ? `
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Or describe it in your own words</h3></div>
-      <label for="freeTextInput" style="font-weight:400;color:var(--ink-soft);">Tell us what you're experiencing, e.g. "I have chest pain and it's hard to breathe"</label>
-      <input type="text" id="freeTextInput" placeholder="e.g. I have chest pain and it's hard to breathe">
-      <div style="margin-top:10px;">
-        <button class="ghost" id="interpretBtn"><span class="icon">${ICONS.chevronRight}</span>Interpret</button>
-      </div>
-      <div id="interpretStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
-      <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">
-        This only pre-selects symptoms and highlights suggested answers below — you still review
-        and confirm every answer, and the severity grade always comes from the fixed rules, never from this.
-      </div>
-    </div>` : ''}
+    <div id="triageInputCards">
+      ${state.llmAvailable ? `
+      <div class="card">
+        <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Or describe it in your own words</h3></div>
+        <label for="freeTextInput" style="font-weight:400;color:var(--ink-soft);">Tell us what you're experiencing, e.g. "I have chest pain and it's hard to breathe"</label>
+        <input type="text" id="freeTextInput" placeholder="e.g. I have chest pain and it's hard to breathe">
+        <div style="margin-top:10px;">
+          <button class="ghost" id="interpretBtn"><span class="icon">${ICONS.chevronRight}</span>Interpret</button>
+        </div>
+        <div id="interpretStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">
+          This only pre-selects symptoms and highlights suggested answers below — you still review
+          and confirm every answer, and the severity grade always comes from the fixed rules, never from this.
+        </div>
+      </div>` : ''}
 
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>What are you experiencing? (select one or more)</h3></div>
-      <div class="symptom-grid" id="symptomGrid">
-        ${state.symptoms.map(s => `<button data-sid="${s.id}">${s.label}</button>`).join('')}
+      <div class="card">
+        <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>What are you experiencing? (select one or more)</h3></div>
+        <div class="symptom-grid" id="symptomGrid">
+          ${state.symptoms.map(s => `<button data-sid="${s.id}">${s.label}</button>`).join('')}
+        </div>
+        <button class="primary" id="startTriageBtn" style="margin-top:16px;" disabled>Continue</button>
       </div>
-      <button class="primary" id="startTriageBtn" style="margin-top:16px;" disabled>Continue</button>
     </div>
     <div id="triageFlow"></div>
   `;
@@ -732,6 +808,11 @@ function renderTriagePicker() {
   }
 
   startBtn.addEventListener('click', async () => {
+    // Lock the picker/free-text controls for the rest of this check — once
+    // a symptom set is committed, re-touching them must never silently mix
+    // stale answers from this run into a later one (only "Start a new
+    // check", which fully resets state, unlocks them again).
+    document.getElementById('triageInputCards').style.display = 'none';
     await buildTriageQueue();
     // Seed the real base severity (e.g. chest_pain starts at MODERATE, not
     // LOW) before the first question is even asked — rule 3: the result
@@ -787,6 +868,7 @@ async function askNextTriageQuestion() {
 }
 
 async function submitTriage() {
+  state.triageDone = true;
   const flow = document.getElementById('triageFlow');
   const result = await api('POST', `/triage/check?lang=${state.lang}`, {
     patient_id: state.patientId,
@@ -800,6 +882,12 @@ async function submitTriage() {
     ? `<a class="cta" href="#" onclick="alert('Doctor booking link would go here.'); return false;"><button class="primary">Book a doctor</button></a>`
     : '';
 
+  const sourcesHtml = (result.sources || []).length ? `
+    <div style="margin-top:10px;font-size:12px;color:var(--ink-soft);">
+      Based on: ${result.sources.map(s => `<a href="${s.url}" target="_blank" rel="noopener">${s.title}</a>`).join(' · ')}
+    </div>
+  ` : '';
+
   const fillPct = { LOW: 33, MODERATE: 66, EMERGENCY: 100 }[result.severity] || 33;
   flow.innerHTML = `
     <div class="severity-banner ${badgeClass(result.severity)}">
@@ -809,6 +897,7 @@ async function submitTriage() {
         ${result.reasons.length ? `<div>Why:</div><ul>${result.reasons.map(r => `<li>${r}</li>`).join('')}</ul>` : '<div>No red-flag answers were given.</div>'}
         <div><strong>Action:</strong> ${result.action}</div>
         ${routeCta}
+        ${sourcesHtml}
       </div>
     </div>
     <button class="ghost" id="newCheckBtn">Start a new check</button>

@@ -24,7 +24,8 @@
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
       <button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button>
     </div>
-    <button data-tab="overview" data-icon="alertCircle" class="active"><span class="nav-label">Overview</span></button>
+    <button data-tab="patients" data-icon="users" class="active"><span class="nav-label">Patients</span></button>
+    <button data-tab="overview" data-icon="alertCircle"><span class="nav-label">Overview</span></button>
     <button data-tab="prescriptions" data-icon="fileText"><span class="nav-label">Prescriptions</span></button>
     <button data-tab="adherence" data-icon="chartBar"><span class="nav-label">Adherence</span></button>
     <button data-tab="triage" data-icon="stethoscope"><span class="nav-label">Triage history</span></button>
@@ -34,23 +35,27 @@
 
   <div class="body-row">
     <main class="content" style="max-width:960px;">
-      <h2>Linked patients</h2>
-      <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
-      <div id="patientPicker" class="patient-picker-grid"></div>
-      <button class="primary small" id="linkPatientBtn" style="margin-top:12px;">+ Link a patient</button>
-      <div id="linkForm" style="display:none;" class="card">
-        <h3>Link a patient</h3>
-        <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
-          SmartPoli app (Emergency card tab → Link doctor), then enter it here.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
-          <button class="primary" id="redeemLinkBtn">Link</button>
-          <button class="ghost" id="cancelLinkBtn">Cancel</button>
+      <section id="view-patients">
+        <h2>Linked patients</h2>
+        <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
+        <div id="patientPicker" class="patient-picker-grid"></div>
+        <button class="primary small" id="linkPatientBtn" style="margin-top:12px;">+ Link a patient</button>
+        <div id="linkForm" style="display:none;" class="card">
+          <h3>Link a patient</h3>
+          <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
+            SmartPoli app (Emergency card tab → Link doctor), then enter it here.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
+            <button class="primary" id="redeemLinkBtn">Link</button>
+            <button class="ghost" id="cancelLinkBtn">Cancel</button>
+          </div>
+          <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
         </div>
-        <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
-      </div>
+      </section>
 
-      <section id="view-overview"></section>
+      <div id="currentPatientBar" class="current-patient-bar" style="display:none;"></div>
+
+      <section id="view-overview" style="display:none;"></section>
       <section id="view-prescriptions" style="display:none;"></section>
       <section id="view-adherence" style="display:none;"></section>
       <section id="view-triage" style="display:none;"></section>

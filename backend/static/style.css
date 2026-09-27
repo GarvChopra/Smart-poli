@@ -310,6 +310,11 @@ main.content { flex: 1; padding: 28px 32px; max-width: 800px; margin: 0 auto; mi
   .dose-row .actions { width: 100%; justify-content: flex-start; margin-left: 0; }
   .dose-row .actions button { flex: 1 1 auto; }
 
+  .dose-calendar-slot { flex-wrap: wrap; }
+  .dose-calendar-time { width: auto; flex-basis: 100%; order: -1; padding-top: 0; }
+  .dose-calendar-dot { display: none; }
+  .dose-calendar-actions button { flex: 1 1 auto; }
+
   .two-col { grid-template-columns: 1fr; gap: 12px; }
 
   .symptom-grid button { flex: 1 1 calc(50% - 4px); text-align: center; }
@@ -425,6 +430,33 @@ main.content { flex: 1; padding: 28px 32px; max-width: 800px; margin: 0 auto; mi
 .dose-row:last-child { border-bottom: none; }
 .dose-row .time { font-weight: 600; width: 130px; font-size: 13px; color: var(--ink-soft); flex-shrink: 0; }
 .dose-row .actions { display: flex; gap: 6px; margin-left: auto; }
+
+/* upcoming doses as a day-by-day agenda instead of one flat list — a
+   calendar-style read on "what's next" without a full month grid. */
+.dose-calendar-day { margin-bottom: 14px; }
+.dose-calendar-day:last-child { margin-bottom: 0; }
+.dose-calendar-day-head {
+  display: flex; align-items: baseline; gap: 8px; font-weight: 700; font-size: 13px;
+  color: var(--teal-dark); text-transform: uppercase; letter-spacing: .3px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 8px;
+}
+.dose-calendar-day-date { font-weight: 500; color: var(--ink-soft); text-transform: none; letter-spacing: 0; }
+.dose-calendar-slot { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; }
+.dose-calendar-slot:not(:last-child) { border-bottom: 1px dashed var(--line); }
+.dose-calendar-time { width: 76px; flex-shrink: 0; font-weight: 700; font-size: 13px; color: var(--ink-soft); padding-top: 2px; }
+.dose-calendar-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--teal); margin-top: 6px; flex-shrink: 0; }
+.dose-calendar-info { flex: 1; min-width: 0; }
+.dose-calendar-med { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.dose-calendar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* on-screen confirmation after marking a dose taken */
+.taken-popup-overlay { position: fixed; inset: 0; background: rgba(22,36,31,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; cursor: pointer; }
+.taken-popup { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-card-hover); padding: 28px 36px; text-align: center; max-width: 280px; cursor: default; }
+.taken-popup-icon { display: inline-flex; color: var(--teal-dark); width: 56px; height: 56px; margin-bottom: 10px; }
+.taken-popup-icon svg { width: 100%; height: 100%; }
+.taken-popup-med { font-weight: 700; font-size: 17px; margin-bottom: 4px; }
+.taken-popup-when { font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+.taken-popup-label { font-size: 13px; font-weight: 600; color: var(--teal-dark); }
 
 .stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .stat {
@@ -565,6 +597,10 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .patient-picker-card .name { font-weight: 700; font-size: 15px; }
 .patient-picker-card .meta { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
 .patient-picker-card .priority-row { margin-top: 8px; }
+
+/* shown on every doctor tab except Patients/Settings, once a patient is
+   selected — the picker itself only lives on the Patients tab now. */
+.current-patient-bar { align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; margin-bottom: 16px; background: var(--teal-soft); border: 1px solid var(--line); border-radius: var(--radius-md); font-size: 14px; color: var(--ink); }
 
 /* priority queue "why flagged" reasons — always plain sentences, never a
    bare score, so a doctor can see the evidence behind the badge. */

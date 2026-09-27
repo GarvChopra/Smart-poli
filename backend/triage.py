@@ -14,7 +14,11 @@ The four rules that make this safe (CLAUDE.md section 10):
   3. Answers are optional — the base severity with zero answers is itself a
      real, valid result.
   4. Explain with the rules that fired ("because" strings), in order. Never
-     a diagnosis, never a condition name.
+     a diagnosis, never a condition name. Each rule also cites the public
+     health-guidance page it's grounded in (triage_rules.json's "sources"
+     table, e.g. NHS red-flag guidance) — surfaced as the "sources" list
+     alongside "reasons", so "why is this flagged" is never just this
+     project's own say-so.
 """
 
 import json
@@ -86,6 +90,8 @@ def evaluate_symptom(ruleset: dict, symptom_id: str, answers: dict, starting_sev
     symptom = ruleset["symptoms"][symptom_id]
     severity = starting_severity if starting_severity is not None else symptom["base"]
     reasons: list[str] = []
+    sources: list[dict] = []
+    known_sources = ruleset.get("sources", {})
 
     for rule in ruleset["rules"]:
         cond = rule["if"]
@@ -94,12 +100,16 @@ def evaluate_symptom(ruleset: dict, symptom_id: str, answers: dict, starting_sev
         if all(answers.get(k) == v for k, v in cond["answers"].items()):
             severity = escalate(severity, rule["then"])
             reasons.append(rule["because"])
+            source = known_sources.get(rule.get("source"))
+            if source and source not in sources:
+                sources.append(source)
 
     action_info = ACTIONS[severity]
     return {
         "symptom": symptom_id,
         "severity": severity,
         "reasons": reasons,
+        "sources": sources,
         "action": action_info["action"],
         "route": action_info["route"],
         "ruleset_version": ruleset["ruleset_version"],
@@ -110,16 +120,21 @@ def evaluate_check(ruleset: dict, symptom_ids: list[str], answers: dict) -> dict
     """Evaluate a symptom check covering possibly more than one reported symptom."""
     severity = "LOW"
     reasons: list[str] = []
+    sources: list[dict] = []
     for sid in symptom_ids:
         result = evaluate_symptom(ruleset, sid, answers)
         severity = escalate(severity, result["severity"])
         reasons.extend(result["reasons"])
+        for source in result["sources"]:
+            if source not in sources:
+                sources.append(source)
 
     action_info = ACTIONS[severity]
     return {
         "symptoms": symptom_ids,
         "severity": severity,
         "reasons": reasons,
+        "sources": sources,
         "action": action_info["action"],
         "route": action_info["route"],
         "ruleset_version": ruleset["ruleset_version"],

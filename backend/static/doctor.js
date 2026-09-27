@@ -16,7 +16,7 @@
 const currentUser = requireRole('doctor');
 const api = apiFetch;
 
-const state = { patients: [], patientId: null, templates: [], activeTab: 'overview', currentReport: null };
+const state = { patients: [], patientId: null, templates: [], activeTab: 'patients', currentReport: null };
 
 const CORRECTABLE_FIELDS = ['name', 'dose_amount', 'dose_unit', 'schedule_code', 'food', 'duration_days'];
 
@@ -90,13 +90,41 @@ hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
 
+/** Switches the visible section + nav highlight only — never renders stale
+ * data itself. Used both for a plain tab click (caller re-renders from the
+ * already-fetched report right after) and from selectPatient() (which lands
+ * on Overview then lets loadPatientDetail()'s own fetch/render take over, so
+ * the previous patient's data never flashes first). */
+function setActiveNavAndSection(tabName) {
+  document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+  state.activeTab = tabName;
+  document.querySelectorAll('main.content > section').forEach(s => s.style.display = 'none');
+  document.getElementById(`view-${tabName}`).style.display = 'block';
+  renderCurrentPatientBar();
+}
+
+/** The picker (search + link-a-patient) lives only on the Patients tab now;
+ * every other patient-specific tab shows this compact bar instead, so the
+ * doctor always knows whose record they're viewing and can jump back. */
+function renderCurrentPatientBar() {
+  const bar = document.getElementById('currentPatientBar');
+  if (!bar) return;
+  if (state.activeTab === 'patients' || state.activeTab === 'settings' || !state.patientId) {
+    bar.style.display = 'none';
+    return;
+  }
+  const p = state.patients.find(p => p.id === state.patientId);
+  bar.style.display = 'flex';
+  bar.innerHTML = `
+    <span><strong>${p ? p.name : 'Patient'}</strong>${p && p.age ? ' · ' + p.age + ' yrs' : ''}${p && p.sex ? ', ' + p.sex : ''}</span>
+    <button type="button" class="ghost small" id="switchPatientBtn">Switch patient</button>
+  `;
+  document.getElementById('switchPatientBtn').addEventListener('click', () => setActiveNavAndSection('patients'));
+}
+
 document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.activeTab = btn.dataset.tab;
-    document.querySelectorAll('main.content > section').forEach(s => s.style.display = 'none');
-    document.getElementById(`view-${state.activeTab}`).style.display = 'block';
+    setActiveNavAndSection(btn.dataset.tab);
     renderActiveDoctorTab();
     closeDrawer();
   });
@@ -118,7 +146,7 @@ document.getElementById('redeemLinkBtn').addEventListener('click', async () => {
     status.textContent = `Linked to ${result.patient.name}.`;
     document.getElementById('linkCodeInput').value = '';
     await loadPatients();
-    selectPatient(result.patient.id);
+    selectPatient(result.patient.id, { switchToOverview: true });
   } catch (e) {
     status.style.color = 'var(--alarm)';
     status.textContent = e.message;
@@ -148,7 +176,7 @@ function renderPatientPicker(patients) {
     </button>
   `).join('') || '<div class="empty">No patients match that search.</div>';
   picker.querySelectorAll('[data-pid]').forEach(btn => {
-    btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid)));
+    btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid), { switchToOverview: true }));
   });
 }
 
@@ -158,18 +186,24 @@ document.getElementById('patientSearchInput').addEventListener('input', (e) => {
   renderPatientPicker(filtered);
 });
 
-function selectPatient(id) {
+function selectPatient(id, { switchToOverview = false } = {}) {
   state.patientId = id;
   document.querySelectorAll('#patientPicker [data-pid]').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.pid) === id);
   });
+  if (switchToOverview) setActiveNavAndSection('overview');
+  else renderCurrentPatientBar();
   loadPatientDetail();
 }
 
+const PATIENT_DRIVEN_TABS = ['overview', 'prescriptions', 'adherence', 'triage', 'notes'];
+
 async function loadPatientDetail() {
   if (state.activeTab === 'settings') return; // settings is patient-independent, nothing to fetch
-  const view = document.getElementById(`view-${state.activeTab}`);
-  if (view) view.innerHTML = '<div class="empty">Loading...</div>';
+  if (PATIENT_DRIVEN_TABS.includes(state.activeTab)) {
+    const view = document.getElementById(`view-${state.activeTab}`);
+    if (view) view.innerHTML = '<div class="empty">Loading...</div>';
+  }
   state.currentReport = await api('GET', `/doctor/patients/${state.patientId}`);
   renderActiveDoctorTab();
 }

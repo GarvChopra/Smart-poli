@@ -105,46 +105,57 @@
     }
   },
   "rules": [
-    {"if": {"symptom": "chest_pain", "answers": {"difficulty_breathing": true}}, "then": "EMERGENCY", "because": "Chest pain with difficulty breathing"},
-    {"if": {"symptom": "chest_pain", "answers": {"fainting": true}}, "then": "EMERGENCY", "because": "Chest pain with fainting or loss of consciousness"},
-    {"if": {"symptom": "chest_pain", "answers": {"pain_radiating": true}}, "then": "EMERGENCY", "because": "Chest pain spreading to arm, neck or jaw"},
-    {"if": {"symptom": "chest_pain", "answers": {"sweating": true}}, "then": "MODERATE", "because": "Chest pain with sweating"},
+    {"if": {"symptom": "chest_pain", "answers": {"difficulty_breathing": true}}, "then": "EMERGENCY", "because": "Chest pain with difficulty breathing", "source": "nhs_heart_attack"},
+    {"if": {"symptom": "chest_pain", "answers": {"fainting": true}}, "then": "EMERGENCY", "because": "Chest pain with fainting or loss of consciousness", "source": "nhs_heart_attack"},
+    {"if": {"symptom": "chest_pain", "answers": {"pain_radiating": true}}, "then": "EMERGENCY", "because": "Chest pain spreading to arm, neck or jaw", "source": "nhs_heart_attack"},
+    {"if": {"symptom": "chest_pain", "answers": {"sweating": true}}, "then": "MODERATE", "because": "Chest pain with sweating", "source": "nhs_heart_attack"},
 
-    {"if": {"symptom": "breathlessness", "answers": {"blue_lips": true}}, "then": "EMERGENCY", "because": "Breathlessness with blue or grey lips or face"},
-    {"if": {"symptom": "breathlessness", "answers": {"cannot_speak_full_sentence": true}}, "then": "EMERGENCY", "because": "Too breathless to speak a full sentence"},
-    {"if": {"symptom": "breathlessness", "answers": {"at_rest": true}}, "then": "MODERATE", "because": "Breathlessness occurring at rest"},
+    {"if": {"symptom": "breathlessness", "answers": {"blue_lips": true}}, "then": "EMERGENCY", "because": "Breathlessness with blue or grey lips or face", "source": "nhs_shortness_of_breath"},
+    {"if": {"symptom": "breathlessness", "answers": {"cannot_speak_full_sentence": true}}, "then": "EMERGENCY", "because": "Too breathless to speak a full sentence", "source": "nhs_shortness_of_breath"},
+    {"if": {"symptom": "breathlessness", "answers": {"at_rest": true}}, "then": "MODERATE", "because": "Breathlessness occurring at rest", "source": "nhs_shortness_of_breath"},
 
-    {"if": {"symptom": "fever", "answers": {"stiff_neck": true}}, "then": "EMERGENCY", "because": "Fever with a stiff neck"},
-    {"if": {"symptom": "fever", "answers": {"rash_with_fever": true}}, "then": "EMERGENCY", "because": "Fever with a rash that does not fade under pressure"},
-    {"if": {"symptom": "fever", "answers": {"temp_above_103": true}}, "then": "MODERATE", "because": "High fever above 103°F (39.4°C)"},
-    {"if": {"symptom": "fever", "answers": {"duration_over_3_days": true}}, "then": "MODERATE", "because": "Fever lasting more than 3 days"},
+    {"if": {"symptom": "fever", "answers": {"stiff_neck": true}}, "then": "EMERGENCY", "because": "Fever with a stiff neck", "source": "nhs_meningitis"},
+    {"if": {"symptom": "fever", "answers": {"rash_with_fever": true}}, "then": "EMERGENCY", "because": "Fever with a rash that does not fade under pressure", "source": "nhs_meningitis"},
+    {"if": {"symptom": "fever", "answers": {"temp_above_103": true}}, "then": "MODERATE", "because": "High fever above 103°F (39.4°C)", "source": "nhs_meningitis"},
+    {"if": {"symptom": "fever", "answers": {"duration_over_3_days": true}}, "then": "MODERATE", "because": "Fever lasting more than 3 days", "source": "nhs_meningitis"},
 
-    {"if": {"symptom": "vomiting", "answers": {"blood_in_vomit": true}}, "then": "EMERGENCY", "because": "Vomiting blood"},
-    {"if": {"symptom": "vomiting", "answers": {"unable_to_keep_fluids": true}}, "then": "MODERATE", "because": "Unable to keep any fluids down"},
-    {"if": {"symptom": "vomiting", "answers": {"severe_abdominal_pain": true}}, "then": "MODERATE", "because": "Vomiting with severe abdominal pain"},
+    {"if": {"symptom": "vomiting", "answers": {"blood_in_vomit": true}}, "then": "EMERGENCY", "because": "Vomiting blood", "source": "nhs_vomiting_blood"},
+    {"if": {"symptom": "vomiting", "answers": {"unable_to_keep_fluids": true}}, "then": "MODERATE", "because": "Unable to keep any fluids down", "source": "nhs_vomiting_blood"},
+    {"if": {"symptom": "vomiting", "answers": {"severe_abdominal_pain": true}}, "then": "MODERATE", "because": "Vomiting with severe abdominal pain", "source": "nhs_stomach_ache"},
 
-    {"if": {"symptom": "nausea", "answers": {"chest_pain_with_nausea": true}}, "then": "EMERGENCY", "because": "Nausea together with chest pain"},
-    {"if": {"symptom": "nausea", "answers": {"severe_headache_with_nausea": true}}, "then": "MODERATE", "because": "Nausea together with a severe headache"},
+    {"if": {"symptom": "nausea", "answers": {"chest_pain_with_nausea": true}}, "then": "EMERGENCY", "because": "Nausea together with chest pain", "source": "nhs_heart_attack"},
+    {"if": {"symptom": "nausea", "answers": {"severe_headache_with_nausea": true}}, "then": "MODERATE", "because": "Nausea together with a severe headache", "source": "nhs_subarachnoid_haemorrhage"},
 
-    {"if": {"symptom": "rash", "answers": {"difficulty_breathing_with_rash": true}}, "then": "EMERGENCY", "because": "Rash with difficulty breathing"},
-    {"if": {"symptom": "rash", "answers": {"swelling_face_lips": true}}, "then": "EMERGENCY", "because": "Rash with swelling of the face or lips"},
-    {"if": {"symptom": "rash", "answers": {"does_not_fade_when_pressed": true}}, "then": "MODERATE", "because": "Rash that does not fade under pressure"},
+    {"if": {"symptom": "rash", "answers": {"difficulty_breathing_with_rash": true}}, "then": "EMERGENCY", "because": "Rash with difficulty breathing", "source": "nhs_anaphylaxis"},
+    {"if": {"symptom": "rash", "answers": {"swelling_face_lips": true}}, "then": "EMERGENCY", "because": "Rash with swelling of the face or lips", "source": "nhs_anaphylaxis"},
+    {"if": {"symptom": "rash", "answers": {"does_not_fade_when_pressed": true}}, "then": "MODERATE", "because": "Rash that does not fade under pressure", "source": "nhs_meningitis"},
 
-    {"if": {"symptom": "dizziness", "answers": {"fainted": true}}, "then": "EMERGENCY", "because": "Dizziness with fainting or loss of consciousness"},
-    {"if": {"symptom": "dizziness", "answers": {"one_sided_weakness": true}}, "then": "EMERGENCY", "because": "Dizziness with weakness or numbness on one side"},
-    {"if": {"symptom": "dizziness", "answers": {"chest_pain_with_dizziness": true}}, "then": "EMERGENCY", "because": "Dizziness together with chest pain"},
+    {"if": {"symptom": "dizziness", "answers": {"fainted": true}}, "then": "EMERGENCY", "because": "Dizziness with fainting or loss of consciousness", "source": "nhs_stroke_symptoms"},
+    {"if": {"symptom": "dizziness", "answers": {"one_sided_weakness": true}}, "then": "EMERGENCY", "because": "Dizziness with weakness or numbness on one side", "source": "nhs_stroke_symptoms"},
+    {"if": {"symptom": "dizziness", "answers": {"chest_pain_with_dizziness": true}}, "then": "EMERGENCY", "because": "Dizziness together with chest pain", "source": "nhs_heart_attack"},
 
-    {"if": {"symptom": "abdominal_pain", "answers": {"rigid_abdomen": true}}, "then": "EMERGENCY", "because": "Abdominal pain with a rigid, board-like abdomen"},
-    {"if": {"symptom": "abdominal_pain", "answers": {"blood_in_stool": true}}, "then": "EMERGENCY", "because": "Abdominal pain with blood in stool"},
-    {"if": {"symptom": "abdominal_pain", "answers": {"severe_and_sudden": true}}, "then": "MODERATE", "because": "Sudden, severe abdominal pain"},
+    {"if": {"symptom": "abdominal_pain", "answers": {"rigid_abdomen": true}}, "then": "EMERGENCY", "because": "Abdominal pain with a rigid, board-like abdomen", "source": "nhs_stomach_ache"},
+    {"if": {"symptom": "abdominal_pain", "answers": {"blood_in_stool": true}}, "then": "EMERGENCY", "because": "Abdominal pain with blood in stool", "source": "nhs_stomach_ache"},
+    {"if": {"symptom": "abdominal_pain", "answers": {"severe_and_sudden": true}}, "then": "MODERATE", "because": "Sudden, severe abdominal pain", "source": "nhs_stomach_ache"},
 
-    {"if": {"symptom": "headache", "answers": {"worst_ever_sudden": true}}, "then": "EMERGENCY", "because": "Sudden, worst-ever headache"},
-    {"if": {"symptom": "headache", "answers": {"confusion": true}}, "then": "EMERGENCY", "because": "Headache with confusion"},
-    {"if": {"symptom": "headache", "answers": {"fever_and_stiff_neck": true}}, "then": "EMERGENCY", "because": "Headache with fever and a stiff neck"},
-    {"if": {"symptom": "headache", "answers": {"vision_changes": true}}, "then": "MODERATE", "because": "Headache with vision changes"},
+    {"if": {"symptom": "headache", "answers": {"worst_ever_sudden": true}}, "then": "EMERGENCY", "because": "Sudden, worst-ever headache", "source": "nhs_subarachnoid_haemorrhage"},
+    {"if": {"symptom": "headache", "answers": {"confusion": true}}, "then": "EMERGENCY", "because": "Headache with confusion", "source": "nhs_subarachnoid_haemorrhage"},
+    {"if": {"symptom": "headache", "answers": {"fever_and_stiff_neck": true}}, "then": "EMERGENCY", "because": "Headache with fever and a stiff neck", "source": "nhs_meningitis"},
+    {"if": {"symptom": "headache", "answers": {"vision_changes": true}}, "then": "MODERATE", "because": "Headache with vision changes", "source": "nhs_subarachnoid_haemorrhage"},
 
-    {"if": {"symptom": "bleeding", "answers": {"does_not_stop_with_pressure": true}}, "then": "EMERGENCY", "because": "Bleeding that does not stop with direct pressure"},
-    {"if": {"symptom": "bleeding", "answers": {"heavy_blood_loss": true}}, "then": "EMERGENCY", "because": "Heavy blood loss"},
-    {"if": {"symptom": "bleeding", "answers": {"from_internal_source": true}}, "then": "EMERGENCY", "because": "Suspected internal bleeding (in vomit, stool or urine)"}
-  ]
+    {"if": {"symptom": "bleeding", "answers": {"does_not_stop_with_pressure": true}}, "then": "EMERGENCY", "because": "Bleeding that does not stop with direct pressure", "source": "nhs_first_aid_bleeding"},
+    {"if": {"symptom": "bleeding", "answers": {"heavy_blood_loss": true}}, "then": "EMERGENCY", "because": "Heavy blood loss", "source": "nhs_first_aid_bleeding"},
+    {"if": {"symptom": "bleeding", "answers": {"from_internal_source": true}}, "then": "EMERGENCY", "because": "Suspected internal bleeding (in vomit, stool or urine)", "source": "nhs_vomiting_blood"}
+  ],
+  "sources": {
+    "nhs_heart_attack": {"title": "NHS — Heart attack: symptoms", "url": "https://www.nhs.uk/conditions/heart-attack/"},
+    "nhs_shortness_of_breath": {"title": "NHS — Shortness of breath", "url": "https://www.nhs.uk/symptoms/shortness-of-breath/"},
+    "nhs_meningitis": {"title": "NHS — Meningitis: symptoms", "url": "https://www.nhs.uk/conditions/meningitis/"},
+    "nhs_vomiting_blood": {"title": "NHS — Vomiting blood", "url": "https://www.nhs.uk/symptoms/vomiting-blood/"},
+    "nhs_stomach_ache": {"title": "NHS — Stomach ache", "url": "https://www.nhs.uk/symptoms/stomach-ache/"},
+    "nhs_anaphylaxis": {"title": "NHS — Anaphylaxis", "url": "https://www.nhs.uk/conditions/anaphylaxis/"},
+    "nhs_stroke_symptoms": {"title": "NHS — Stroke: signs and symptoms (FAST)", "url": "https://www.nhs.uk/conditions/stroke/symptoms/"},
+    "nhs_subarachnoid_haemorrhage": {"title": "NHS — Subarachnoid haemorrhage", "url": "https://www.nhs.uk/conditions/subarachnoid-haemorrhage/"},
+    "nhs_first_aid_bleeding": {"title": "NHS — First aid: severe bleeding", "url": "https://www.nhs.uk/tests-and-treatments/first-aid/"}
+  }
 }
