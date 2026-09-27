@@ -96,6 +96,27 @@ def test_priority_missed_doses_medium_below_three_high_at_three():
         assert r.json()[0]["priority"]["level"] == "high"
 
 
+def test_priority_escalates_to_medium_for_recent_moderate_triage():
+    """A MODERATE-graded check is meant to route to a routine consultation
+    (triage.py's own action text) — it should surface on the queue, not
+    disappear into "routine" priority just because nothing else is wrong."""
+    with TestClient(app) as client:
+        register_and_login(client, role="patient")
+        r = client.post("/patients", json={"name": "Moderate Check Patient"})
+        patient_id = r.json()["id"]
+        r = client.post("/triage/check", json={
+            "patient_id": patient_id, "symptom_ids": ["headache"],
+            "answers": {"vision_changes": True},
+        })
+        assert r.json()["severity"] == "MODERATE"
+
+        _link_doctor(client, patient_id)
+        r = client.get("/doctor/patients")
+        priority = r.json()[0]["priority"]
+        assert priority["level"] == "medium"
+        assert any("MODERATE" in reason for reason in priority["reasons"])
+
+
 def test_priority_never_downgrades_once_emergency():
     """Escalate-only: an EMERGENCY triage plus an otherwise-clean record
     must still report "emergency", the maximum level, not something lower."""

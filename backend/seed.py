@@ -7,17 +7,25 @@ API uses (SMARTPOLI_DATABASE_URL, defaulting to ./smartpoli.db).
 
   1. Ramesh Kumar  — long-term BP/diabetes meds, day 4 of a 30-day course,
                      adherence with a couple of genuine misses, one LOW triage.
-                     Linked to the demo caregiver.
+                     Linked to the demo caregiver AND the demo doctor.
   2. Anita Sharma  — a fully-adherent 5-day antibiotic course, one MODERATE
                      triage check (routes to the doctor-booking flow).
+                     Linked to the demo doctor.
   3. Vikram Singh  — post-op: a PRN painkiller, ONE malformed line left
                      needs_confirmation on purpose (to demo the gate), and
                      one EMERGENCY triage check (to demo the red banner).
-                     Linked to the demo doctor, so a correction can be demoed.
+                     Linked to the demo doctor.
+
+All three are linked to the demo doctor on purpose — the priority queue is
+one of this app's differentiators and looks like nothing on a queue of one.
+With all three, the doctor's patient list shows one of each level: Ramesh
+= medium (a recent missed dose), Anita = medium (a recent MODERATE check),
+Vikram = emergency — so the "why is this patient here" reasons are visibly
+different patient to patient, not just theoretical.
 
 Every persona now needs a real account — auth.py added real login on top of
 this same data model, so seeding fake AuditLog actors is no longer enough.
-All demo passwords are `demopass123`.
+All demo passwords are `demo1234` — kept short on purpose for live demos.
 """
 
 import json
@@ -33,7 +41,7 @@ from scheduler import generate_doses, mark_taken, mark_missed
 from triage import load_ruleset, evaluate_check
 
 RULESET = load_ruleset()
-DEMO_PASSWORD = "demopass123"
+DEMO_PASSWORD = "demo1234"
 
 
 def add_user(db, email, name, role):
@@ -125,9 +133,15 @@ def seed():
         log_audit(db, ramesh.id, "seed", "demo_seeded", "Ramesh Kumar persona")
 
         # Demo caregiver is linked to Ramesh, active, ready to explore.
-        ramesh_link = CaregiverLink(patient_id=ramesh.id, caregiver_user_id=caregiver_user.id,
-                                     code=gen_link_code(), status="active", accepted_at=datetime.utcnow())
-        db.add(ramesh_link)
+        ramesh_caregiver_link = CaregiverLink(patient_id=ramesh.id, caregiver_user_id=caregiver_user.id,
+                                                code=gen_link_code(), status="active", accepted_at=datetime.utcnow())
+        db.add(ramesh_caregiver_link)
+        # Also linked to the demo doctor — see module docstring: all three
+        # personas are linked to the doctor so the priority queue shows real
+        # variety (this one lands on "medium" from the recent missed dose).
+        ramesh_doctor_link = DoctorLink(patient_id=ramesh.id, doctor_user_id=doctor_user.id,
+                                          code=gen_link_code(), status="active", accepted_at=datetime.utcnow())
+        db.add(ramesh_doctor_link)
         db.commit()
 
         # ---------------------------------------------------- Persona 2
@@ -154,6 +168,13 @@ def seed():
                              ruleset_version=moderate_check["ruleset_version"]))
         log_audit(db, anita.id, "seed", "demo_seeded", "Anita Sharma persona")
 
+        # Linked to the demo doctor too (lands on "medium" from the recent
+        # MODERATE-graded check — see module docstring).
+        anita_doctor_link = DoctorLink(patient_id=anita.id, doctor_user_id=doctor_user.id,
+                                         code=gen_link_code(), status="active", accepted_at=datetime.utcnow())
+        db.add(anita_doctor_link)
+        db.commit()
+
         # ---------------------------------------------------- Persona 3
         vikram = Patient(user_id=vikram_user.id, name="Vikram Singh", age=45, sex="M", blood_group="A-",
                          allergies="Sulfa drugs, Latex", emergency_contact="Priya Singh (wife), +91 99887 76655")
@@ -174,9 +195,10 @@ def seed():
                              ruleset_version=emergency_check["ruleset_version"]))
         log_audit(db, vikram.id, "seed", "demo_seeded", "Vikram Singh persona")
 
-        # Demo doctor is linked to Vikram — pairs with the malformed line
-        # (needs_confirmation gate) and the EMERGENCY triage check, so a
-        # doctor login has something worth reviewing and correcting.
+        # Demo doctor is linked to Vikram too — pairs with the malformed
+        # line (needs_confirmation gate) and the EMERGENCY triage check, so
+        # a doctor login has something worth reviewing and correcting, on
+        # top of Ramesh and Anita already linked above.
         vikram_link = DoctorLink(patient_id=vikram.id, doctor_user_id=doctor_user.id,
                                   code=gen_link_code(), status="active", accepted_at=datetime.utcnow())
         db.add(vikram_link)
@@ -184,12 +206,12 @@ def seed():
         db.commit()
         print(f"Seeded 3 demo patients: Ramesh Kumar (id={ramesh.id}), "
               f"Anita Sharma (id={anita.id}), Vikram Singh (id={vikram.id}).")
-        print("\nDemo logins (password for all: demopass123):")
+        print(f"\nDemo logins (password for all: {DEMO_PASSWORD}):")
         print("  Patient   ramesh@smartpoli.demo    (also has an active caregiver: caregiver@smartpoli.demo)")
         print("  Patient   anita@smartpoli.demo")
-        print("  Patient   vikram@smartpoli.demo    (also has an active doctor: doctor@smartpoli.demo)")
+        print("  Patient   vikram@smartpoli.demo")
         print("  Caregiver caregiver@smartpoli.demo (linked to Ramesh Kumar)")
-        print("  Doctor    doctor@smartpoli.demo    (linked to Vikram Singh)")
+        print("  Doctor    doctor@smartpoli.demo    (linked to all 3: Ramesh, Anita, Vikram)")
     finally:
         db.close()
 

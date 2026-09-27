@@ -38,6 +38,10 @@ def compute_priority(db, patient_id: int) -> dict:
     ever_emergency = db.query(SymptomCheck).filter(
         SymptomCheck.patient_id == patient_id, SymptomCheck.severity == "EMERGENCY"
     ).count() > 0
+    recent_moderate = db.query(SymptomCheck).filter(
+        SymptomCheck.patient_id == patient_id, SymptomCheck.severity == "MODERATE",
+        SymptomCheck.created_at >= cutoff,
+    ).count() > 0
 
     taken = sum(1 for d in all_doses if d.state == "taken")
     total_acted = sum(1 for d in all_doses if d.state in ("taken", "missed", "skipped"))
@@ -48,6 +52,9 @@ def compute_priority(db, patient_id: int) -> dict:
     if ever_emergency:
         level = _escalate(level, "emergency")
         reasons.append("An EMERGENCY-graded symptom check is in this patient's history.")
+    if recent_moderate:
+        level = _escalate(level, "medium")
+        reasons.append("A MODERATE-graded symptom check in the last 7 days routes to a routine consultation.")
     if unconfirmed:
         level = _escalate(level, "high")
         reasons.append(f"{len(unconfirmed)} prescription(s) awaiting verification.")
