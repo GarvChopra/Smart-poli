@@ -9,10 +9,21 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:
+      # Render's default runtime drifts to whatever Python is newest (was
+      # 3.14 at one point) — too new for some dependencies' prebuilt wheels
+      # (psycopg2-binary crashed on import: undefined symbol
+      # _PyInterpreterState_Get). Pin to a version with mature wheel
+      # support across the board instead of chasing one package at a time.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: SMARTPOLI_JWT_SECRET
         generateValue: true
+      # sync:false, not a fixed value — this now points at a real Postgres
+      # (Supabase) set manually in the dashboard. A fixed `value` here
+      # would get silently overwritten back to sqlite on the next blueprint
+      # sync.
       - key: SMARTPOLI_DATABASE_URL
-        value: sqlite:///./smartpoli.db
+        sync: false
       - key: SMARTPOLI_ALLOWED_ORIGINS
         sync: false
       - key: GROQ_API_KEY
