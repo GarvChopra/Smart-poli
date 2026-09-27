@@ -115,6 +115,19 @@ class MedicineCorrection(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PrescriptionTemplate(Base):
+    """A doctor's saved shorthand lines for quick reuse across patients —
+    e.g. a common combo they prescribe often. Scoped to the doctor who
+    created it; never shared across doctors, never patient-visible."""
+    __tablename__ = "prescription_templates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    doctor_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    label = Column(String, nullable=False)
+    lines = Column(Text, nullable=False)  # JSON list of raw shorthand lines
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Prescription(Base):
     __tablename__ = "prescriptions"
 

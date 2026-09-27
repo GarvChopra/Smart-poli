@@ -95,3 +95,12 @@ class MedicineCorrectionCreate(BaseModel):
     field: str          # one of: name, dose_amount, dose_unit, schedule_code, food, duration_days
     corrected_value: str
     reason: str
+
+
+class DoctorPrescriptionCreate(BaseModel):
+    lines: list[str]  # same manual-path lines a patient would type — same parser, same gate
+
+
+class PrescriptionTemplateCreate(BaseModel):
+    label: str
+    lines: list[str]

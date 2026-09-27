@@ -6,11 +6,17 @@
 // A correction here is never silent — see submitCorrection() below, which
 // always shows the server's before/after + who + why back to the doctor
 // immediately after saving it.
+//
+// The per-patient detail is split across tabs (Overview / Prescriptions /
+// Adherence / Triage history / Notes) reached through the hamburger drawer,
+// instead of one long page — the full report is fetched once per patient
+// selection (state.currentReport) and each tab just renders its own slice
+// of it, so switching tabs never re-fetches.
 
 const currentUser = requireRole('doctor');
 const api = apiFetch;
 
-const state = { patients: [], patientId: null };
+const state = { patients: [], patientId: null, templates: [], activeTab: 'overview', currentReport: null };
 
 const CORRECTABLE_FIELDS = ['name', 'dose_amount', 'dose_unit', 'schedule_code', 'food', 'duration_days'];
 
@@ -55,9 +61,17 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   applyA11yMode();
 });
 
-// Header is brand + hamburger only — settings (a11y, link patient, session)
-// live in an off-canvas drawer, same pattern as the patient app's Settings
-// tab, just without a tab list since there's nothing else here to switch to.
+/** Injects each nav button's icon from icons.js, same helper as app.js —
+ * one injection point instead of hand-writing SVG markup per page. */
+function injectNavIcons() {
+  document.querySelectorAll('nav.pill-nav button[data-icon]').forEach((btn) => {
+    if (btn.querySelector('.nav-icon')) return;
+    const icon = ICONS[btn.dataset.icon];
+    if (!icon) return;
+    btn.insertAdjacentHTML('afterbegin', `<span class="nav-icon">${icon}</span>`);
+  });
+}
+
 const hamburgerBtn = document.getElementById('hamburgerBtn');
 const navDrawer = document.getElementById('navDrawer');
 const navOverlay = document.getElementById('navOverlay');
@@ -75,6 +89,18 @@ function closeDrawer() {
 hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+
+document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeTab = btn.dataset.tab;
+    document.querySelectorAll('main.content > section').forEach(s => s.style.display = 'none');
+    document.getElementById(`view-${state.activeTab}`).style.display = 'block';
+    renderActiveDoctorTab();
+    closeDrawer();
+  });
+});
 
 document.getElementById('linkPatientBtn').addEventListener('click', () => {
   document.getElementById('linkForm').style.display = 'block';
@@ -101,13 +127,17 @@ document.getElementById('redeemLinkBtn').addEventListener('click', async () => {
 
 async function loadPatients() {
   state.patients = await api('GET', '/doctor/patients');
-  const picker = document.getElementById('patientPicker');
   if (!state.patients.length) {
-    picker.innerHTML = '<div class="empty">No linked patients yet — use "+ Link a patient" above.</div>';
-    document.getElementById('detail').innerHTML = '';
+    document.getElementById('patientPicker').innerHTML = '<div class="empty">No linked patients yet — use "+ Link a patient" above.</div>';
     return;
   }
-  picker.innerHTML = state.patients.map(p => `
+  renderPatientPicker(state.patients);
+  if (!state.patientId) selectPatient(state.patients[0].id);
+}
+
+function renderPatientPicker(patients) {
+  const picker = document.getElementById('patientPicker');
+  picker.innerHTML = patients.map(p => `
     <button type="button" class="patient-picker-card ${p.id === state.patientId ? 'active' : ''}" data-pid="${p.id}">
       <div class="name">${p.name}</div>
       <div class="meta">${p.age ? p.age + ' yrs' : ''}${p.sex ? ', ' + p.sex : ''}</div>
@@ -116,72 +146,47 @@ async function loadPatients() {
         ${renderPriorityReasons(p.priority)}
       </div>
     </button>
-  `).join('');
+  `).join('') || '<div class="empty">No patients match that search.</div>';
   picker.querySelectorAll('[data-pid]').forEach(btn => {
     btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid)));
   });
-  if (!state.patientId) selectPatient(state.patients[0].id);
 }
+
+document.getElementById('patientSearchInput').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = q ? state.patients.filter(p => p.name.toLowerCase().includes(q)) : state.patients;
+  renderPatientPicker(filtered);
+});
 
 function selectPatient(id) {
   state.patientId = id;
   document.querySelectorAll('#patientPicker [data-pid]').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.pid) === id);
   });
-  renderDetail();
+  loadPatientDetail();
 }
 
-async function renderDetail() {
-  const view = document.getElementById('detail');
-  view.innerHTML = '<div class="empty">Loading...</div>';
-  const r = await api('GET', `/doctor/patients/${state.patientId}`);
+async function loadPatientDetail() {
+  if (state.activeTab === 'settings') return; // settings is patient-independent, nothing to fetch
+  const view = document.getElementById(`view-${state.activeTab}`);
+  if (view) view.innerHTML = '<div class="empty">Loading...</div>';
+  state.currentReport = await api('GET', `/doctor/patients/${state.patientId}`);
+  renderActiveDoctorTab();
+}
 
-  const medsHtml = r.prescriptions.flatMap(p => p.medicines).map(m => `
-    <div class="medicine-line ${m.status === 'needs_confirmation' ? 'needs_confirmation' : ''}" data-med-id="${m.id}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-        <div>
-          <strong>${m.name || '(name not read)'}</strong> ${m.dose_amount ? m.dose_amount + (m.dose_unit || '') : ''}
-          ${m.schedule_code ? ' — ' + m.schedule_code : ''}
-          <div class="raw">"${m.raw_text}"</div>
-        </div>
-        <span class="badge ${badgeClass(m.status)}">${m.status.replace('_', ' ')}</span>
-      </div>
-      <div style="margin-top:6px;">
-        ${Object.entries(m.field_confidence).filter(([k]) => k !== 'source').map(([k, v]) => `
-          <div class="confidence-row">
-            <span class="field-name">${k}</span>
-            <span class="confidence-track"><span class="confidence-fill ${badgeClass(m.status)}" style="width:${Math.round(v * 100)}%"></span></span>
-            <span class="confidence-pct">${Math.round(v * 100)}%</span>
-          </div>
-        `).join('')}
-      </div>
-      <button class="ghost small" data-correct-id="${m.id}" style="margin-top:8px;">Add a correction</button>
-      <div class="correction-form" id="correction-${m.id}" style="display:none;">
-        <select id="correctField-${m.id}">
-          ${CORRECTABLE_FIELDS.map(f => `<option value="${f}">${f.replace('_', ' ')}</option>`).join('')}
-        </select>
-        <input type="text" id="correctValue-${m.id}" placeholder="Corrected value">
-        <input type="text" id="correctReason-${m.id}" placeholder="Reason (required — kept in the audit trail)">
-        <button class="primary small" data-submit-correction="${m.id}">Save correction</button>
-        <div id="correctStatus-${m.id}" style="font-size:12px;margin-top:6px;"></div>
-      </div>
-      <div id="correctionHistory-${m.id}" style="font-size:12px;color:var(--ink-soft);margin-top:6px;"></div>
-    </div>
-  `).join('') || '<div class="empty">No prescriptions on file.</div>';
+function renderActiveDoctorTab() {
+  if (state.activeTab === 'settings') return; // static content, already in the page
+  if (!state.patientId || !state.currentReport) return;
+  if (state.activeTab === 'overview') renderOverviewTab();
+  else if (state.activeTab === 'prescriptions') renderPrescriptionsTab();
+  else if (state.activeTab === 'adherence') renderAdherenceTab();
+  else if (state.activeTab === 'triage') renderTriageTab();
+  else if (state.activeTab === 'notes') renderNotesTab();
+}
 
-  const missedHtml = r.missed_doses.map(d => `
-    <tr><td data-label="When">${new Date(d.scheduled_at).toLocaleString()}</td><td data-label="Medicine">${d.medicine_name}</td></tr>
-  `).join('') || '<tr><td colspan="2" class="empty">None</td></tr>';
-
-  const triageHtml = r.symptom_history.map(c => `
-    <tr>
-      <td data-label="Date">${new Date(c.created_at).toLocaleDateString()}</td>
-      <td data-label="Symptoms">${c.symptoms.join(', ')}</td>
-      <td data-label="Severity"><span class="badge ${badgeClass(c.severity)}">${c.severity}</span></td>
-      <td data-label="Action">${c.action}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="4" class="empty">None</td></tr>';
-
+function renderOverviewTab() {
+  const r = state.currentReport;
+  const view = document.getElementById('view-overview');
   const alertsHtml = r.alerts.map(a => `<div class="alert-item">${a}</div>`).join('') || '<div class="empty">No alerts.</div>';
 
   const b = r.brief;
@@ -216,13 +221,6 @@ async function renderDetail() {
     </div>
   `;
 
-  const notesHtml = r.doctor_caregiver_notes.map(n => `
-    <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;">
-      <span style="color:var(--ink-soft);">${new Date(n.at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
-      <div>${n.note}</div>
-    </div>
-  `).join('') || '<div class="empty">No notes yet.</div>';
-
   view.innerHTML = `
     <h2 style="margin-top:26px;">${r.patient.name}</h2>
     <div style="color:var(--ink-soft);font-size:13px;margin-bottom:14px;">
@@ -240,35 +238,73 @@ async function renderDetail() {
       <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>
       ${alertsHtml}
     </div>
+  `;
+}
+
+function renderPrescriptionsTab() {
+  const r = state.currentReport;
+  const view = document.getElementById('view-prescriptions');
+
+  const medsHtml = r.prescriptions.flatMap(p => p.medicines).map(m => `
+    <div class="medicine-line ${m.status === 'needs_confirmation' ? 'needs_confirmation' : ''}" data-med-id="${m.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div>
+          <strong>${m.name || '(name not read)'}</strong> ${m.dose_amount ? m.dose_amount + (m.dose_unit || '') : ''}
+          ${m.schedule_code ? ' — ' + m.schedule_code : ''}
+          <div class="raw">"${m.raw_text}"</div>
+        </div>
+        <span class="badge ${badgeClass(m.status)}">${m.status.replace('_', ' ')}</span>
+      </div>
+      <div style="margin-top:6px;">
+        ${Object.entries(m.field_confidence).filter(([k]) => k !== 'source').map(([k, v]) => `
+          <div class="confidence-row">
+            <span class="field-name">${k}</span>
+            <span class="confidence-track"><span class="confidence-fill ${badgeClass(m.status)}" style="width:${Math.round(v * 100)}%"></span></span>
+            <span class="confidence-pct">${Math.round(v * 100)}%</span>
+          </div>
+        `).join('')}
+      </div>
+      <button class="ghost small" data-correct-id="${m.id}" style="margin-top:8px;">Add a correction</button>
+      <div class="correction-form" id="correction-${m.id}" style="display:none;">
+        <select id="correctField-${m.id}">
+          ${CORRECTABLE_FIELDS.map(f => `<option value="${f}">${f.replace('_', ' ')}</option>`).join('')}
+        </select>
+        <input type="text" id="correctValue-${m.id}" placeholder="Corrected value">
+        <input type="text" id="correctReason-${m.id}" placeholder="Reason (required — kept in the audit trail)">
+        <button class="primary small" data-submit-correction="${m.id}">Save correction</button>
+        <div id="correctStatus-${m.id}" style="font-size:12px;margin-top:6px;"></div>
+      </div>
+      <div id="correctionHistory-${m.id}" style="font-size:12px;color:var(--ink-soft);margin-top:6px;"></div>
+    </div>
+  `).join('') || '<div class="empty">No prescriptions on file.</div>';
+
+  view.innerHTML = `
+    <h2 style="margin-top:26px;">Prescriptions</h2>
 
     <div class="card">
       <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Prescription &amp; extraction review</h3></div>
       ${medsHtml}
     </div>
 
-    <div class="stat-row" style="margin-bottom:16px;">
-      <div class="stat">${iconBadge('teal', 'chartBar')}<div><div class="num">${r.adherence.adherence_percent ?? '—'}${r.adherence.adherence_percent !== null ? '%' : ''}</div><div class="label">Adherence</div></div></div>
-      <div class="stat">${iconBadge('blue', 'pill')}<div><div class="num">${r.adherence.taken}</div><div class="label">Taken</div></div></div>
-      <div class="stat">${iconBadge('alarm', 'alertCircle')}<div><div class="num">${r.adherence.missed}</div><div class="label">Missed</div></div></div>
-    </div>
-
     <div class="card">
-      <div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses</h3></div>
-      <div class="table-scroll"><table class="responsive-table"><thead><tr><th>When</th><th>Medicine</th></tr></thead><tbody>${missedHtml}</tbody></table></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Symptoms &amp; triage history</h3></div>
-      <div class="table-scroll"><table class="responsive-table"><thead><tr><th>Date</th><th>Symptoms</th><th>Severity</th><th>Action</th></tr></thead><tbody>${triageHtml}</tbody></table></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Clinical notes</h3></div>
-      ${notesHtml}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-        <input type="text" id="noteText" placeholder="Add a consultation / follow-up note..." style="flex:1 1 200px;min-width:0;">
-        <button class="primary small" id="addNoteBtn">Add</button>
+      <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Write a prescription</h3></div>
+      <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">
+        Same shorthand as the patient's own entry — one medicine per line. Goes through the
+        same parser and confidence gate; the patient still confirms it before anything is scheduled.
+      </p>
+      <div class="field-inline" style="margin-bottom:10px;">
+        <label for="templateSelect">Start from a saved template (optional)</label>
+        <select id="templateSelect">
+          <option value="">— none —</option>
+          ${state.templates.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+        </select>
       </div>
+      <textarea id="newPrescriptionLines" rows="4" placeholder="Tab Dolo 650mg 1-0-1 PC x5d"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="primary small" id="sendPrescriptionBtn">Send to patient</button>
+        <button class="ghost small" id="saveTemplateBtn">Save as template</button>
+      </div>
+      <div id="prescriptionFormStatus" style="font-size:12px;margin-top:6px;"></div>
     </div>
   `;
 
@@ -284,11 +320,47 @@ async function renderDetail() {
     btn.addEventListener('click', () => submitCorrection(btn.dataset.submitCorrection));
   });
 
-  document.getElementById('addNoteBtn').addEventListener('click', async () => {
-    const note = document.getElementById('noteText').value.trim();
-    if (!note) return;
-    await api('POST', `/patients/${state.patientId}/notes`, { note });
-    renderDetail();
+  document.getElementById('templateSelect').addEventListener('change', (e) => {
+    const template = state.templates.find(t => String(t.id) === e.target.value);
+    document.getElementById('newPrescriptionLines').value = template ? template.lines.join('\n') : '';
+  });
+
+  document.getElementById('sendPrescriptionBtn').addEventListener('click', async () => {
+    const status = document.getElementById('prescriptionFormStatus');
+    const lines = document.getElementById('newPrescriptionLines').value.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) {
+      status.style.color = 'var(--alarm)';
+      status.textContent = 'Enter at least one medicine line.';
+      return;
+    }
+    try {
+      await api('POST', `/doctor/patients/${state.patientId}/prescriptions`, { lines });
+      status.style.color = 'var(--teal-dark)';
+      status.textContent = 'Sent — the patient will see this as a draft to confirm.';
+      await loadPatientDetail();
+    } catch (e) {
+      status.style.color = 'var(--alarm)';
+      status.textContent = e.message;
+    }
+  });
+
+  document.getElementById('saveTemplateBtn').addEventListener('click', async () => {
+    const status = document.getElementById('prescriptionFormStatus');
+    const lines = document.getElementById('newPrescriptionLines').value.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) {
+      status.style.color = 'var(--alarm)';
+      status.textContent = 'Nothing to save — type at least one line first.';
+      return;
+    }
+    const label = prompt('Template name?');
+    if (!label) return;
+    await api('POST', '/doctor/templates', { label, lines });
+    await loadTemplates();
+    status.style.color = 'var(--teal-dark)';
+    status.textContent = `Saved as "${label}".`;
+    const select = document.getElementById('templateSelect');
+    select.innerHTML = `<option value="">— none —</option>` +
+      state.templates.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
   });
 
   // Correction history is fetched lazily per medicine, only if any exist,
@@ -307,6 +379,80 @@ async function renderDetail() {
   });
 }
 
+function renderAdherenceTab() {
+  const r = state.currentReport;
+  const view = document.getElementById('view-adherence');
+  const missedHtml = r.missed_doses.map(d => `
+    <tr><td data-label="When">${new Date(d.scheduled_at).toLocaleString()}</td><td data-label="Medicine">${d.medicine_name}</td></tr>
+  `).join('') || '<tr><td colspan="2" class="empty">None</td></tr>';
+
+  view.innerHTML = `
+    <h2 style="margin-top:26px;">Adherence</h2>
+
+    <div class="stat-row" style="margin-bottom:16px;">
+      <div class="stat">${iconBadge('teal', 'chartBar')}<div><div class="num">${r.adherence.adherence_percent ?? '—'}${r.adherence.adherence_percent !== null ? '%' : ''}</div><div class="label">Adherence</div></div></div>
+      <div class="stat">${iconBadge('blue', 'pill')}<div><div class="num">${r.adherence.taken}</div><div class="label">Taken</div></div></div>
+      <div class="stat">${iconBadge('alarm', 'alertCircle')}<div><div class="num">${r.adherence.missed}</div><div class="label">Missed</div></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses</h3></div>
+      <div class="table-scroll"><table class="responsive-table"><thead><tr><th>When</th><th>Medicine</th></tr></thead><tbody>${missedHtml}</tbody></table></div>
+    </div>
+  `;
+}
+
+function renderTriageTab() {
+  const r = state.currentReport;
+  const view = document.getElementById('view-triage');
+  const triageHtml = r.symptom_history.map(c => `
+    <tr>
+      <td data-label="Date">${new Date(c.created_at).toLocaleDateString()}</td>
+      <td data-label="Symptoms">${c.symptoms.join(', ')}</td>
+      <td data-label="Severity"><span class="badge ${badgeClass(c.severity)}">${c.severity}</span></td>
+      <td data-label="Action">${c.action}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">None</td></tr>';
+
+  view.innerHTML = `
+    <h2 style="margin-top:26px;">Triage history</h2>
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Symptoms &amp; triage history</h3></div>
+      <div class="table-scroll"><table class="responsive-table"><thead><tr><th>Date</th><th>Symptoms</th><th>Severity</th><th>Action</th></tr></thead><tbody>${triageHtml}</tbody></table></div>
+    </div>
+  `;
+}
+
+function renderNotesTab() {
+  const r = state.currentReport;
+  const view = document.getElementById('view-notes');
+  const notesHtml = r.doctor_caregiver_notes.map(n => `
+    <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;">
+      <span style="color:var(--ink-soft);">${new Date(n.at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
+      <div>${n.note}</div>
+    </div>
+  `).join('') || '<div class="empty">No notes yet.</div>';
+
+  view.innerHTML = `
+    <h2 style="margin-top:26px;">Notes</h2>
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'clipboard')}<h3>Clinical notes</h3></div>
+      ${notesHtml}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <input type="text" id="noteText" placeholder="Add a consultation / follow-up note..." style="flex:1 1 200px;min-width:0;">
+        <button class="primary small" id="addNoteBtn">Add</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('addNoteBtn').addEventListener('click', async () => {
+    const note = document.getElementById('noteText').value.trim();
+    if (!note) return;
+    await api('POST', `/patients/${state.patientId}/notes`, { note });
+    await loadPatientDetail();
+  });
+}
+
 async function submitCorrection(medicineId) {
   const field = document.getElementById(`correctField-${medicineId}`).value;
   const corrected_value = document.getElementById(`correctValue-${medicineId}`).value.trim();
@@ -321,16 +467,22 @@ async function submitCorrection(medicineId) {
     const result = await api('POST', `/doctor/medicines/${medicineId}/correction`, { field, corrected_value, reason });
     status.style.color = 'var(--teal-dark)';
     status.textContent = `Saved. ${result.warning || ''}`;
-    setTimeout(renderDetail, 800);
+    setTimeout(loadPatientDetail, 800);
   } catch (e) {
     status.style.color = 'var(--alarm)';
     status.textContent = e.message;
   }
 }
 
+async function loadTemplates() {
+  state.templates = await api('GET', '/doctor/templates');
+}
+
 (async function boot() {
   if (!currentUser) return;
   renderSessionChip();
   applyA11yMode();
+  injectNavIcons();
+  await loadTemplates();
   await loadPatients();
 })();

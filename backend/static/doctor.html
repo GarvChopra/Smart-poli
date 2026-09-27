@@ -19,22 +19,25 @@
   </header>
 
   <div class="nav-drawer-overlay no-print" id="navOverlay"></div>
-  <div class="nav-drawer no-print" id="navDrawer" aria-label="Settings">
+  <nav class="pill-nav nav-drawer no-print" id="navDrawer" aria-label="Main">
     <div class="nav-drawer-head">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
       <button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button>
     </div>
-    <div class="nav-drawer-body">
-      <button class="ghost" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa Larger text</button>
-      <button class="primary" id="linkPatientBtn">+ Link a patient</button>
-      <div class="session-chip" id="sessionChip"></div>
-    </div>
-  </div>
+    <button data-tab="overview" data-icon="alertCircle" class="active"><span class="nav-label">Overview</span></button>
+    <button data-tab="prescriptions" data-icon="fileText"><span class="nav-label">Prescriptions</span></button>
+    <button data-tab="adherence" data-icon="chartBar"><span class="nav-label">Adherence</span></button>
+    <button data-tab="triage" data-icon="stethoscope"><span class="nav-label">Triage history</span></button>
+    <button data-tab="notes" data-icon="clipboard"><span class="nav-label">Notes</span></button>
+    <button data-tab="settings" data-icon="settings"><span class="nav-label">Settings</span></button>
+  </nav>
 
   <div class="body-row">
     <main class="content" style="max-width:960px;">
       <h2>Linked patients</h2>
+      <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
       <div id="patientPicker" class="patient-picker-grid"></div>
+      <button class="primary small" id="linkPatientBtn" style="margin-top:12px;">+ Link a patient</button>
       <div id="linkForm" style="display:none;" class="card">
         <h3>Link a patient</h3>
         <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
@@ -47,7 +50,22 @@
         <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
       </div>
 
-      <section id="detail"></section>
+      <section id="view-overview"></section>
+      <section id="view-prescriptions" style="display:none;"></section>
+      <section id="view-adherence" style="display:none;"></section>
+      <section id="view-triage" style="display:none;"></section>
+      <section id="view-notes" style="display:none;"></section>
+      <section id="view-settings" style="display:none;">
+        <h2>Settings</h2>
+        <div class="card">
+          <div class="card-head"><h3>Preferences</h3></div>
+          <button class="ghost" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa Larger text</button>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Account</h3></div>
+          <div class="session-chip" id="sessionChip"></div>
+        </div>
+      </section>
     </main>
   </div>
 </div>

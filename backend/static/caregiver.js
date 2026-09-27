@@ -90,13 +90,18 @@ document.getElementById('redeemLinkBtn').addEventListener('click', async () => {
 
 async function loadPatients() {
   state.patients = await api('GET', '/caregiver/patients');
-  const picker = document.getElementById('patientPicker');
   if (!state.patients.length) {
-    picker.innerHTML = '<div class="empty">No linked patients yet — use "+ Link a patient" above.</div>';
+    document.getElementById('patientPicker').innerHTML = '<div class="empty">No linked patients yet — use "+ Link a patient" above.</div>';
     document.getElementById('overview').innerHTML = '';
     return;
   }
-  picker.innerHTML = state.patients.map(p => `
+  renderPatientPicker(state.patients);
+  if (!state.patientId) selectPatient(state.patients[0].id);
+}
+
+function renderPatientPicker(patients) {
+  const picker = document.getElementById('patientPicker');
+  picker.innerHTML = patients.map(p => `
     <button type="button" class="patient-picker-card ${p.id === state.patientId ? 'active' : ''}" data-pid="${p.id}">
       <div class="name">${p.name}</div>
       <div class="meta">${p.age ? p.age + ' yrs' : ''}${p.sex ? ', ' + p.sex : ''}</div>
@@ -105,12 +110,17 @@ async function loadPatients() {
         ${renderPriorityReasons(p.priority)}
       </div>
     </button>
-  `).join('');
+  `).join('') || '<div class="empty">No patients match that search.</div>';
   picker.querySelectorAll('[data-pid]').forEach(btn => {
     btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid)));
   });
-  if (!state.patientId) selectPatient(state.patients[0].id);
 }
+
+document.getElementById('patientSearchInput').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = q ? state.patients.filter(p => p.name.toLowerCase().includes(q)) : state.patients;
+  renderPatientPicker(filtered);
+});
 
 function selectPatient(id) {
   state.patientId = id;

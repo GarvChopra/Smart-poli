@@ -15,11 +15,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db import get_db_session, log_audit, User, DoctorLink, MedicineCorrection
+from db import get_db_session, log_audit, User, DoctorLink, MedicineCorrection, PrescriptionTemplate
 from auth import get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code
-from schemas import LinkRedeem, MedicineCorrectionCreate
+from schemas import LinkRedeem, MedicineCorrectionCreate, DoctorPrescriptionCreate, PrescriptionTemplateCreate
 from serializers import get_patient_or_404, get_medicine_or_404, serialize_patient, serialize_medicine, gather_report_data
 from doctor_intelligence import compute_priority, compute_since_last_visit, compute_doctor_brief
+from prescription_service import create_prescription_from_lines
 from interactions import load_ruleset as load_interaction_ruleset
 from food_warnings import load_ruleset as load_food_ruleset
 
@@ -137,6 +138,73 @@ def doctor_patient_detail(patient_id: int, user: User = Depends(require_doctor_r
     report["brief"] = compute_doctor_brief(db, patient_id)
     report["since_last_visit"] = compute_since_last_visit(db, patient_id, user.id)
     return report
+
+
+@router.post("/doctor/patients/{patient_id}/prescriptions")
+def doctor_write_prescription(patient_id: int, body: DoctorPrescriptionCreate,
+                               user: User = Depends(require_doctor_role), db: Session = Depends(get_db_session)):
+    """A doctor writing a prescription directly, not just correcting one the
+    patient already typed in. Goes through the exact same parser and
+    confidence gate as the manual path (CLAUDE.md: one parser, one gate,
+    regardless of who typed the line) — a doctor's shorthand can still come
+    out needs_confirmation if it's ambiguous. Left as 'draft': the PATIENT
+    still confirms it before any doses are scheduled (require_write_access
+    stays patient-only everywhere — a doctor never silently schedules
+    something onto someone else's phone)."""
+    if not has_read_access(db, user, patient_id):
+        raise HTTPException(403, "You are not linked to this patient.")
+    prescription, medicines = create_prescription_from_lines(
+        db, patient_id, doctor_name=user.name, issued_date=datetime.utcnow().date().isoformat(),
+        lines_with_confidence=[(line, None) for line in body.lines],
+        source="manual", actor=f"doctor:{user.id}:{user.name}",
+    )
+    return {
+        "prescription_id": prescription.id,
+        "status": prescription.status,
+        "medicines": [serialize_medicine(m) for m, _parsed in medicines],
+    }
+
+
+@router.get("/doctor/templates")
+def list_prescription_templates(user: User = Depends(require_doctor_role), db: Session = Depends(get_db_session)):
+    templates = (
+        db.query(PrescriptionTemplate)
+        .filter(PrescriptionTemplate.doctor_user_id == user.id)
+        .order_by(PrescriptionTemplate.created_at.desc())
+        .all()
+    )
+    return [
+        {"id": t.id, "label": t.label, "lines": _json.loads(t.lines), "created_at": t.created_at.isoformat()}
+        for t in templates
+    ]
+
+
+@router.post("/doctor/templates")
+def create_prescription_template(body: PrescriptionTemplateCreate, user: User = Depends(require_doctor_role),
+                                  db: Session = Depends(get_db_session)):
+    if not body.label.strip() or not any(line.strip() for line in body.lines):
+        raise HTTPException(400, "A template needs a label and at least one non-empty line.")
+    template = PrescriptionTemplate(
+        doctor_user_id=user.id, label=body.label.strip(),
+        lines=_json.dumps([line for line in body.lines if line.strip()]),
+    )
+    db.add(template)
+    db.commit()
+    return {"id": template.id, "label": template.label, "lines": _json.loads(template.lines),
+            "created_at": template.created_at.isoformat()}
+
+
+@router.delete("/doctor/templates/{template_id}")
+def delete_prescription_template(template_id: int, user: User = Depends(require_doctor_role),
+                                  db: Session = Depends(get_db_session)):
+    template = db.query(PrescriptionTemplate).filter(PrescriptionTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(404, f"No template {template_id}")
+    if template.doctor_user_id != user.id:
+        raise HTTPException(403, "You can only delete your own templates.")
+    db.delete(template)
+    db.commit()
+    return {"deleted": True}
 
 
 @router.post("/doctor/medicines/{medicine_id}/correction")
