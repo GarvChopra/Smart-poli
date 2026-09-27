@@ -19,6 +19,7 @@ from db import get_db_session, log_audit, User, DoctorLink, MedicineCorrection
 from auth import get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code
 from schemas import LinkRedeem, MedicineCorrectionCreate
 from serializers import get_patient_or_404, get_medicine_or_404, serialize_patient, serialize_medicine, gather_report_data
+from doctor_intelligence import compute_priority, compute_since_last_visit, compute_doctor_brief
 from interactions import load_ruleset as load_interaction_ruleset
 from food_warnings import load_ruleset as load_food_ruleset
 
@@ -112,7 +113,14 @@ def doctor_patients(user: User = Depends(require_doctor_role), db: Session = Dep
     links = db.query(DoctorLink).filter(
         DoctorLink.doctor_user_id == user.id, DoctorLink.status == "active",
     ).all()
-    return [serialize_patient(get_patient_or_404(db, link.patient_id)) for link in links]
+    patients = [
+        {**serialize_patient(get_patient_or_404(db, link.patient_id)),
+         "priority": compute_priority(db, link.patient_id)}
+        for link in links
+    ]
+    order = {"emergency": 0, "high": 1, "medium": 2, "routine": 3}
+    patients.sort(key=lambda p: order[p["priority"]["level"]])
+    return patients
 
 
 @router.get("/doctor/patients/{patient_id}")
@@ -121,10 +129,14 @@ def doctor_patient_detail(patient_id: int, user: User = Depends(require_doctor_r
     """Everything SmartPoli already generated for this patient — prescription,
     OCR/extraction confidence, schedule, adherence, missed doses, symptoms,
     triage history, notes — reusing gather_report_data rather than a second
-    query set built just for the doctor view."""
+    query set built just for the doctor view. brief/since_last_visit add the
+    pre-consultation summary and change-since-last-note comparison on top."""
     if not has_read_access(db, user, patient_id):
         raise HTTPException(403, "You are not linked to this patient.")
-    return gather_report_data(db, patient_id, INTERACTION_RULESET, FOOD_RULESET)
+    report = gather_report_data(db, patient_id, INTERACTION_RULESET, FOOD_RULESET)
+    report["brief"] = compute_doctor_brief(db, patient_id)
+    report["since_last_visit"] = compute_since_last_visit(db, patient_id, user.id)
+    return report
 
 
 @router.post("/doctor/medicines/{medicine_id}/correction")

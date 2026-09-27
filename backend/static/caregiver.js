@@ -11,6 +11,18 @@ const api = apiFetch;
 
 const state = { patients: [], patientId: null };
 
+const PRIORITY_LABELS = { emergency: 'Emergency', high: 'High', medium: 'Medium', routine: 'Routine' };
+
+function renderPriorityBadge(priority) {
+  if (!priority) return '';
+  return `<span class="badge ${priority.level}">${PRIORITY_LABELS[priority.level] || priority.level}</span>`;
+}
+
+function renderPriorityReasons(priority) {
+  if (!priority || !priority.reasons.length) return '';
+  return `<ul class="priority-reasons">${priority.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`;
+}
+
 function renderSessionChip() {
   const chip = document.getElementById('sessionChip');
   if (!chip || !currentUser) return;
@@ -32,6 +44,26 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   localStorage.setItem('smartpoli_a11y', on ? '0' : '1');
   applyA11yMode();
 });
+
+// Header is brand + hamburger only — settings (a11y, link patient, session)
+// live in an off-canvas drawer, same pattern as doctor.js.
+const hamburgerBtn = document.getElementById('hamburgerBtn');
+const navDrawer = document.getElementById('navDrawer');
+const navOverlay = document.getElementById('navOverlay');
+const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+function openDrawer() {
+  navDrawer.classList.add('open');
+  navOverlay.classList.add('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'true');
+}
+function closeDrawer() {
+  navDrawer.classList.remove('open');
+  navOverlay.classList.remove('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'false');
+}
+hamburgerBtn.addEventListener('click', openDrawer);
+closeDrawerBtn.addEventListener('click', closeDrawer);
+navOverlay.addEventListener('click', closeDrawer);
 
 document.getElementById('linkPatientBtn').addEventListener('click', () => {
   document.getElementById('linkForm').style.display = 'block';
@@ -68,6 +100,10 @@ async function loadPatients() {
     <button type="button" class="patient-picker-card ${p.id === state.patientId ? 'active' : ''}" data-pid="${p.id}">
       <div class="name">${p.name}</div>
       <div class="meta">${p.age ? p.age + ' yrs' : ''}${p.sex ? ', ' + p.sex : ''}</div>
+      <div class="priority-row">
+        ${renderPriorityBadge(p.priority)}
+        ${renderPriorityReasons(p.priority)}
+      </div>
     </button>
   `).join('');
   picker.querySelectorAll('[data-pid]').forEach(btn => {
@@ -120,6 +156,7 @@ async function renderOverview() {
 
   view.innerHTML = `
     <h2 style="margin-top:26px;">${o.patient.name}'s overview</h2>
+    <div style="margin-bottom:14px;">${renderPriorityBadge(o.priority)}${renderPriorityReasons(o.priority)}</div>
     ${nudgesHtml}
 
     <div class="card">

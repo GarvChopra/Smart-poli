@@ -20,6 +20,7 @@ from db import get_db_session, log_audit, User, CaregiverLink, SymptomCheck, Dos
 from auth import get_current_user, require_patient_write_access, require_caregiver_role, has_read_access, gen_link_code
 from schemas import LinkRedeem
 from serializers import get_patient_or_404, serialize_patient, gather_dashboard_data, emergency_card_data
+from doctor_intelligence import compute_priority
 from nudges import compute_nudges
 from interactions import load_ruleset as load_interaction_ruleset
 from food_warnings import load_ruleset as load_food_ruleset
@@ -112,7 +113,14 @@ def caregiver_patients(user: User = Depends(require_caregiver_role), db: Session
     links = db.query(CaregiverLink).filter(
         CaregiverLink.caregiver_user_id == user.id, CaregiverLink.status == "active",
     ).all()
-    return [serialize_patient(get_patient_or_404(db, link.patient_id)) for link in links]
+    patients = [
+        {**serialize_patient(get_patient_or_404(db, link.patient_id)),
+         "priority": compute_priority(db, link.patient_id)}
+        for link in links
+    ]
+    order = {"emergency": 0, "high": 1, "medium": 2, "routine": 3}
+    patients.sort(key=lambda p: order[p["priority"]["level"]])
+    return patients
 
 
 @router.get("/caregiver/patients/{patient_id}/overview")
@@ -152,6 +160,7 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
 
     return {
         "patient": serialize_patient(patient),
+        "priority": compute_priority(db, patient_id),
         "adherence": dash["adherence"],
         "per_medicine": dash["per_medicine"],
         "upcoming_doses": dash["upcoming_doses"],

@@ -16,6 +16,23 @@ const CORRECTABLE_FIELDS = ['name', 'dose_amount', 'dose_unit', 'schedule_code',
 
 function badgeClass(status) { return (status || '').toLowerCase(); }
 
+const PRIORITY_LABELS = { emergency: 'Emergency', high: 'High', medium: 'Medium', routine: 'Routine' };
+
+function renderPriorityBadge(priority) {
+  if (!priority) return '';
+  return `<span class="badge ${priority.level}">${PRIORITY_LABELS[priority.level] || priority.level}</span>`;
+}
+
+function renderPriorityReasons(priority) {
+  if (!priority || !priority.reasons.length) return '';
+  return `<ul class="priority-reasons">${priority.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`;
+}
+
+function priorityFor(patientId) {
+  const p = state.patients.find(p => p.id === patientId);
+  return p ? p.priority : null;
+}
+
 function renderSessionChip() {
   const chip = document.getElementById('sessionChip');
   if (!chip || !currentUser) return;
@@ -37,6 +54,27 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   localStorage.setItem('smartpoli_a11y', on ? '0' : '1');
   applyA11yMode();
 });
+
+// Header is brand + hamburger only — settings (a11y, link patient, session)
+// live in an off-canvas drawer, same pattern as the patient app's Settings
+// tab, just without a tab list since there's nothing else here to switch to.
+const hamburgerBtn = document.getElementById('hamburgerBtn');
+const navDrawer = document.getElementById('navDrawer');
+const navOverlay = document.getElementById('navOverlay');
+const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+function openDrawer() {
+  navDrawer.classList.add('open');
+  navOverlay.classList.add('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'true');
+}
+function closeDrawer() {
+  navDrawer.classList.remove('open');
+  navOverlay.classList.remove('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'false');
+}
+hamburgerBtn.addEventListener('click', openDrawer);
+closeDrawerBtn.addEventListener('click', closeDrawer);
+navOverlay.addEventListener('click', closeDrawer);
 
 document.getElementById('linkPatientBtn').addEventListener('click', () => {
   document.getElementById('linkForm').style.display = 'block';
@@ -73,6 +111,10 @@ async function loadPatients() {
     <button type="button" class="patient-picker-card ${p.id === state.patientId ? 'active' : ''}" data-pid="${p.id}">
       <div class="name">${p.name}</div>
       <div class="meta">${p.age ? p.age + ' yrs' : ''}${p.sex ? ', ' + p.sex : ''}</div>
+      <div class="priority-row">
+        ${renderPriorityBadge(p.priority)}
+        ${renderPriorityReasons(p.priority)}
+      </div>
     </button>
   `).join('');
   picker.querySelectorAll('[data-pid]').forEach(btn => {
@@ -142,6 +184,38 @@ async function renderDetail() {
 
   const alertsHtml = r.alerts.map(a => `<div class="alert-item">${a}</div>`).join('') || '<div class="empty">No alerts.</div>';
 
+  const b = r.brief;
+  const latestCheck = b.latest_symptom_check;
+  const briefHtml = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      ${renderPriorityBadge(priorityFor(state.patientId))}
+    </div>
+    ${renderPriorityReasons(priorityFor(state.patientId))}
+    <div class="change-row"><span class="label">Current medicines</span><span class="value">${b.current_medicine_count}${b.current_medicine_names.length ? ' — ' + b.current_medicine_names.join(', ') : ''}</span></div>
+    <div class="change-row"><span class="label">Allergies</span><span class="value">${b.allergies}</span></div>
+    <div class="change-row"><span class="label">Adherence</span><span class="value">${b.adherence_percent === null ? '—' : b.adherence_percent + '%'}</span></div>
+    <div class="change-row"><span class="label">Pending verification</span><span class="value">${b.pending_verification_count}</span></div>
+    <div class="change-row">
+      <span class="label">Latest symptom check</span>
+      <span class="value">${latestCheck
+        ? `<span class="badge ${badgeClass(latestCheck.severity)}">${latestCheck.severity}</span> ${new Date(latestCheck.created_at).toLocaleDateString()}`
+        : 'None recorded'}</span>
+    </div>
+  `;
+
+  const since = r.since_last_visit;
+  const sinceHtml = since ? `
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'history')}<h3>Since last visit — ${since.days_since} day${since.days_since === 1 ? '' : 's'} ago</h3></div>
+      ${since.changes.map(c => `<div class="change-row"><span class="label">${c.label}</span><span class="value">${c.value}</span></div>`).join('') || '<div class="empty">No new activity since your last review.</div>'}
+    </div>
+  ` : `
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'history')}<h3>Since last visit</h3></div>
+      <div class="empty">First time reviewing this patient — nothing to compare yet. This will fill in after your first note or correction.</div>
+    </div>
+  `;
+
   const notesHtml = r.doctor_caregiver_notes.map(n => `
     <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;">
       <span style="color:var(--ink-soft);">${new Date(n.at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
@@ -154,6 +228,13 @@ async function renderDetail() {
     <div style="color:var(--ink-soft);font-size:13px;margin-bottom:14px;">
       ${r.patient.age ? r.patient.age + ' yrs' : ''}${r.patient.sex ? ', ' + r.patient.sex : ''}
     </div>
+
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'clipboard')}<h3>Patient brief — before consultation</h3></div>
+      ${briefHtml}
+    </div>
+
+    ${sinceHtml}
 
     <div class="card">
       <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>
