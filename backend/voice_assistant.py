@@ -28,7 +28,7 @@ from serializers import get_patient_or_404
 from triage_service import record_symptom_check
 from voice_fallback import fallback_turn
 from voice_safety import scan_red_flags
-from voice_tools import RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state, open_questions
+from voice_tools import RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state, open_questions, mark_asked
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +108,11 @@ def _symptom_context(ctx: ToolContext) -> str:
     if "symptom" not in ctx.state:
         return ""
     sym = clean_symptom_state(ctx.state["symptom"])
+    questions = open_questions(sym)
+    mark_asked(sym, questions)  # they're in front of the model now; next turn's "no" counts
     ctx.state["symptom"] = sym
     answered = ", ".join(f"{k}={'true' if v else 'false'}" for k, v in sym["answers"].items()) or "none yet"
-    open_q = "\n".join(f'  - {q["id"]}: "{q["text"]}" / "{q["text_hi"]}"' for q in open_questions(sym)) or "  (none)"
+    open_q = "\n".join(f'  - {q["id"]}: "{q["text"]}" / "{q["text_hi"]}"' for q in questions) or "  (none)"
     return f"""
 SYMPTOM CHECK IN PROGRESS — symptoms: {', '.join(sym['ids']) or 'none covered by the rules'} (patient's words: {', '.join(sym['labels']) or '-'})
 Answers recorded so far: {answered}
@@ -131,13 +133,21 @@ def _history_messages(history) -> list[dict]:
 
 
 def _red_flag_turn(ctx: ToolContext, reasons: list[str]) -> dict:
-    sym = clean_symptom_state(ctx.state.get("symptom"))
-    result, check = record_symptom_check(
-        ctx.db, ctx.patient_id, ctx.actor, RULESET, sym["ids"], sym["answers"],
-        extra_reasons=[f"Red flag in patient's words: {r}" for r in reasons], force_emergency=True, source="voice")
+    """Must never fail: whatever happens while recording, the patient still
+    gets the fixed emergency reply and the help panel."""
+    action = {"type": "emergency", "severity": "EMERGENCY", "reasons": reasons,
+              "action": "Seek emergency medical attention immediately. Call 112.", "route": "emergency"}
+    try:
+        sym = clean_symptom_state(ctx.state.get("symptom"))
+        result, check = record_symptom_check(
+            ctx.db, ctx.patient_id, ctx.actor, RULESET, sym["ids"], sym["answers"],
+            extra_reasons=[f"Red flag in patient's words: {r}" for r in reasons], force_emergency=True, source="voice")
+        action.update(reasons=result["reasons"], action=result["action"], route=result["route"], check_id=check.id)
+    except Exception:
+        logger.exception("Could not record red-flag symptom check")
+        ctx.db.rollback()
     ctx.state.pop("symptom", None)
-    ctx.actions.append({"type": "emergency", "severity": "EMERGENCY", "reasons": result["reasons"],
-                        "action": result["action"], "route": result["route"], "check_id": check.id})
+    ctx.actions.append(action)
     return {"reply": EMERGENCY_REPLY.get(ctx.lang, EMERGENCY_REPLY["en"]), "actions": ctx.actions,
             "state": ctx.state, "mode": "safety"}
 
@@ -206,8 +216,11 @@ def run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
         return _groq_turn(ctx, text, history, (patient.name or "there").split()[0])
     except Exception as e:  # network, auth, model errors — the page must still work
         logger.warning("Groq voice turn failed, using fallback: %s", e)
+        ctx.db.rollback()
+        if any(a["type"] == "emergency" for a in ctx.actions):
+            return {"reply": EMERGENCY_REPLY.get(lang, EMERGENCY_REPLY["en"]), "actions": ctx.actions,
+                    "state": ctx.state, "mode": "assistant"}
         if ctx.actions:  # something already happened this turn; don't repeat it
             return {"reply": TOOL_LOOP_REPLY.get(lang, TOOL_LOOP_REPLY["en"]), "actions": ctx.actions,
                     "state": ctx.state, "mode": "assistant"}
-        ctx.state = state if isinstance(state, dict) else {}
         return fallback_turn(ctx, text)

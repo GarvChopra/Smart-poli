@@ -167,7 +167,7 @@ def test_groq_failure_falls_back(monkeypatch):
         install_fake_groq(monkeypatch, [RuntimeError("groq down")])
         body = _turn(client, pid, "maine dawai le li").json()
     assert body["mode"] == "fallback"
-    assert _dose_state(due[0]) == "taken"
+    assert body["actions"][0]["type"] == "choose_dose"
 
 
 def test_fallback_without_key(monkeypatch):
@@ -176,8 +176,7 @@ def test_fallback_without_key(monkeypatch):
         pid, due = _setup(client)
         body = _turn(client, pid, "maine dawai le li").json()
         assert body["mode"] == "fallback"
-        assert body["actions"][0]["type"] == "dose_taken"
-        assert _dose_state(due[0]) == "taken"
+        assert body["actions"][0]["type"] == "choose_dose"
 
         body = _turn(client, pid, "meri agli medicine kab hai").json()
         assert "Telma" in body["reply"] or "Metformin" in body["reply"]
@@ -275,3 +274,65 @@ def test_open_symptom_questions_are_in_every_turns_prompt(monkeypatch):
     system = calls[0]["messages"][0]["content"]
     assert "worst_ever_sudden" in system and "confusion" in system
     assert "vision_changes" in system and "false" in system.lower()
+
+
+# ---------------------------------------------------------------- review fixes
+
+@pytest.mark.parametrize("text", [
+    "I have not taken my medicine yet", "Maine dawai nahi li hai", "have I taken my medicine today?",
+    "kya maine dawai le li?", "I had my breakfast this morning", "I took a walk this evening",
+    "raat ko khana kha liya", "my son took me to the doctor this morning",
+])
+def test_fallback_never_marks_a_dose_on_negations_questions_or_unrelated_text(monkeypatch, text):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with TestClient(app) as client:
+        pid, due = _setup(client)
+        body = _turn(client, pid, text).json()
+    assert _dose_state(due[0]) == "pending", text
+    assert not any(a["type"] == "dose_taken" for a in body["actions"])
+
+
+def test_fallback_confirms_before_marking_even_one_dose(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with TestClient(app) as client:
+        pid, due = _setup(client)
+        body = _turn(client, pid, "maine dawai le li").json()
+    assert body["actions"][0]["type"] == "choose_dose"
+    assert [o["dose_id"] for o in body["actions"][0]["options"]] == due
+    assert _dose_state(due[0]) == "pending"
+
+
+def test_fallback_when_sentence_about_symptom_goes_to_symptom_check(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        body = _turn(client, pid, "when I stand up I get dizzy").json()
+    assert {"type": "navigate", "screen": "triage"} in body["actions"]
+
+
+@pytest.mark.parametrize("bad_state", [
+    {"symptom": {"answers": [1]}}, {"symptom": {"labels": 5}}, {"symptom": {"ids": 5}},
+    {"symptom": "x"}, {"symptom": {"ids": ["headache"], "answers": {"confusion": True}, "asked": 7}},
+])
+def test_malformed_state_never_breaks_the_emergency_path(monkeypatch, bad_state):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        r = _turn(client, pid, "papa behosh ho gaye", state=bad_state)
+    assert r.status_code == 200
+    assert r.json()["actions"][0]["type"] == "emergency"
+
+
+def test_tool_crash_after_emergency_still_speaks_emergency_reply(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[
+                _call("update_symptom_check", {"symptom_ids": ["chest_pain"], "answers": {"difficulty_breathing": True}}),
+                _call("mark_dose_taken", {"dose_id": 1e30}, "c2"),
+            ]),
+        ])
+        r = _turn(client, pid, "seene mein dard")
+    assert r.status_code == 200
+    assert "112" in r.json()["reply"]
+    assert r.json()["actions"][-1]["type"] == "emergency"

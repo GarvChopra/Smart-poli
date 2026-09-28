@@ -200,6 +200,13 @@ def test_symptom_check_asks_rule_questions_then_rule_engine_decides():
         assert run_tool(ctx, "finish_symptom_check", {})["ok"] is False
 
         answers = {qid: False for qid in rule_qids}
+        # same turn: the patient hasn't heard the questions yet, so "no" can't count
+        r = run_tool(ctx, "update_symptom_check", {"answers": answers})
+        assert set(r["ignored_answers"]) == rule_qids
+        assert ctx.state["symptom"]["answers"] == {}
+
+        # next turn: the patient answered them
+        ctx = _ctx(db, pid, uid, state=ctx.state)
         run_tool(ctx, "update_symptom_check", {"answers": answers})
         res = run_tool(ctx, "finish_symptom_check", {})
         expected = evaluate_check(RULESET, ["headache"], answers)
@@ -275,3 +282,30 @@ def test_unknown_tool_is_refused():
 def test_tool_schemas_cover_every_tool():
     names = {t["function"]["name"] for t in voice_tools.TOOLS}
     assert names == set(voice_tools.HANDLERS)
+
+
+def test_yes_answers_count_even_if_not_yet_asked():
+    """A "yes" can only raise severity, so it's never held back."""
+    with TestClient(app) as client:
+        uid, pid = _setup(client)
+    db = SessionLocal()
+    try:
+        ctx = _ctx(db, pid, uid)
+        r = run_tool(ctx, "update_symptom_check", {"symptom_ids": ["headache"], "answers": {"worst_ever_sudden": True}})
+        assert r["severity"] == "EMERGENCY"
+    finally:
+        db.close()
+
+
+def test_bogus_numbers_and_types_never_raise():
+    with TestClient(app) as client:
+        uid, pid = _setup(client)
+    db = SessionLocal()
+    try:
+        ctx = _ctx(db, pid, uid, state={"symptom": {"answers": [1], "labels": 5, "ids": 5, "asked": "x"}})
+        assert run_tool(ctx, "mark_dose_taken", {"dose_id": 1e30})["ok"] is False
+        assert run_tool(ctx, "mark_dose_taken", {"dose_id": -4})["ok"] is False
+        assert run_tool(ctx, "update_symptom_check", {"symptom_labels": "headache"})["ok"] is True
+        assert ctx.state["symptom"]["labels"] == ["headache"]
+    finally:
+        db.close()

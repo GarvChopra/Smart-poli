@@ -46,6 +46,14 @@ class ToolContext:
     state: dict              # carried between turns by the client; re-validated here
     actions: list = field(default_factory=list)
     decoded_this_turn: set = field(default_factory=set)
+    # Rule questions already put in front of the patient BEFORE this turn —
+    # only those may be answered "no" (see update_symptom_check).
+    asked_before: set = field(init=False)
+
+    def __post_init__(self):
+        if not isinstance(self.state, dict):
+            self.state = {}
+        self.asked_before = set(clean_symptom_state(self.state.get("symptom"))["asked"])
 
     @property
     def actor(self) -> str:
@@ -58,9 +66,10 @@ def _err(message: str) -> dict:
 
 def _as_int(value) -> int | None:
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        n = int(value)
+    except (TypeError, ValueError, OverflowError):
         return None
+    return n if 0 < n < 2**31 else None
 
 
 def _dose_text(m: Medicine) -> str:
@@ -222,16 +231,31 @@ def confirm_prescription(ctx: ToolContext, prescription_id=None) -> dict:
 
 # ---------------------------------------------------------------- symptom checks
 
+def _as_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    return [value] if isinstance(value, str) else []
+
+
 def clean_symptom_state(raw: Any) -> dict:
     """The client carries this between turns — never trust it: keep only
-    real rule symptom ids and boolean answers to their real question ids."""
+    real rule symptom ids, boolean answers to their real question ids, and
+    real question ids for `asked`. Never raises, whatever shape arrives."""
     raw = raw if isinstance(raw, dict) else {}
-    ids = [s for s in raw.get("ids", []) if isinstance(s, str) and s in RULESET["symptoms"]]
+    ids = [s for s in _as_list(raw.get("ids")) if isinstance(s, str) and s in RULESET["symptoms"]]
     ids = list(dict.fromkeys(ids))
     valid_q = {q["id"] for sid in ids for q in RULESET["symptoms"][sid]["questions"]}
-    answers = {k: v for k, v in (raw.get("answers") or {}).items() if k in valid_q and isinstance(v, bool)}
-    labels = list(dict.fromkeys(str(s)[:60] for s in raw.get("labels", []) if s))[:5]
-    return {"ids": ids, "labels": labels, "answers": answers}
+    raw_answers = raw.get("answers") if isinstance(raw.get("answers"), dict) else {}
+    answers = {k: v for k, v in raw_answers.items() if k in valid_q and isinstance(v, bool)}
+    labels = list(dict.fromkeys(s.strip()[:60] for s in _as_list(raw.get("labels")) if isinstance(s, str) and s.strip()))[:5]
+    asked = [q for q in dict.fromkeys(_as_list(raw.get("asked"))) if q in valid_q]
+    return {"ids": ids, "labels": labels, "answers": answers, "asked": asked}
+
+
+def mark_asked(sym: dict, questions: list[dict]) -> None:
+    """Record that these rule questions have been put to the patient (via a
+    tool result or the turn prompt), so a later "no" to them is accepted."""
+    sym["asked"] = list(dict.fromkeys(sym.get("asked", []) + [q["id"] for q in questions]))
 
 
 def open_questions(sym: dict) -> list[dict]:
@@ -262,18 +286,27 @@ def _finish(ctx: ToolContext, sym: dict) -> dict:
 
 
 def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None, answers=None) -> dict:
-    current = ctx.state.get("symptom") or {}
-    merged = {
-        "ids": list(current.get("ids", [])) + list(symptom_ids or []),
-        "labels": list(current.get("labels", [])) + list(symptom_labels or []),
-        "answers": {**(current.get("answers") or {}), **(answers if isinstance(answers, dict) else {})},
-    }
-    sym = clean_symptom_state(merged)
+    current = clean_symptom_state(ctx.state.get("symptom"))
+    # A "yes" can only raise severity, so it is always accepted. A "no" is
+    # accepted only for a question the patient was actually asked in an
+    # earlier turn — the model can't quietly clear a red-flag question.
+    new_answers = {k: v for k, v in (answers if isinstance(answers, dict) else {}).items()
+                   if v is True or (v is False and k in ctx.asked_before)}
+    ignored = sorted(set(answers if isinstance(answers, dict) else {}) - set(new_answers))
+    sym = clean_symptom_state({
+        "ids": current["ids"] + _as_list(symptom_ids),
+        "labels": current["labels"] + _as_list(symptom_labels),
+        "answers": {**current["answers"], **new_answers},
+        "asked": current["asked"],
+    })
     ctx.state["symptom"] = sym
     if sym["ids"] and evaluate_check(RULESET, sym["ids"], sym["answers"])["severity"] == "EMERGENCY":
         return _finish(ctx, sym)
+    questions = open_questions(sym)
+    mark_asked(sym, questions)
     return {"ok": True, "tracked_symptoms": sym["ids"], "unrated_symptoms": sym["labels"] if not sym["ids"] else [],
-            "questions_to_ask": open_questions(sym),
+            "ignored_answers": ignored,
+            "questions_to_ask": questions,
             "next_step": "Ask the listed questions one at a time, in the patient's language, then call "
                          "finish_symptom_check." if sym["ids"] else
                          "No SmartPoli rule covers this symptom; call finish_symptom_check when you've understood it."}
@@ -285,6 +318,8 @@ def finish_symptom_check(ctx: ToolContext) -> dict:
     sym = clean_symptom_state(ctx.state["symptom"])
     remaining = open_questions(sym)
     if remaining:
+        mark_asked(sym, remaining)
+        ctx.state["symptom"] = sym
         return {**_err("These questions still need an answer before SmartPoli can decide."),
                 "questions_to_ask": remaining}
     return _finish(ctx, sym)
@@ -349,3 +384,6 @@ def run_tool(ctx: ToolContext, name: str, args: Any) -> dict:
         return handler(ctx, **args)
     except TypeError:
         return _err(f"Bad arguments for {name}.")
+    except Exception:  # a bad value must never break the turn or leave a half-written change
+        ctx.db.rollback()
+        return _err(f"{name} could not be completed.")
