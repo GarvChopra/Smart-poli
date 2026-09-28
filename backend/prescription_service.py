@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from db import log_audit, Prescription, Medicine
 from parser import parse_medicine_line, compute_status
+from scheduler import generate_doses, SchedulingBlocked
 
 
 def create_prescription_from_lines(
@@ -74,3 +75,39 @@ def create_prescription_from_lines(
     log_audit(db, patient_id, actor, "prescription_created",
               f"prescription {prescription.id}, {len(medicines)} lines, source={source}")
     return prescription, medicines
+
+
+def confirm_prescription_doses(db: Session, prescription: Prescription, actor: str) -> dict:
+    """
+    Generate Dose rows for every medicine that is safe to schedule — shared
+    by the Confirm button (main.py) and the voice assistant.
+
+    needs_confirmation medicines are silently skipped here (they stay in the
+    prescription, unscheduled, for later editing) — but if anything upstream
+    ever tries to force one through generate_doses() directly, that raises
+    SchedulingBlocked. The gate lives in the scheduler, not in this function.
+    """
+    medicines = db.query(Medicine).filter(Medicine.prescription_id == prescription.id).all()
+
+    scheduled, blocked, prn = [], [], []
+    for medicine in medicines:
+        if medicine.status == "needs_confirmation":
+            blocked.append(medicine.id)
+            continue
+        try:
+            doses = generate_doses(medicine)
+        except SchedulingBlocked:
+            blocked.append(medicine.id)
+            continue
+        if medicine.is_prn:
+            prn.append(medicine.id)
+            continue
+        db.add_all(doses)
+        scheduled.append({"medicine_id": medicine.id, "doses_generated": len(doses)})
+
+    prescription.status = "confirmed"
+    db.commit()
+    log_audit(db, prescription.patient_id, actor, "prescription_confirmed",
+              f"scheduled={len(scheduled)} blocked={len(blocked)} prn={len(prn)}")
+
+    return {"prescription_id": prescription.id, "scheduled": scheduled, "blocked_needs_confirmation": blocked, "prn": prn}

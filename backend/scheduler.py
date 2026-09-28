@@ -79,6 +79,20 @@ def mark_taken(dose: Dose, acted_at: Optional[datetime] = None) -> Dose:
     return dose
 
 
+UNDO_WINDOW = timedelta(minutes=10)
+
+
+def undo_taken(dose: Dose, now: Optional[datetime] = None) -> Dose:
+    """Voice matching can pick the wrong dose, so a just-marked 'taken' can
+    be put back — only within UNDO_WINDOW, so history can't be rewritten."""
+    now = now or datetime.utcnow()
+    if dose.state != "taken" or not dose.acted_at or now - dose.acted_at > UNDO_WINDOW:
+        raise ValueError("Only a dose marked taken in the last 10 minutes can be undone.")
+    dose.state = "pending"
+    dose.acted_at = None
+    return dose
+
+
 def mark_missed(dose: Dose, acted_at: Optional[datetime] = None) -> Dose:
     dose.state = "missed"
     dose.acted_at = acted_at or datetime.utcnow()

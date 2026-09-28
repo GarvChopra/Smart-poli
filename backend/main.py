@@ -37,10 +37,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from db import init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog, User
 from parser import parse_medicine_line, compute_status
-from prescription_service import create_prescription_from_lines
+from prescription_service import create_prescription_from_lines, confirm_prescription_doses
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
-    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed,
+    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, undo_taken,
 )
 from triage import load_ruleset, evaluate_check, next_question
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
@@ -363,30 +363,7 @@ def confirm_prescription(prescription_id: int, user: User = Depends(require_pres
     SchedulingBlocked. The gate lives in the scheduler, not in this endpoint.
     """
     prescription = get_prescription_or_404(db, prescription_id)
-    medicines = db.query(Medicine).filter(Medicine.prescription_id == prescription_id).all()
-
-    scheduled, blocked, prn = [], [], []
-    for medicine in medicines:
-        if medicine.status == "needs_confirmation":
-            blocked.append(medicine.id)
-            continue
-        try:
-            doses = generate_doses(medicine)
-        except SchedulingBlocked:
-            blocked.append(medicine.id)
-            continue
-        if medicine.is_prn:
-            prn.append(medicine.id)
-            continue
-        db.add_all(doses)
-        scheduled.append({"medicine_id": medicine.id, "doses_generated": len(doses)})
-
-    prescription.status = "confirmed"
-    db.commit()
-    log_audit(db, prescription.patient_id, f"patient:{user.id}", "prescription_confirmed",
-              f"scheduled={len(scheduled)} blocked={len(blocked)} prn={len(prn)}")
-
-    return {"prescription_id": prescription.id, "scheduled": scheduled, "blocked_needs_confirmation": blocked, "prn": prn}
+    return confirm_prescription_doses(db, prescription, f"patient:{user.id}")
 
 
 # ---------------------------------------------------------------- doses & dashboard (Feature 2)
@@ -397,6 +374,18 @@ def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
     mark_taken(dose)
     db.commit()
     log_audit(db, dose.medicine.prescription.patient_id, f"patient:{user.id}", "dose_taken", f"dose {dose.id}")
+    return serialize_dose(dose)
+
+
+@app.post("/doses/{dose_id}/undo")
+def undo_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
+    dose = get_dose_or_404(db, dose_id)
+    try:
+        undo_taken(dose)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.commit()
+    log_audit(db, dose.medicine.prescription.patient_id, f"patient:{user.id}", "dose_taken_undone", f"dose {dose.id}")
     return serialize_dose(dose)
 
 
