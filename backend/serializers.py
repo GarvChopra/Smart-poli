@@ -10,12 +10,14 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from db import Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog
 from scheduler import compute_adherence, compute_medicine_breakdown, sweep_missed
 from interactions import check_interactions
 from food_warnings import check_food_warnings
+from emergency_tokens import get_or_create_active_token
 
 
 def get_patient_or_404(db: Session, patient_id: int) -> Patient:
@@ -228,7 +230,13 @@ def emergency_card_data(db: Session, patient_id: int) -> dict:
         SymptomCheck.patient_id == patient_id, SymptomCheck.severity == "EMERGENCY"
     ).count() > 0
 
+    latest_audit = db.query(func.max(AuditLog.at)).filter(AuditLog.patient_id == patient_id).scalar()
+    candidates = [patient.created_at, latest_audit] + [pres.created_at for pres in prescriptions]
+    last_updated = max(c for c in candidates if c is not None)
+
     return {
+        "card_path": f"/emergency/{get_or_create_active_token(db, patient_id)}",
+        "last_updated": last_updated.isoformat(),
         "patient": {"name": patient.name, "age": patient.age, "sex": patient.sex,
                      "blood_group": patient.blood_group,
                      "allergies": patient.allergies, "emergency_contact": patient.emergency_contact},

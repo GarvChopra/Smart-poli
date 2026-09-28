@@ -222,6 +222,21 @@ class AuditLog(Base):
     patient = relationship("Patient", back_populates="audit_logs")
 
 
+class EmergencyCardToken(Base):
+    """The random, revocable token a public emergency-card URL/QR carries —
+    never the sequential patient id, which anyone could enumerate. A new
+    table (not columns on `patients`) because init_db() can create tables
+    on Postgres but not alter existing ones. At most one active
+    (revoked_at IS NULL) row per patient; revoked rows are kept for audit."""
+    __tablename__ = "emergency_card_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+
+
 class WhatsAppSession(Base):
     """
     Conversation state for one WhatsApp number (whatsapp_bot.py). Separate
