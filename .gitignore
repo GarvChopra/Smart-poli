@@ -10,3 +10,6 @@ node_modules/
 frontend/.next/
 frontend/out/
 *.log
+
+# downloaded source files for knowledge/ingest.py (re-fetched on demand)
+backend/knowledge/.cache/

@@ -35,7 +35,7 @@ const TEXT = {
     micBlocked: 'Microphone is blocked. Allow it in your browser settings, then tap to start.',
     basic: 'Basic mode: I can help with your medicines. Full conversation needs the AI service switched on.',
     privacy: 'To understand you, your words are sent to our AI service (Groq). Only your own SmartPoli data is used.',
-    ok: 'Got it', error: "I couldn't reach SmartPoli. Check your connection — I'm still listening.",
+    ok: 'Got it', basedOn: 'Based on:', error: "I couldn't reach SmartPoli. Check your connection — I'm still listening.",
     slow: 'Too many requests — give me a moment.',
     taken: 'Taken', undo: 'Undo', undone: 'Undone — the dose is back to pending.', which: 'Which one did you take?',
     open: 'Open', openCard: 'Open my emergency card', resultFrom: "Result from SmartPoli's clinical rules",
@@ -62,7 +62,7 @@ const TEXT = {
     micBlocked: 'Microphone band hai. Browser settings mein allow kijiye, phir dabaiye.',
     basic: 'Basic mode: main dawaiyon mein madad kar sakta hoon. Poori baatcheet ke liye AI service chahiye.',
     privacy: 'Aapki baat samajhne ke liye aapke shabd hamari AI service (Groq) ko bheje jaate hain. Sirf aapka SmartPoli data use hota hai.',
-    ok: 'Theek hai', error: 'SmartPoli tak nahi pahunch paaye. Internet check kijiye — main sun raha hoon.',
+    ok: 'Theek hai', basedOn: 'Jaankari ka srot:', error: 'SmartPoli tak nahi pahunch paaye. Internet check kijiye — main sun raha hoon.',
     slow: 'Bahut saari requests — thoda rukiye.',
     taken: 'Le li', undo: 'Wapas lein', undone: 'Wapas le liya — dawai phir se pending hai.', which: 'Aapne kaun si li?',
     open: 'Kholiye', openCard: 'Mera emergency card kholiye', resultFrom: 'SmartPoli ke clinical rules ka nateeja',
@@ -169,7 +169,16 @@ async function sendTurn(text, extra = {}) {
 
 function onReply(res) {
   showReply(res.reply);
+  showSources([]);
   renderActions(res.actions || []);
+}
+
+/** Subtle "Based on …" line — where the medical information came from. */
+function showSources(items) {
+  const el = $('sources');
+  el.hidden = !items.length;
+  el.innerHTML = items.length ? `${tx('basedOn')} ${items.map(s =>
+    `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" title="${esc(s.document)}">${esc(s.publisher.split(' (')[0])}</a>`).join(' · ')}` : '';
 }
 
 function onDoneSpeaking(res) {
@@ -205,6 +214,7 @@ function renderActions(actions) {
     if (a.type === 'triage_result') triageCard(a);
     if (a.type === 'emergency') helpCard(a);
     if (a.type === 'recheck') recheckCard(a);
+    if (a.type === 'sources') showSources(a.items || []);
     if (a.type === 'open_card') linkCard(tx('openCard'), '/static/index.html#tab=emergency');
     if (a.type === 'prescription_draft') {
       addCard(`<h3>${tx('draft')}</h3><ul>${a.medicines.map(m => `<li>${esc([m.name || m.line, m.dose, m.schedule].filter(Boolean).join(' · '))}</li>`).join('')}</ul>`);
@@ -310,10 +320,22 @@ function helpCard(a) {
 
 // ---------------------------------------------------------------- engine
 
+// Indian voices first, by name, on every platform (Android/Chrome, Windows, Apple).
+const INDIAN_VOICE_NAMES = /(Google \u0939\u093F\u0928\u094D\u0926\u0940|Google Hindi|Google English India|Heera|Neerja|Swara|Kalpana|Ravi|Hemant|Prabhat|Madhur|Lekha|Rishi|Veena|Aditi|Raveena|Kajal)/i;
+
 function pickVoice(lang, text) {
-  const want = lang === 'hi' || /[\u0900-\u097F]/.test(text) ? 'hi-IN' : 'en-IN';
+  const hindi = lang === 'hi' || /[\u0900-\u097F]/.test(text);
+  const want = hindi ? 'hi-IN' : 'en-IN';
   const voices = window.speechSynthesis?.getVoices() || [];
-  return { lang: want, voice: voices.find(v => v.lang === want) || voices.find(v => v.lang.startsWith(want.slice(0, 2))) || null };
+  const norm = (v) => (v.lang || '').replace('_', '-');
+  const indian = voices.filter(v => /-IN$/i.test(norm(v)) || INDIAN_VOICE_NAMES.test(v.name));
+  const voice =
+    indian.find(v => norm(v) === want && INDIAN_VOICE_NAMES.test(v.name)) ||
+    indian.find(v => norm(v) === want) ||
+    // no Indian-English voice on this device: an Indian (Hindi) voice reads English with an Indian accent
+    (!hindi && indian.find(v => norm(v) === 'hi-IN')) ||
+    indian[0] || null;
+  return { lang: voice ? norm(voice) : want, voice };
 }
 
 function createEngine() {

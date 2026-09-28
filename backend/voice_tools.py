@@ -29,6 +29,7 @@ from serializers import emergency_card_data
 from triage import load_ruleset, evaluate_check
 from triage_service import record_symptom_check
 from care_guidance import guidance_for
+import clinical_knowledge
 
 RULESET = load_ruleset()
 
@@ -435,6 +436,29 @@ def record_recheck(ctx: ToolContext, status=None) -> dict:
                          "(most safety-critical first) and finish_symptom_check."}
 
 
+def search_clinical_guidance(ctx: ToolContext, query=None, symptom_ids=None) -> dict:
+    hits = clinical_knowledge.search(str(query or "")[:200], _as_list(symptom_ids))
+    if not hits:
+        return {"ok": True, "guidance": [],
+                "use": "No trusted SmartPoli guidance matches. Say you don't have reliable information on this, "
+                       "don't guess, and suggest asking their doctor if it's worrying them."}
+    guidance = [{"topic": h["topic"], "kind": h["kind"],
+                 "text": (h.get("text_hi") or h["text"]) if ctx.lang == "hi" and h["kind"] == "self_care" else h["text"],
+                 "source": h["publisher"], "document": h["document"], "version": h["version"], "url": h["url"]}
+                for h in hits]
+    seen, shown = set(), []
+    for h in hits:
+        if h["url"] not in seen:
+            seen.add(h["url"])
+            shown.append({"publisher": h["publisher"], "document": h["document"], "url": h["url"]})
+    ctx.actions.append({"type": "sources", "items": shown[:4]})
+    return {"ok": True, "guidance": guidance,
+            "use": "Explain only this, simply and in the patient's language; you may say whose guidance it is "
+                   "(e.g. 'MoHFW guidance ke hisaab se'). It is general information, not a diagnosis: never name a "
+                   "medicine or treatment from it, and it never changes SmartPoli's rules result. The patient's own "
+                   "prescription and doctor's notes come first."}
+
+
 def finish_symptom_check(ctx: ToolContext) -> dict:
     if "symptom" not in ctx.state:
         return _err("No symptom check in progress. Call update_symptom_check first.")
@@ -460,6 +484,7 @@ HANDLERS: dict[str, Callable[..., dict]] = {
     "confirm_prescription": confirm_prescription, "update_symptom_check": update_symptom_check,
     "finish_symptom_check": finish_symptom_check,
     "report_immediate_risk": report_immediate_risk, "record_recheck": record_recheck,
+    "search_clinical_guidance": search_clinical_guidance,
 }
 
 
@@ -504,6 +529,11 @@ TOOLS = [
         "not a symptom that still needs checking). Shows the patient how to get help immediately.",
         {"category": {"type": "string", "enum": list(IMMEDIATE_RISK_CATEGORIES)},
          "patient_words": {"type": "string"}}, ["category", "patient_words"]),
+    _fn("search_clinical_guidance",
+        "Trusted clinical information (MoHFW India treatment guidelines, MedlinePlus, sourced self-care). "
+        "Call this BEFORE explaining anything medical — what a symptom can relate to, prevention, self-care, "
+        "when to see a doctor. Use ONLY what it returns. query: plain English words for the symptom/condition.",
+        {"query": {"type": "string"}, "symptom_ids": {"type": "array", "items": {"type": "string"}}}, ["query"]),
     _fn("record_recheck", "Record how the patient feels when you check back after self-care: better, same or worse.",
         {"status": {"type": "string", "enum": ["better", "same", "worse"]}}, ["status"]),
 ]
