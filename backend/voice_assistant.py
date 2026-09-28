@@ -3,23 +3,19 @@ SmartPoli — the voice assistant's turn loop: a calm first-response companion.
 
     CALM → HELP → RECHECK → ESCALATE
 
-    patient's words
-      → recheck answer?              ("better / same / worse" after self-care)
-      → verification answer?         (reply to the calm first question below)
-      → voice_safety.scan_red_flags  (deterministic, before any LLM)
-           immediate risk  → help straight away (calm screen)
-           worrying words  → ONE calm verification question from the rules
-      → Groq chat with tool calling  (understanding + conversation, with the
-                                      patient's own record as context)
-      → voice_tools.run_tool         (validated router over existing services)
-      → reply text + UI actions + state for the next turn
+With Groq (normal):
+    patient's words → Groq understands EVERYTHING — the symptom, whether an
+    answer means mild or severe, "better/same/worse", and whether something is
+    unmistakably life-threatening right now — and acts only through the
+    validated tools in voice_tools. Severity always comes from triage.py.
 
-Groq is only the conversational layer: it never writes to the database,
-never decides severity and never invents treatment. Severity comes from
-triage.py; guidance from the patient's own prescriptions and the sourced
-self_care.json. If the rules say EMERGENCY the spoken reply is a fixed,
-calm sentence. Without a GROQ_API_KEY, or if Groq fails, voice_fallback
-handles the turn.
+Without Groq (no key, or Groq failed):
+    a small deterministic safety net (voice_safety) — immediate danger gets
+    help, worrying words get one calm question, and nothing is ever inferred
+    from keywords: the patient answers on the symptom-check screen.
+
+Groq never writes to the database, never decides severity, never invents
+treatment. If the rules say EMERGENCY the spoken reply is a fixed calm sentence.
 """
 
 import json
@@ -38,7 +34,7 @@ from serializers import get_patient_or_404
 from triage_service import record_symptom_check
 from triage import ACTIONS
 from voice_fallback import fallback_turn
-from voice_safety import scan_red_flags, interpret_verification_answer, VERIFY_QUESTION
+from voice_safety import scan_red_flags, VERIFY_QUESTION
 from voice_tools import (RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state, open_questions, mark_asked,
                          get_patient_context)
 
@@ -198,11 +194,21 @@ What you can do — always through the tools, never from memory:
   2. Call update_symptom_check with matching rule symptom_ids and the patient's own words as symptom_labels.
   3. Ask follow-up questions ONE at a time, like a caring doctor: you may ask when it started or how bad it is, and you
      MUST cover every question in questions_to_ask, in your own natural words and the patient's language.
+     Ask the most safety-critical question first — for breathing: can they say a full sentence; for chest pain:
+     any breathing difficulty; for bleeding: does it stop with firm pressure.
+     Understand answers the way a person would: "nahin, itni jyada nahin hai, thodi si hai" is a clear NO to
+     "is it very severe?"; mixed or unclear answers → gently ask again, never guess.
   4. After each answer, call update_symptom_check with answers {{question_id: true/false}} only when the answer is clear.
   5. When nothing is left to ask, call finish_symptom_check and follow its "explain" order: first what to TRY now
      (their own doctor's prescribed instruction first — "agar doctor ne ise isi problem ke liye diya hai, to unke
      bataye tareeke se lijiye" — then the general steps exactly as listed, nothing else), then that you'll check back,
      and only then the doctor if it doesn't get better.
+
+- Immediate danger: call report_immediate_risk ONLY if the patient describes something unmistakably
+  life-threatening happening right now (unconscious, a seizure now, wanting to harm themselves, an overdose,
+  stroke signs, gasping/choking or too breathless to speak). A worrying symptom is NOT that — check it with the rules.
+- Recheck: if the patient tells you how they feel after the self-care (better / same / worse, in any words),
+  call record_recheck with what they mean and follow its next_step.
 
 Safety rules — never break these:
 - You never decide how serious a symptom is. Only finish_symptom_check's severity counts; never contradict or soften it.
@@ -263,53 +269,44 @@ def _needs_verification(ctx: ToolContext, flag: dict) -> bool:
     return any(q not in sym["answers"] and q not in sym["asked"] for q in flag["questions"][:1])
 
 
-def _recheck_turn(ctx: ToolContext, status: str) -> dict:
-    recheck = ctx.state.pop("recheck", None) or {}
-    ids = [s for s in recheck.get("symptom_ids", []) if isinstance(s, str) and s in RULESET["symptoms"]]
-    labels = [str(x)[:60] for x in recheck.get("labels", []) if isinstance(x, str)][:5]
-    ctx.actions.append({"type": "recheck_done", "status": status})
-    if status == "better":
-        return _result(ctx, _say(RECHECK["better"], ctx.lang), "recheck")
-    if status == "same":
-        # Not improving → MEDICAL REVIEW. The rules can still raise this; nothing lowers it.
-        result, check = record_symptom_check(ctx.db, ctx.patient_id, ctx.actor, RULESET, ids, {},
-                                             extra_reasons=["Not improving when rechecked"],
-                                             min_severity="MODERATE", source="voice-recheck")
-        ctx.actions.append({"type": "triage_result", "severity": result["severity"], "reasons": result["reasons"],
-                            "action": result["action"], "route": result["route"], "check_id": check.id,
-                            "guidance": None})
-        return _result(ctx, _say(RECHECK["same"], ctx.lang), "recheck")
-    # worse → re-assess with the rules, at least MEDICAL REVIEW whatever the answers
-    sym = clean_symptom_state({"ids": ids, "labels": labels})
-    sym["floor"] = "MODERATE"
-    questions = open_questions(sym)
-    mark_asked(sym, questions[:1])
-    ctx.state["symptom"] = sym
-    first = questions[0] if questions else None
-    ask = (first["text_hi"] if ctx.lang == "hi" and first.get("text_hi") else first["text"]) if first else ""
-    return _result(ctx, _say(RECHECK["worse"], ctx.lang) + ask, "recheck")
+def _offline_recheck_turn(ctx: ToolContext, status: str) -> dict:
+    result = run_tool(ctx, "record_recheck", {"status": status})
+    if not result.get("ok"):
+        return _result(ctx, _say(TOOL_LOOP_REPLY, ctx.lang), "recheck")
+    reply = _say(RECHECK[status], ctx.lang)
+    if status == "worse" and result.get("questions_to_ask"):
+        q = result["questions_to_ask"][0]
+        reply += q["text_hi"] if ctx.lang == "hi" and q.get("text_hi") else q["text"]
+    return _result(ctx, reply, "recheck")
 
 
 def _recheck_status(text: str) -> Optional[str]:
+    """Offline only — with Groq, Groq understands the reply (record_recheck)."""
     for status, pattern in _RECHECK_WORDS:
         if pattern.search(text):
             return status
     return None
 
 
-def _apply_verification_answer(ctx: ToolContext, text: str) -> Optional[dict]:
-    """The reply to the calm verification question is recorded deterministically
-    when it's clear ("bahut zyada" / "halki hai"); the rule engine decides."""
-    sym = clean_symptom_state(ctx.state.get("symptom"))
-    qid = sym.get("verify")
-    if not qid:
-        return None
-    answer = interpret_verification_answer(text)
-    if answer is None:
-        return None
-    sym.pop("verify", None)
-    ctx.state["symptom"] = sym
-    return run_tool(ctx, "update_symptom_check", {"answers": {qid: answer}})
+def _offline_turn(ctx: ToolContext, text: str) -> dict:
+    """No AI available: a deterministic safety net, and nothing inferred from keywords."""
+    flags = scan_red_flags(text)
+    if flags["immediate"]:
+        return _emergency_turn(ctx, flags["immediate"])
+    if isinstance(ctx.state.get("recheck"), dict):
+        status = _recheck_status(text)
+        if status:
+            return _offline_recheck_turn(ctx, status)
+    # A symptom check is waiting for an answer we can't understand without the AI:
+    # the patient answers on the symptom-check screen instead of us guessing.
+    if clean_symptom_state(ctx.state.get("symptom")).get("verify"):
+        ctx.state.pop("symptom", None)
+        run_tool(ctx, "open_screen", {"screen": "triage"})
+        return _result(ctx, _say(VERIFY_MILD_OFFLINE, ctx.lang), "fallback")
+    for flag in flags["verify"]:
+        if _needs_verification(ctx, flag):
+            return _verify_turn(ctx, flag, text)
+    return fallback_turn(ctx, text)
 
 
 # ---------------------------------------------------------------- Groq
@@ -380,39 +377,18 @@ def _run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
     ctx = ToolContext(db=db, patient_id=patient_id, user=user, now=now_local, lang=lang,
                       state=state if isinstance(state, dict) else {})
 
-    flags = scan_red_flags(text)
-    if flags["immediate"]:
-        return _emergency_turn(ctx, flags["immediate"])
+    # A tapped Better / Same / Worse button is the patient's own choice, not an interpretation.
+    if recheck in ("better", "same", "worse") and isinstance(ctx.state.get("recheck"), dict):
+        return _offline_recheck_turn(ctx, recheck)
 
-    # RECHECK: "better / same / worse" after self-care (button or words)
-    if isinstance(ctx.state.get("recheck"), dict):
-        status = recheck if recheck in ("better", "same", "worse") else _recheck_status(text)
-        if status:
-            return _recheck_turn(ctx, status)
-
-    # The reply to the calm verification question: recorded, then the rules decide.
-    verified = _apply_verification_answer(ctx, text)
-    if verified is not None and _has_emergency(ctx):
-        return _result(ctx, _say(EMERGENCY_REPLY, ctx.lang), "safety")
-
-    # Worrying but unverified words: one calm question, no alarm.
-    if verified is None:
-        for flag in flags["verify"]:
-            if _needs_verification(ctx, flag):
-                return _verify_turn(ctx, flag, text)
-
-    if not is_available():
-        if verified is not None:
-            run_tool(ctx, "open_screen", {"screen": "triage"})
-            return _result(ctx, _say(VERIFY_MILD_OFFLINE, ctx.lang), "fallback")
-        return fallback_turn(ctx, text)
-    try:
-        return _groq_turn(ctx, text, history, (patient.name or "there").split()[0])
-    except Exception as e:  # network, auth, model errors — the page must still work
-        logger.warning("Groq voice turn failed, using fallback: %s", e)
-        ctx.db.rollback()
-        if _has_emergency(ctx):
-            return _result(ctx, _say(EMERGENCY_REPLY, lang), "assistant")
-        if ctx.actions:  # something already happened this turn; don't repeat it
-            return _result(ctx, _say(TOOL_LOOP_REPLY, lang), "assistant")
-        return fallback_turn(ctx, text)
+    if is_available():
+        try:
+            return _groq_turn(ctx, text, history, (patient.name or "there").split()[0])
+        except Exception as e:  # network, auth, model errors — the page must still work
+            logger.warning("Groq voice turn failed, using the offline safety net: %s", e)
+            ctx.db.rollback()
+            if _has_emergency(ctx):
+                return _result(ctx, _say(EMERGENCY_REPLY, lang), "assistant")
+            if ctx.actions:  # something already happened this turn; don't repeat it
+                return _result(ctx, _say(TOOL_LOOP_REPLY, lang), "assistant")
+    return _offline_turn(ctx, text)

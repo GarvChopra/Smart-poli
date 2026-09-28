@@ -89,15 +89,15 @@ def _reset_rate_limit():
 
 # ---------------------------------------------------------------- tests
 
-def test_red_flag_is_emergency_without_calling_groq(monkeypatch):
+def test_if_groq_fails_the_safety_net_still_gives_help(monkeypatch):
     calls = []
-    install_fake_groq(monkeypatch, [], calls)
+    install_fake_groq(monkeypatch, [RuntimeError("groq down")], calls)
     with TestClient(app) as client:
         pid, _ = _setup(client)
         r = _turn(client, pid, "papa behosh ho gaye")
         assert r.status_code == 200, r.text
         body = r.json()
-    assert calls == []
+    assert len(calls) == 1  # Groq was tried first
     assert body["actions"][0]["type"] == "emergency"
     assert "112" in body["reply"]
     db = SessionLocal()

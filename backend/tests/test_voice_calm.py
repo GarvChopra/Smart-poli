@@ -76,41 +76,115 @@ def test_past_events_are_not_immediate():
     assert not scan_red_flags("pichle saal mujhe daura pada tha")["immediate"]
 
 
-# ---------------------------------------------------------------- calm verification turn
+# ---------------------------------------------------------------- with Groq: Groq understands, rules decide
 
-def test_breathing_worry_gets_one_calm_question_not_an_emergency():
+BREATHING_STATE = {"symptom": {"ids": ["breathlessness"], "labels": ["saans ki dikkat"], "answers": {},
+                               "asked": ["cannot_speak_full_sentence", "blue_lips", "at_rest"]}}
+
+
+def test_with_groq_worrying_words_go_to_groq_not_an_alarm(monkeypatch):
+    calls = []
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"symptom_ids": ["breathlessness"]})]),
+            _msg(content="Abhi saans ki dikkat halki hai ya itni ki poora sentence bolna mushkil ho?"),
+        ], calls)
+        body = _turn(client, pid, "mere ko saans lene mein bahut dikkat ho rahi hai main kya karun")
+    assert calls, "Groq must handle the conversation"
+    assert not any(a["type"] == "emergency" for a in body["actions"])
+    assert body["reply"].startswith("Abhi saans")
+    assert _checks(pid) == []
+
+
+def test_the_real_phone_answer_is_understood_by_groq_as_mild(monkeypatch):
+    """'Nahin itni jyada nahin hai… thodi bahut hi hai' — Groq records 'no',
+    the rules see no emergency, nothing alarming is shown."""
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"answers": {"cannot_speak_full_sentence": False}})]),
+            _msg(content="Theek hai. Kya baithe-baithe bhi saans phoolti hai?"),
+        ])
+        body = _turn(client, pid, "Nahin Itni Jyada nahin hai abhi main thodi bahut hi hai Jyada Nahin Hai",
+                     state=BREATHING_STATE)
+    assert not any(a["type"] == "emergency" for a in body["actions"])
+    assert body["state"]["symptom"]["answers"]["cannot_speak_full_sentence"] is False
+
+
+def test_severe_answer_escalates_only_through_the_rules(monkeypatch):
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"answers": {"cannot_speak_full_sentence": True}})]),
+        ])
+        body = _turn(client, pid, "haan, poora sentence nahi bol pa raha", state=BREATHING_STATE)
+    assert body["actions"][-1]["type"] == "emergency"
+    assert _checks(pid)[-1].severity == "EMERGENCY"
+
+
+def test_groq_reports_unmistakable_immediate_risk(monkeypatch):
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("report_immediate_risk", {"category": "unconscious",
+                                                             "patient_words": "papa behosh ho gaye"})]),
+        ])
+        body = _turn(client, pid, "papa behosh ho gaye hain")
+    assert body["actions"][-1]["type"] == "emergency"
+    assert _checks(pid)[-1].severity == "EMERGENCY"
+
+
+def test_immediate_risk_only_accepts_listed_categories(monkeypatch):
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("report_immediate_risk", {"category": "mild headache", "patient_words": "x"})]),
+            _msg(content="Theek hai, kab se?"),
+        ])
+        body = _turn(client, pid, "halka sa sir dard")
+    assert not any(a["type"] == "emergency" for a in body["actions"])
+    assert _checks(pid) == []
+
+
+def test_groq_records_recheck_status(monkeypatch):
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("record_recheck", {"status": "better"})]),
+            _msg(content="Achha laga sunkar."),
+        ])
+        body = _turn(client, pid, "ab pehle se kaafi aaram hai", state=_with_recheck(client, pid))
+    assert "recheck" not in body["state"]
+    assert body["reply"] == "Achha laga sunkar."
+
+
+# ---------------------------------------------------------------- without Groq: simple safety net
+
+def test_offline_breathing_worry_gets_one_calm_question_not_an_emergency():
     with TestClient(app) as client:
         _, pid = _patient(client)
         body = _turn(client, pid, "Mujhe saans lene mein thodi dikkat ho rahi hai")
     assert not any(a["type"] == "emergency" for a in body["actions"])
     assert "poora sentence" in body["reply"]
-    assert body["actions"][0]["type"] == "calm_check"
     assert body["state"]["symptom"]["ids"] == ["breathlessness"]
-    assert "cannot_speak_full_sentence" in body["state"]["symptom"]["asked"]
     assert _checks(pid) == []
 
 
-def test_verification_answer_mild_continues_calmly():
+def test_offline_answer_is_never_guessed_from_keywords():
+    """No AI to understand the reply → nothing is inferred from words; the
+    patient is taken to the symptom-check screen to answer there."""
     with TestClient(app) as client:
         _, pid = _patient(client)
         first = _turn(client, pid, "Mujhe saans lene mein thodi dikkat ho rahi hai")
-        body = _turn(client, pid, "Nahi, halki hai, main bol pa raha hoon", state=first["state"])
+        body = _turn(client, pid, "Nahin Itni Jyada nahin hai abhi main thodi bahut hi hai Jyada Nahin Hai",
+                     state=first["state"])
     assert not any(a["type"] == "emergency" for a in body["actions"])
-    assert body["state"]["symptom"]["answers"]["cannot_speak_full_sentence"] is False
+    assert {"type": "navigate", "screen": "triage"} in body["actions"]
+    assert _checks(pid) == []
 
 
-def test_verification_answer_severe_escalates_through_rules():
-    with TestClient(app) as client:
-        _, pid = _patient(client)
-        first = _turn(client, pid, "Mujhe saans lene mein thodi dikkat ho rahi hai")
-        body = _turn(client, pid, "Haan, bahut zyada, sentence poora nahi bol pa raha", state=first["state"])
-    assert body["actions"][-1]["type"] == "emergency"
-    checks = _checks(pid)
-    assert checks[-1].severity == "EMERGENCY"
-    assert "Too breathless" in checks[-1].reasons or "breathless" in checks[-1].reasons.lower()
-
-
-def test_immediate_risk_still_gets_help_straight_away():
+def test_offline_immediate_risk_still_gets_help():
     with TestClient(app) as client:
         _, pid = _patient(client)
         body = _turn(client, pid, "papa behosh ho gaye hain")
@@ -272,3 +346,23 @@ def test_reply_says_which_language_it_is_in():
             "text": "meri agli dawai kab hai", "lang": "en",
             "client_time": datetime.now().astimezone().isoformat(), "history": [], "state": {}}).json()
     assert r["lang"] == "hi"
+
+
+def test_care_card_shows_only_sourced_steps_whatever_groq_says(monkeypatch):
+    """Groq's words can't add a remedy to the card: the card's steps come
+    only from self_care.json (each with a source) and the patient's prescription."""
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        state = {"symptom": {"ids": ["headache"], "answers": {},
+                             "asked": ["worst_ever_sudden", "confusion", "fever_and_stiff_neck", "vision_changes"]}}
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"answers": {
+                "worst_ever_sudden": False, "confusion": False, "fever_and_stiff_neck": False, "vision_changes": False}}),
+                _call("finish_symptom_check", {}, "c2")]),
+            _msg(content="Take two paracetamol and use a nebulizer."),
+        ])
+        body = _turn(client, pid, "nahi, kuch bhi nahi", state=state)
+    card = next(a for a in body["actions"] if a["type"] == "triage_result")
+    steps = card["guidance"]["general"]
+    assert steps and all(s["source_url"].startswith("https://") for s in steps)
+    assert not any("paracetamol" in s["text"].lower() or "nebuli" in s["text"].lower() for s in steps)

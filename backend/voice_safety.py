@@ -1,7 +1,9 @@
 """
 SmartPoli — deterministic safety check on the patient's own words.
 
-Runs on every voice turn before any LLM call. It never decides a severity
+Used ONLY when Groq is unavailable (no key, or Groq failed) — with Groq,
+Groq understands the patient and reports immediate risk itself
+(voice_tools.report_immediate_risk). It never decides a severity
 from a single worrying word. Two tiers:
 
 - IMMEDIATE: unmistakable, happening-now danger — unconscious, a seizure,
@@ -82,11 +84,6 @@ VERIFY_QUESTION = {
     },
 }
 
-# Answers to the verification question that are clear enough to record
-# without the LLM: "bahut zyada" is a yes, "halki hai, bol pa raha hoon" a no.
-_SEVERE = re.compile(r"\b(bahut|bohot|zyada|jyada|bilkul|very|really bad|severe|haan|han|yes|nahi bol|bol nahi|can'?t (speak|talk)|not able)\b", re.I)
-_MILD = re.compile(r"\b(halki|halka|thodi|thoda|mild|slight|bol pa raha|bol pa rahi|bol sakta|bol sakti|can (speak|talk)|ruk gaya|stopped|no|not really)\b", re.I)
-
 _PAST = re.compile(r"\b(last (year|month|week)|years? ago|months? ago|pichle (saal|mahine|hafte)|saal pehle|"
                    r"mahine pehle|in the past|as a child|bachpan)\b", re.I)
 
@@ -112,17 +109,3 @@ def scan_red_flags(text: str) -> dict:
                 out["verify"].append({"symptom": sid, "questions": qs, "reason": reason})
                 break
     return out
-
-
-def interpret_verification_answer(text: str):
-    """True (severe), False (mild) or None (unclear — let the conversation ask again)."""
-    severe, mild = bool(_SEVERE.search(text or "")), bool(_MILD.search(text or ""))
-    if severe and not mild:
-        return True
-    if mild and not severe:
-        return False
-    # "haan, bahut zyada, poora sentence nahi bol pa raha" has both kinds of words:
-    # an explicit intensity word decides it.
-    if re.search(r"\b(bahut|bohot|zyada|jyada|bilkul|very|severe|nahi bol|bol nahi)\b", text or "", re.I):
-        return True
-    return None

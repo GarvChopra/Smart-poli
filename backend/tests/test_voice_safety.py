@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from voice_safety import scan_red_flags, interpret_verification_answer  # noqa: E402
+from voice_safety import scan_red_flags  # noqa: E402
 
 
 @pytest.mark.parametrize("text", [
@@ -33,14 +33,3 @@ def test_returns_human_readable_reasons():
     flags = scan_red_flags("saans nahi aa rahi aur behosh ho raha hoon")
     assert "Loss of consciousness" in flags["immediate"]
     assert flags["verify"][0]["reason"] == "Breathing difficulty"
-
-
-@pytest.mark.parametrize("text,expected", [
-    ("Nahi, halki hai, main bol pa raha hoon", False),
-    ("thodi si hai", False),
-    ("Haan, bahut zyada, sentence poora nahi bol pa raha", True),
-    ("yes it's really bad", True),
-    ("pata nahi", None),
-])
-def test_verification_answers(text, expected):
-    assert interpret_verification_answer(text) is expected

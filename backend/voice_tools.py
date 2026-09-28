@@ -375,6 +375,66 @@ def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None
                          "No SmartPoli rule covers this symptom; call finish_symptom_check when you've understood it."}
 
 
+IMMEDIATE_RISK_CATEGORIES = {
+    "unconscious": "Loss of consciousness",
+    "seizure": "Seizure happening now",
+    "self_harm": "Thoughts of self-harm",
+    "overdose": "Possible overdose",
+    "stroke_signs": "Signs of stroke",
+    "cannot_breathe_or_speak": "Gasping, choking or too breathless to speak",
+}
+
+
+def report_immediate_risk(ctx: ToolContext, category=None, patient_words=None) -> dict:
+    """Groq recognises the danger; the category must be one of a fixed list,
+    and this can only ever raise severity."""
+    reason = IMMEDIATE_RISK_CATEGORIES.get(category)
+    if not reason:
+        return _err("Not an immediate-risk category. Continue the symptom check instead.")
+    sym = clean_symptom_state(ctx.state.get("symptom"))
+    words = str(patient_words or "")[:200]
+    result, check = record_symptom_check(
+        ctx.db, ctx.patient_id, ctx.actor, RULESET, sym["ids"], sym["answers"],
+        extra_reasons=[f"{reason} (patient said: \"{words}\")"], force_emergency=True, source="voice")
+    ctx.state.pop("symptom", None)
+    ctx.state.pop("recheck", None)
+    ctx.actions.append({"type": "emergency", "severity": "EMERGENCY", "reasons": result["reasons"],
+                        "action": result["action"], "route": result["route"], "check_id": check.id})
+    return {"ok": True, "severity": "EMERGENCY"}
+
+
+def record_recheck(ctx: ToolContext, status=None) -> dict:
+    """better → keep monitoring; same → medical review (MODERATE floor, the
+    rules can only raise it); worse → the rules re-assess from the start."""
+    if status not in ("better", "same", "worse"):
+        return _err("status must be better, same or worse.")
+    recheck = ctx.state.pop("recheck", None)
+    if not isinstance(recheck, dict):
+        return _err("There is no recheck waiting.")
+    ids = [s for s in _as_list(recheck.get("symptom_ids")) if isinstance(s, str) and s in RULESET["symptoms"]]
+    labels = [s[:60] for s in _as_list(recheck.get("labels")) if isinstance(s, str)][:5]
+    ctx.actions.append({"type": "recheck_done", "status": status})
+    if status == "better":
+        return {"ok": True, "next_step": "Say you're glad; they should keep resting and tell you if it comes back or gets worse."}
+    if status == "same":
+        result, check = record_symptom_check(ctx.db, ctx.patient_id, ctx.actor, RULESET, ids, {},
+                                             extra_reasons=["Not improving when rechecked"],
+                                             min_severity="MODERATE", source="voice-recheck")
+        ctx.actions.append({"type": "triage_result", "severity": result["severity"], "reasons": result["reasons"],
+                            "action": result["action"], "route": result["route"], "check_id": check.id,
+                            "guidance": None})
+        return {"ok": True, "severity": result["severity"],
+                "next_step": "It isn't improving: calmly suggest seeing a doctor in the next day or two."}
+    sym = clean_symptom_state({"ids": ids, "labels": labels})
+    sym["floor"] = "MODERATE"
+    questions = open_questions(sym)
+    mark_asked(sym, questions)
+    ctx.state["symptom"] = sym
+    return {"ok": True, "questions_to_ask": questions,
+            "next_step": "It got worse: say you'll ask a few questions again, then ask them one at a time "
+                         "(most safety-critical first) and finish_symptom_check."}
+
+
 def finish_symptom_check(ctx: ToolContext) -> dict:
     if "symptom" not in ctx.state:
         return _err("No symptom check in progress. Call update_symptom_check first.")
@@ -399,6 +459,7 @@ HANDLERS: dict[str, Callable[..., dict]] = {
     "open_screen": open_screen, "decode_prescription": decode_prescription,
     "confirm_prescription": confirm_prescription, "update_symptom_check": update_symptom_check,
     "finish_symptom_check": finish_symptom_check,
+    "report_immediate_risk": report_immediate_risk, "record_recheck": record_recheck,
 }
 
 
@@ -438,6 +499,13 @@ TOOLS = [
          "symptom_labels": {"type": "array", "items": {"type": "string"}},
          "answers": {"type": "object", "additionalProperties": {"type": "boolean"}}}),
     _fn("finish_symptom_check", "Ask SmartPoli's clinical rules for the result once the questions are answered."),
+    _fn("report_immediate_risk",
+        "ONLY for something unmistakably life-threatening happening RIGHT NOW (not in the past, not a worry, "
+        "not a symptom that still needs checking). Shows the patient how to get help immediately.",
+        {"category": {"type": "string", "enum": list(IMMEDIATE_RISK_CATEGORIES)},
+         "patient_words": {"type": "string"}}, ["category", "patient_words"]),
+    _fn("record_recheck", "Record how the patient feels when you check back after self-care: better, same or worse.",
+        {"status": {"type": "string", "enum": ["better", "same", "worse"]}}, ["status"]),
 ]
 
 
