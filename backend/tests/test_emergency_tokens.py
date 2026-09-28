@@ -85,3 +85,53 @@ def test_card_data_has_path_and_last_updated_and_is_idempotent():
             assert emergency_card_data(db, pid)["last_updated"] > first_updated
         finally:
             db.close()
+
+
+def test_old_integer_url_is_gone():
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = client.post("/patients", json={"name": "Old Url", "allergies": "Penicillin"}).json()["id"]
+        client.headers.pop("Authorization")
+        r = client.get(f"/emergency/{pid}")
+        assert r.status_code == 404
+        assert "Penicillin" not in r.text
+        assert "Old Url" not in r.text
+
+
+def test_revoke_kills_old_link_and_qr_uses_new_one():
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = client.post("/patients", json={"name": "Revoke Me", "allergies": "Latex"}).json()["id"]
+        old_path = client.get(f"/patients/{pid}/emergency-card").json()["card_path"]
+        assert client.get(old_path).status_code == 200
+
+        r = client.post(f"/patients/{pid}/emergency-card/revoke")
+        assert r.status_code == 200
+        new_path = r.json()["card_path"]
+        assert new_path != old_path
+
+        r = client.get(old_path)
+        assert r.status_code == 404
+        assert "Latex" not in r.text
+        assert "Revoke Me" not in r.text
+        assert "Latex" in client.get(new_path).text
+        assert client.get(f"/patients/{pid}/emergency-card").json()["card_path"] == new_path
+
+
+def test_token_lookup_is_exact():
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = client.post("/patients", json={"name": "Exact"}).json()["id"]
+        path = client.get(f"/patients/{pid}/emergency-card").json()["card_path"]
+        token = path.rsplit("/", 1)[1]
+        assert client.get(f"/emergency/{token[:-1]}").status_code == 404
+        assert client.get(f"/emergency/{token.swapcase()}").status_code == 404
+
+
+def test_revoke_requires_write_access():
+    with TestClient(app) as owner:
+        register_and_login(owner)
+        pid = owner.post("/patients", json={"name": "Not Yours"}).json()["id"]
+    with TestClient(app) as other:
+        register_and_login(other)
+        assert other.post(f"/patients/{pid}/emergency-card/revoke").status_code == 403

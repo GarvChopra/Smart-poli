@@ -31,8 +31,12 @@ def test_emergency_card_data_and_public_page():
         assert data["has_emergency_triage_history"] is False
 
         # Public HTML page renders without auth and includes the allergy.
-        r = client.get(f"/emergency/{patient_id}")
+        card_path = data["card_path"]
+        r = client.get(card_path)
         assert r.status_code == 200
+        assert r.headers["referrer-policy"] == "no-referrer"
+        assert 'name="robots" content="noindex"' in r.text
+        assert "Last updated" in r.text
         assert "Penicillin" in r.text
         assert "Son, 9999999999" in r.text
 
@@ -57,7 +61,7 @@ def test_emergency_flag_appears_after_emergency_triage():
         r = client.get(f"/patients/{patient_id}/emergency-card")
         assert r.json()["has_emergency_triage_history"] is True
 
-        r = client.get(f"/emergency/{patient_id}")
+        r = client.get(client.get(f"/patients/{patient_id}/emergency-card").json()["card_path"])
         assert "EMERGENCY" in r.text
 
 

@@ -66,6 +66,7 @@ from auth import (
 from nudges import compute_nudges
 from safety import build_safety_center
 from ics_export import build_ics
+from emergency_tokens import patient_id_for_token, rotate_token
 import auth_router
 import caregiver_router
 import doctor_router
@@ -743,7 +744,7 @@ def patient_report_pdf(patient_id: int, user: User = Depends(require_patient_rea
 # _emergency_card_data (imported above from serializers.py as
 # emergency_card_data) is used two ways: the authenticated JSON endpoint
 # below requires patient/caregiver/doctor read access like everything else,
-# but /emergency/{patient_id} — what the printed QR code actually opens —
+# but /emergency/{token} — what the printed QR code actually opens —
 # is DELIBERATELY left with no login requirement. A stranger finding an
 # unconscious patient does not have that patient's password; the whole
 # point of an emergency card is that it works without one (CLAUDE.md
@@ -762,18 +763,44 @@ def emergency_card_qr(patient_id: int, request: Request, user: User = Depends(re
                        db: Session = Depends(get_db_session)):
     get_patient_or_404(db, patient_id)
     import qrcode
-    url = str(request.base_url).rstrip("/") + f"/emergency/{patient_id}"
+    url = str(request.base_url).rstrip("/") + _emergency_card_data(db, patient_id)["card_path"]
     img = qrcode.make(url, border=2)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@app.get("/emergency/{patient_id}", response_class=HTMLResponse, include_in_schema=False)
-def emergency_card_page(patient_id: int, db: Session = Depends(get_db_session)):
-    """Public, standalone, no-login card — what a QR scan opens. Deliberately
-    plain server-rendered HTML, not the SPA, so it works even on a phone
-    browser with nothing cached and renders instantly."""
+@app.post("/patients/{patient_id}/emergency-card/revoke")
+def revoke_emergency_card(patient_id: int, user: User = Depends(require_patient_write_access),
+                          db: Session = Depends(get_db_session)):
+    """Lost phone or printed card: the old QR/link stops working immediately."""
+    get_patient_or_404(db, patient_id)
+    token = rotate_token(db, patient_id)
+    log_audit(db, patient_id, f"patient:{user.id}", "emergency_card_revoked", "token rotated")
+    return {"card_path": f"/emergency/{token}"}
+
+
+_INACTIVE_CARD_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Emergency card not active</title></head>
+<body style="font-family:system-ui,sans-serif;padding:24px;max-width:480px;">
+<h1 style="color:#AE2B22;font-size:22px;">This emergency card is no longer active</h1>
+<p>The link may have been replaced by a newer card. In an emergency, call 112.</p>
+</body></html>"""
+
+
+@app.get("/emergency/{token}", response_class=HTMLResponse, include_in_schema=False)
+def emergency_card_page(token: str, db: Session = Depends(get_db_session)):
+    """Public, standalone, no-login card — what a QR scan opens. Addressed by
+    a random revocable token (emergency_tokens.py), never the patient id.
+    Deliberately plain server-rendered HTML, not the SPA, so it works even on
+    a phone browser with nothing cached and renders instantly."""
+    patient_id = patient_id_for_token(db, token)
+    if patient_id is None:
+        return HTMLResponse(content=_INACTIVE_CARD_HTML, status_code=404,
+                            headers={"Referrer-Policy": "no-referrer"})
     data = _emergency_card_data(db, patient_id)
     p = data["patient"]
 
@@ -796,6 +823,7 @@ def emergency_card_page(patient_id: int, db: Session = Depends(get_db_session)):
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
 <title>Emergency card — {p['name']}</title>
 <style>
   body {{ font-family: -apple-system, system-ui, sans-serif; background: #fff; color: #1a1a1a; margin: 0; padding: 24px; max-width: 480px; }}
@@ -831,7 +859,7 @@ def emergency_card_page(patient_id: int, db: Session = Depends(get_db_session)):
     <h2>As-needed medicines</h2>
     {rows(data['as_needed_medicines'], 'None on file.')}
   </section>
-  <footer>{data['disclaimer']}</footer>
+  <footer>Last updated {datetime.fromisoformat(data['last_updated']).strftime('%d %b %Y, %I:%M %p')} UTC<br>{data['disclaimer']}</footer>
   <script>
     // Offline emergency fallback (Part 16 of the brief): this page registers
     // its own tiny service worker scoped ONLY to itself and the QR image, so
@@ -850,4 +878,4 @@ def emergency_card_page(patient_id: int, db: Session = Depends(get_db_session)):
     }}
   </script>
 </body></html>"""
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html, headers={"Referrer-Policy": "no-referrer"})
