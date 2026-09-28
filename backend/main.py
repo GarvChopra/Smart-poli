@@ -45,6 +45,7 @@ from scheduler import (
 from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
 import voice_assistant
+import voice_stt
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import run_ocr_on_image, OCRUnavailable
@@ -645,7 +646,29 @@ def delete_voice_history(patient_id: int, user: User = Depends(require_patient_w
 
 @app.get("/voice/available")
 def voice_available(user: User = Depends(get_current_user)):
-    return {"available": voice_assistant.is_available()}
+    return {"available": voice_assistant.is_available(), "stt": voice_stt.is_available()}
+
+
+@app.post("/patients/{patient_id}/voice/transcribe")
+async def voice_transcribe(patient_id: int, audio: UploadFile = File(...), lang: str = Form(""),
+                           user: User = Depends(require_patient_write_access)):
+    """One recorded utterance → text, via Groq Whisper (voice_stt.py)."""
+    content_type = (audio.content_type or "").split(";")[0].strip().lower()
+    if content_type not in voice_stt.ALLOWED_TYPES:
+        raise HTTPException(415, "Send the recording as audio.")
+    data = await audio.read(voice_stt.MAX_AUDIO_BYTES + 1)
+    if len(data) > voice_stt.MAX_AUDIO_BYTES:
+        raise HTTPException(413, "That recording is too long.")
+    if not voice_assistant.check_rate_limit(user.id):
+        raise HTTPException(429, "Too many voice requests. Wait a moment and try again.")
+    try:
+        text = voice_stt.transcribe(data, audio.filename or "utterance.wav", lang)
+    except voice_stt.TranscriptionUnavailable:
+        raise HTTPException(503, "Speech recognition service is not configured.")
+    except Exception as e:
+        logger.warning("Whisper transcription failed: %s", e)
+        raise HTTPException(502, "Couldn't transcribe that — please say it again.")
+    return {"text": text}
 
 
 @app.post("/patients/{patient_id}/voice/turn")

@@ -2,13 +2,19 @@
 //
 // One loop, no tapping:   listening → thinking → speaking → listening …
 //
-// - Streaming speech-to-text (browser SpeechRecognition, interim results);
-//   a short pause after the patient stops talking ends their turn, so
-//   "sir dard hai … aur chakkar bhi" arrives as ONE message.
+// - Speech-to-text via a pluggable `recognition` object — Groq Whisper
+//   (voice-stt.js, one clean recording per utterance) when available, else the
+//   browser's own SpeechRecognition; a short pause after the patient stops
+//   talking ends their turn, so "sir dard hai … aur chakkar bhi" arrives as
+//   ONE message, never repeated.
 // - Replies are spoken sentence by sentence, so speech starts immediately.
-// - Barge-in: the mic stays on while SmartPoli speaks; if the patient says
-//   something that isn't SmartPoli's own voice echoing back, speech stops at
-//   once and SmartPoli listens.
+// - Half duplex by default: the mic is held OFF for the WHOLE time SmartPoli
+//   is thinking (waiting for the reply) AND speaking — not just while
+//   speaking — so it can never record its own voice, and a stray noise
+//   picked up while thinking can't resolve later and falsely interrupt the
+//   reply. Tap the orb to interrupt; it listens again immediately.
+//   (Full duplex — listen while speaking, barge in by voice — stays available
+//   for recognisers where that's safe, but the page defaults to half.)
 // - The recogniser stopping on its own (Chrome does after silence) is restarted
 //   while the conversation is on.
 // - An emergency reply pauses listening so the help card has full attention.
@@ -25,6 +31,28 @@
 
   function words(text) {
     return (text || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+  }
+
+  /** Join what was heard before with a new result WITHOUT repeating words.
+   * Android Chrome re-sends the whole sentence so far as each new result
+   * ("hello" → "hello to" → "hello to mujhe"), so appending would snowball. */
+  function mergeTranscript(prev, next) {
+    const p = (prev || '').trim();
+    const n = (next || '').trim();
+    if (!p) return n;
+    if (!n) return p;
+    const pl = p.toLowerCase();
+    const nl = n.toLowerCase();
+    if (nl.includes(pl)) return n;   // the new result already contains everything so far
+    if (pl.includes(nl)) return p;   // a repeat of something already heard
+    const pw = p.split(/\s+/);
+    const nw = n.split(/\s+/);
+    for (let k = Math.min(pw.length, nw.length); k > 0; k--) {   // overlapping edge
+      if (pw.slice(-k).join(' ').toLowerCase() === nw.slice(0, k).join(' ').toLowerCase()) {
+        return pw.concat(nw.slice(k)).join(' ');
+      }
+    }
+    return `${p} ${n}`;
   }
 
   /** Is `heard` just SmartPoli's own `spoken` words coming back through the mic? */
@@ -52,6 +80,11 @@
       this.setTimer = opts.setTimer || ((fn, ms) => setTimeout(fn, ms));
       this.clearTimer = opts.clearTimer || ((t) => clearTimeout(t));
       this.now = opts.now || (() => Date.now());
+      // 'half' (default): the mic is off while SmartPoli speaks, so it never hears itself
+      // through the speaker; tap to interrupt. 'full': listen while speaking (barge-in by voice).
+      this.duplex = opts.duplex || 'half';
+      this.resumeDelayMs = opts.resumeDelayMs ?? 350;
+      this.micHeld = false;
 
       this.state = 'idle';
       this.active = false;      // the conversation is on
@@ -69,7 +102,7 @@
       this.rec.onstart = () => { this.running = true; };
       this.rec.onend = () => {
         this.running = false;
-        if (this.active && !this.paused) this._listen();   // keep the mic open
+        if (this.active && !this.paused && !this.micHeld) this._listen();   // keep the mic open
       };
       this.rec.onerror = () => {};
       this.rec.onresult = (e) => this._onResult(e);
@@ -100,6 +133,7 @@
     resume() {
       this.paused = false;
       this.active = true;
+      this.micHeld = false;
       this._setState('listening');
       this._listen();
     }
@@ -116,7 +150,7 @@
 
     // ---- listening
     _listen() {
-      if (this.running || this.paused || !this.active) return;
+      if (this.running || this.paused || !this.active || this.micHeld) return;
       try { this.rec.start(); } catch (e) { /* already starting */ }
     }
 
@@ -144,8 +178,10 @@
         return;  // a late echo of the reply that just finished
       }
 
-      if (finalText.trim()) this.buffer = (this.buffer + ' ' + finalText).trim();
-      this.onHeard((this.buffer + ' ' + interim).trim(), !interim.trim());
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) this.buffer = mergeTranscript(this.buffer, e.results[i][0].transcript);
+      }
+      this.onHeard(mergeTranscript(this.buffer, interim), !interim.trim());
       this.clearTimer(this.endTimer);
       this.endTimer = this.setTimer(() => this._commit(), this.endOfSpeechMs);
     }
@@ -162,6 +198,13 @@
     async _turn(text, extra) {
       this.busy = true;
       this._setState('thinking');
+      if (this.duplex === 'half') {
+        // Held from here (not just once speech starts) so nothing recorded
+        // while waiting for the reply can resolve later and be mistaken for
+        // the patient interrupting SmartPoli's answer.
+        this.micHeld = true;
+        this._stopListening();
+      }
       let res;
       try {
         res = await this.send(text, extra);
@@ -188,7 +231,13 @@
       this.lang = lang;
       if (!this.queue.length) return this._doneSpeaking();
       this._setState('speaking');
-      this._listen();
+      if (this.duplex === 'half') {
+        // Phones' speakers feed straight back into the mic: don't listen while speaking.
+        this.micHeld = true;
+        this._stopListening();
+      } else {
+        this._listen();
+      }
       this._speakNext();
     }
 
@@ -209,7 +258,15 @@
       this.lastSpokenAt = this.now();
       if (this.lastReply) { const res = this.lastReply; this.lastReply = null; this.onDoneSpeaking(res); }
       if (this.pauseAfterSpeech) { this.pauseAfterSpeech = false; return this.pause(); }
-      if (this.active && !this.paused) { this._setState('listening'); this._listen(); }
+      if (this.active && !this.paused) {
+        this._setState('listening');
+        if (this.duplex === 'half') {
+          // a short gap so the last word from the speaker isn't caught
+          this.setTimer(() => { this.micHeld = false; this._listen(); }, this.resumeDelayMs);
+        } else {
+          this._listen();
+        }
+      }
     }
 
     _stopSpeaking() {
@@ -218,11 +275,16 @@
       if (this.synth.speaking) this.synth.cancel();
     }
 
+    /** Stop talking and listen now (speech over SmartPoli in full duplex, or a tap on the orb). */
     _bargeIn() {
       this._stopSpeaking();
       this.lastSpokenAt = this.now();
+      this.micHeld = false;
       this._setState('listening');
+      this._listen();
     }
+
+    interrupt() { if (this.state === 'speaking') this._bargeIn(); }
 
     _setState(s) {
       if (this.state === s) return;
@@ -231,7 +293,7 @@
     }
   }
 
-  const api = { VoiceEngine, splitSentences, isEcho };
+  const api = { VoiceEngine, splitSentences, isEcho, mergeTranscript };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else Object.assign(root, api);
 })(typeof window !== 'undefined' ? window : globalThis);

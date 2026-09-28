@@ -34,7 +34,7 @@ const TEXT = {
     micBlocked: 'Microphone is blocked. Allow it in your browser settings, then tap to start.',
     basic: 'Basic mode: I can help with your medicines. Full conversation needs the AI service switched on.',
     privacy: 'To understand you, your words are sent to our AI service (Groq). Only your own SmartPoli data is used.',
-    trySaying: 'Try saying', tomorrow: 'Tomorrow', noneLeft: 'None left', doseWord: 'dose', dosesWord: 'doses', takenWord: 'taken', missedWord: 'missed',
+    trySaying: 'Try saying', transcribing: 'Got it — writing down what you said…', tomorrow: 'Tomorrow', noneLeft: 'None left', doseWord: 'dose', dosesWord: 'doses', takenWord: 'taken', missedWord: 'missed',
     tNext: 'Next dose', tLeft: 'Left today', tAdh: 'Adherence',
     ok: 'Got it', basedOn: 'Based on:', error: "I couldn't reach SmartPoli. Check your connection — I'm still listening.",
     slow: 'Too many requests — give me a moment.',
@@ -63,7 +63,7 @@ const TEXT = {
     micBlocked: 'Microphone band hai. Browser settings mein allow kijiye, phir dabaiye.',
     basic: 'Basic mode: main dawaiyon mein madad kar sakta hoon. Poori baatcheet ke liye AI service chahiye.',
     privacy: 'Aapki baat samajhne ke liye aapke shabd hamari AI service (Groq) ko bheje jaate hain. Sirf aapka SmartPoli data use hota hai.',
-    trySaying: 'Aise boliye', tomorrow: 'Kal', noneLeft: 'Koi nahi', doseWord: 'dawai', dosesWord: 'dawaiyan', takenWord: 'li', missedWord: 'chhooti',
+    trySaying: 'Aise boliye', transcribing: 'Suna — likh raha hoon…', tomorrow: 'Kal', noneLeft: 'Koi nahi', doseWord: 'dawai', dosesWord: 'dawaiyan', takenWord: 'li', missedWord: 'chhooti',
     tNext: 'Agli dawai', tLeft: 'Aaj baaki', tAdh: 'Niyamitata',
     ok: 'Theek hai', basedOn: 'Jaankari ka srot:', error: 'SmartPoli tak nahi pahunch paaye. Internet check kijiye — main sun raha hoon.',
     slow: 'Bahut saari requests — thoda rukiye.',
@@ -113,7 +113,8 @@ function applyLanguage() {
   if ($('tryLine').textContent) rotateTry();
   document.querySelectorAll('.vx-lang button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === VX.lang)));
   if (VX.engine) {
-    VX.engine.rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
+    VX.engine.rec.lang = window.WhisperRecognizer && VX.engine.rec instanceof WhisperRecognizer
+      ? VX.lang : (VX.lang === 'hi' ? 'hi-IN' : 'en-IN');
     showState(VX.engine.state);
   }
 }
@@ -397,13 +398,41 @@ function pickVoice(lang, text) {
   return { lang: voice ? norm(voice) : want, voice };
 }
 
+/** Send one recorded utterance to Groq Whisper (via the server) and get the text back. */
+async function uploadUtterance(blob, lang) {
+  const auth = getAuth();
+  const form = new FormData();
+  form.append('audio', blob, 'utterance.wav');
+  form.append('lang', lang || VX.lang);
+  const res = await fetch(`/patients/${VX.patientId}/voice/transcribe`, {
+    method: 'POST', body: form, headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+  });
+  if (!res.ok) throw new Error(`transcribe ${res.status}`);
+  return (await res.json()).text || '';
+}
+
+function canRecord() {
+  return !!(navigator.mediaDevices?.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+}
+
 function createEngine() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return null;
-  const rec = new Recognition();
-  rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
-  rec.continuous = true;
-  rec.interimResults = true;
+  let rec;
+  let whisper = false;
+  if (VX.stt && canRecord()) {
+    // Whisper: much better at Hindi/Hinglish, and one utterance is sent once.
+    rec = new WhisperRecognizer({ upload: uploadUtterance, lang: VX.lang });
+    rec.onspeechend = () => showHeard(tx('transcribing'));
+    whisper = true;
+  } else {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return null;
+    rec = new Recognition();
+    rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
+    // Android Chrome's continuous mode re-sends the whole sentence as every result;
+    // one phrase per session is clean there, and the engine restarts listening by itself.
+    rec.continuous = !/Android/i.test(navigator.userAgent);
+    rec.interimResults = true;
+  }
   // Muted: the engine still runs the loop, the synth just stays silent.
   const synth = VX.muted ? silentSynth() : window.speechSynthesis;
   const engine = new VoiceEngine({
@@ -412,7 +441,9 @@ function createEngine() {
     onState: showState,
     onHeard: (text) => showHeard(text),
     voiceFor: pickVoice,
-    endOfSpeechMs: 1100,
+    // half duplex: the mic is off while SmartPoli speaks, so a phone speaker can't feed its voice back
+    duplex: 'half',
+    endOfSpeechMs: whisper ? 250 : 1100,   // Whisper already waited for the pause
   });
   rec.onerror = (e) => {
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
@@ -446,7 +477,7 @@ function onOrbTap() {
   const e = VX.engine;
   if (!e || e.state === 'idle') return startConversation();
   if (e.state === 'paused') return e.resume();
-  if (e.state === 'speaking') { e._bargeIn(); return; }  // tap = "stop talking, I'll speak"
+  if (e.state === 'speaking') { e.interrupt(); return; }  // tap = "stop talking, I'll speak"
   e.pause();
 }
 
@@ -504,7 +535,8 @@ async function boot() {
     if (VX.convState.recheck?.due_at) recheckCard({ due_at: VX.convState.recheck.due_at });
     const phone = (patients[0].emergency_contact || '').match(/\+?\d[\d\s-]{6,}\d/);
     VX.contactPhone = phone ? phone[0].replace(/[\s-]/g, '') : null;
-    const { available } = await apiFetch('GET', '/voice/available');
+    const { available, stt } = await apiFetch('GET', '/voice/available');
+    VX.stt = !!stt;
     if (!available) showNote(esc(tx('basic')));
     else if (store.get(STORE.noted) !== '1') {
       showNote(`<span>${esc(tx('privacy'))}</span><button type="button" id="noteOk">${esc(tx('ok'))}</button>`);

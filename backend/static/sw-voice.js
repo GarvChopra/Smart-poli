@@ -1,8 +1,8 @@
 // SmartPoli Voice — caches only the voice page's own shell so it opens fast
 // and installs as an app. Every other request (API, the main app) is left
 // to the network untouched.
-const CACHE = 'smartpoli-voice-v2';
-const SHELL = ['/static/voice.html', '/static/voice.css', '/static/voice.js', '/static/voice-engine.js', '/static/auth.js',
+const CACHE = 'smartpoli-voice-v3';
+const SHELL = ['/static/voice.html', '/static/voice.css', '/static/voice.js', '/static/voice-engine.js', '/static/voice-stt.js', '/static/auth.js',
   '/static/manifest.webmanifest', '/static/voice-icon.svg', '/static/voice-icon-192.png'];
 
 self.addEventListener('install', (e) => {

@@ -238,7 +238,7 @@ def test_voice_available(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with TestClient(app) as client:
         register_and_login(client)
-        assert client.get("/voice/available").json() == {"available": False}
+        assert client.get("/voice/available").json() == {"available": False, "stt": False}
 
 
 def test_short_voice_link_redirects():

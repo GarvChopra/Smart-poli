@@ -2,7 +2,16 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const { VoiceEngine, splitSentences, isEcho } = require(path.join(__dirname, '..', 'static', 'voice-engine.js'));
+const { VoiceEngine, splitSentences, isEcho, mergeTranscript } = require(path.join(__dirname, '..', 'static', 'voice-engine.js'));
+
+// ---- Android Chrome sends each result as the WHOLE sentence so far ----------------
+test('merging never repeats words that were already heard', () => {
+  assert.strictEqual(mergeTranscript('', 'हेलो तो'), 'हेलो तो');
+  assert.strictEqual(mergeTranscript('हेलो तो', 'हेलो तो मुझे'), 'हेलो तो मुझे');                 // cumulative
+  assert.strictEqual(mergeTranscript('mujhe saans lene', 'saans lene mein dikkat'), 'mujhe saans lene mein dikkat'); // overlap
+  assert.strictEqual(mergeTranscript('mujhe sir dard hai', 'aur chakkar bhi'), 'mujhe sir dard hai aur chakkar bhi'); // new words
+  assert.strictEqual(mergeTranscript('mujhe sir dard hai', 'sir dard'), 'mujhe sir dard hai');   // repeat of a part
+});
 
 // ---- fakes for the browser APIs -------------------------------------------------
 class FakeRecognition {
@@ -38,6 +47,7 @@ function makeEngine(opts = {}) {
     send: async (text) => { sent.push(text); return reply(text); },
     onState: (s) => states.push(s),
     endOfSpeechMs: 800,
+    duplex: opts.duplex || 'full',   // the original loop tests; half-duplex has its own tests below
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clearTimer: (t) => { if (t) t.cleared = true; },
   });
@@ -190,4 +200,64 @@ test('onDoneSpeaking fires after the reply has been heard', async () => {
   assert.deepStrictEqual(done, []);
   synth.finish();
   assert.deepStrictEqual(done, ['timeline']);
+});
+
+// ---- half duplex (the default on the page): it can't hear itself ---------------------
+test('half duplex: the mic is off while SmartPoli speaks, so its own voice is never recorded', async () => {
+  const { engine, rec, synth, sent, states, flushTimers } = makeEngine({ duplex: 'half' });
+  engine.start();
+  rec.say('mujhe sir dard hai', true);
+  flushTimers(); await tick(); await tick();
+  assert.strictEqual(states[states.length - 1], 'speaking');
+  assert.strictEqual(rec.running, false, 'mic must be off while speaking');
+  rec.end();                                   // a stray end event must not reopen the mic
+  assert.strictEqual(rec.running, false);
+  synth.finish(); synth.finish();
+  assert.strictEqual(rec.running, false, 'short gap before listening again');
+  flushTimers();
+  assert.strictEqual(rec.running, true, 'listening again after the gap');
+  assert.deepStrictEqual(sent, ['mujhe sir dard hai']);
+});
+
+test('half duplex: the mic is off while SmartPoli is thinking too, not just while speaking', async () => {
+  const { engine, rec, sent, flushTimers, setReply } = makeEngine({ duplex: 'half' });
+  let release;
+  setReply(() => new Promise((r) => { release = () => r({ reply: 'Theek hai.', lang: 'hi', actions: [] }); }));
+  engine.start();
+  rec.say('mujhe sir dard hai', true);
+  flushTimers(); await tick();
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(engine.state, 'thinking');
+  assert.strictEqual(rec.running, false, 'mic must already be off while waiting for the reply');
+  rec.end();   // a stray end/restart attempt while thinking must not reopen the mic
+  assert.strictEqual(rec.running, false);
+  release();
+  await tick(); await tick();
+  assert.strictEqual(engine.state, 'speaking');
+  assert.strictEqual(rec.running, false, 'still off once speaking starts');
+});
+
+test('half duplex: tapping to interrupt stops the speech and listens at once', async () => {
+  const { engine, rec, synth, states, flushTimers } = makeEngine({ duplex: 'half' });
+  engine.start();
+  rec.say('mujhe sir dard hai', true);
+  flushTimers(); await tick(); await tick();
+  engine.interrupt();
+  assert.strictEqual(synth.cancelled, 1);
+  assert.strictEqual(states[states.length - 1], 'listening');
+  assert.strictEqual(rec.running, true);
+});
+
+test('Android-style cumulative results become one clean sentence', async () => {
+  const { engine, rec, sent, flushTimers } = makeEngine();
+  engine.start();
+  const said = ['हेलो', 'हेलो तो', 'हेलो तो मुझे', 'हेलो तो मुझे सांस लेने में',
+                'हेलो तो मुझे सांस लेने में बहुत दिक्कत हो रही है'];
+  // each event carries ALL results so far, each holding the whole sentence so far
+  said.forEach((_, n) => {
+    const results = said.slice(0, n + 1).map((t) => Object.assign([{ transcript: t }], { 0: { transcript: t }, isFinal: true }));
+    rec.onresult({ resultIndex: n, results });
+  });
+  flushTimers(); await tick();
+  assert.deepStrictEqual(sent, ['हेलो तो मुझे सांस लेने में बहुत दिक्कत हो रही है']);
 });
