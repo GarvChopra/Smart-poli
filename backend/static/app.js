@@ -79,7 +79,7 @@ const UI_STRINGS = {
     navPrescriptions: 'Prescription', navDashboard: 'Dashboard', navTriage: 'Symptom check',
     navReport: 'Care report', navTimeline: 'Timeline', navEmergency: 'Emergency card',
     dashboardHeading: "Today's dashboard", prescriptionHeading: 'Decode a prescription',
-    triageHeading: 'Symptom check', emergencyHeading: 'Emergency card', timelineHeading: 'Treatment timeline',
+    triageHeading: 'Symptom check', emergencyHeading: 'Emergency Card', timelineHeading: 'Treatment timeline',
   },
   hi: {
     navPrescriptions: 'पर्ची', navDashboard: 'डैशबोर्ड', navTriage: 'लक्षण जांच',
@@ -222,6 +222,7 @@ function renderActiveTab() {
   if (state.activeTab === 'report') renderReport();
   if (state.activeTab === 'timeline') renderTimeline();
   if (state.activeTab === 'emergency') renderEmergencyCard();
+  if (state.activeTab === 'settings') renderSettingsCareTeam();
   renderGlance();
 }
 
@@ -1073,57 +1074,15 @@ async function renderTimeline() {
 // ---------------------------------------------------------------- emergency card (Feature J, optional)
 
 async function renderEmergencyCard() {
-  const view = document.getElementById('view-emergency');
-  view.innerHTML = `<div class="empty">Loading...</div>`;
+  // The whole screen is the 3D health card (health-card.js).
+  await mountHealthCard(document.getElementById('view-emergency'), state.patientId);
+}
 
-  const patient = state.patients.find(p => p.id === state.patientId);
-  const data = await api('GET', `/patients/${state.patientId}/emergency-card`);
-  const cardUrl = `${window.location.origin}${data.card_path}`;
-  const lastUpdated = new Date(data.last_updated + 'Z').toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-  const scheduledRows = data.scheduled_medicines.map(m => `
-    <li><strong>${m.name}</strong>${m.dose_amount ? ' ' + m.dose_amount + (m.dose_unit || '') : ''}${m.schedule_code ? ' — ' + m.schedule_code : ''}</li>
-  `).join('') || '<li class="empty">None on file.</li>';
-
-  const prnRows = data.as_needed_medicines.map(m => `<li><strong>${m.name}</strong></li>`).join('')
-    || '<li class="empty">None on file.</li>';
-
-  view.innerHTML = `
-    <h2>${t('emergencyHeading')}</h2>
-    <p style="color:var(--ink-soft);">Scan the QR to open a plain, no-login page with just what a first responder needs — nothing else from the record.</p>
-
-    <div class="card" style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
-      <img id="qrImg" width="160" height="160" alt="QR code linking to this patient's emergency card" style="border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);">
-      <div style="flex:1;min-width:220px;">
-        <div class="card-head" style="margin-bottom:10px;">${iconBadge('alarm', 'siren')}<h3 style="margin:0;">${patient ? patient.name : ''}</h3></div>
-        ${data.has_emergency_triage_history ? '<div class="alert-item">Has a history of an EMERGENCY-graded symptom check.</div>' : ''}
-        <div style="margin-bottom:10px;">
-          <strong>Allergies:</strong> ${data.patient.allergies || '<span class="empty" style="padding:0;">none recorded</span>'}
-          <button class="ghost small" id="editAllergiesBtn" style="margin-left:8px;">Edit</button>
-        </div>
-        <div>
-          <strong>Emergency contact:</strong> ${data.patient.emergency_contact || '<span class="empty" style="padding:0;">none recorded</span>'}
-          <button class="ghost small" id="editContactBtn" style="margin-left:8px;">Edit</button>
-        </div>
-        <div style="margin-top:14px;"><a href="${cardUrl}" target="_blank" rel="noreferrer">${cardUrl}</a></div>
-        <div class="card-updated">Last updated ${lastUpdated}</div>
-        <div id="revokeArea" style="margin-top:12px;">
-          <button class="ghost small" id="revokeCardBtn">Revoke &amp; make new QR</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="two-col">
-      <div class="card">
-        <div class="card-head">${iconBadge('teal', 'pill')}<h3>Scheduled medicines</h3></div>
-        <ul>${scheduledRows}</ul>
-      </div>
-      <div class="card">
-        <div class="card-head">${iconBadge('teal', 'pill')}<h3>As-needed medicines</h3></div>
-        <ul>${prnRows}</ul>
-      </div>
-    </div>
-
+// Care-team linking lives in Settings (moved off the emergency card screen).
+async function renderSettingsCareTeam() {
+  const mount = document.getElementById('settingsCareTeam');
+  if (!state.patientId) { mount.innerHTML = ''; return; }
+  mount.innerHTML = `
     <div class="card" id="careTeamCard">
       <div class="card-head">${iconBadge('teal', 'shield')}<h3>Care team</h3></div>
       <p style="color:var(--ink-soft);font-size:13px;">Link a caregiver or doctor so they can see this record —
@@ -1137,57 +1096,9 @@ async function renderEmergencyCard() {
       <div id="doctorLinksList"></div>
     </div>
   `;
-
-  document.getElementById('editAllergiesBtn').addEventListener('click', async () => {
-    const value = prompt('Allergies (comma-separated, or leave blank for none):', data.patient.allergies || '');
-    if (value === null) return;
-    await api('PATCH', `/patients/${state.patientId}`, { allergies: value });
-    renderEmergencyCard();
-  });
-  document.getElementById('editContactBtn').addEventListener('click', async () => {
-    const value = prompt('Emergency contact (name, phone):', data.patient.emergency_contact || '');
-    if (value === null) return;
-    await api('PATCH', `/patients/${state.patientId}`, { emergency_contact: value });
-    renderEmergencyCard();
-  });
-
-  document.getElementById('revokeCardBtn').addEventListener('click', () => {
-    document.getElementById('revokeArea').innerHTML = `
-      <div class="revoke-confirm">
-        The old QR code and any printed card will stop working. Continue?
-        <div style="margin-top:8px;display:flex;gap:8px;">
-          <button class="small" id="revokeYesBtn">Yes, revoke</button>
-          <button class="ghost small" id="revokeNoBtn">Cancel</button>
-        </div>
-      </div>`;
-    document.getElementById('revokeNoBtn').addEventListener('click', () => renderEmergencyCard());
-    document.getElementById('revokeYesBtn').addEventListener('click', async (e) => {
-      e.target.disabled = true;  // a double-click must not fire two revokes
-      try {
-        await api('POST', `/patients/${state.patientId}/emergency-card/revoke`);
-        renderEmergencyCard();
-      } catch (err) {
-        e.target.disabled = false;
-        document.querySelector('.revoke-confirm').insertAdjacentHTML('beforeend',
-          '<div class="revoke-error">Could not revoke — the old QR still works. Check your connection and try again.</div>');
-      }
-    });
-  });
-
   document.getElementById('genCaregiverCodeBtn').addEventListener('click', () => generateLinkCode('caregiver'));
   document.getElementById('genDoctorCodeBtn').addEventListener('click', () => generateLinkCode('doctor'));
   await renderCareTeamLists();
-
-  // <img src> can't carry an Authorization header, so the QR PNG (an
-  // authenticated endpoint) is fetched with the bearer token and rendered
-  // as a blob URL instead of pointed at directly.
-  const auth = getAuth();
-  fetch(`/patients/${state.patientId}/emergency-card/qr.png`, {
-    headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
-  })
-    .then(res => (res.ok ? res.blob() : Promise.reject(res)))
-    .then(blob => { document.getElementById('qrImg').src = URL.createObjectURL(blob); })
-    .catch(() => {});
 }
 
 async function generateLinkCode(kind) {
