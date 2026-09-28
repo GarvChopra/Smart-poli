@@ -222,7 +222,7 @@ def confirm_prescription(ctx: ToolContext, prescription_id=None) -> dict:
 
 # ---------------------------------------------------------------- symptom checks
 
-def _clean_symptom_state(raw: Any) -> dict:
+def clean_symptom_state(raw: Any) -> dict:
     """The client carries this between turns — never trust it: keep only
     real rule symptom ids and boolean answers to their real question ids."""
     raw = raw if isinstance(raw, dict) else {}
@@ -268,7 +268,7 @@ def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None
         "labels": list(current.get("labels", [])) + list(symptom_labels or []),
         "answers": {**(current.get("answers") or {}), **(answers if isinstance(answers, dict) else {})},
     }
-    sym = _clean_symptom_state(merged)
+    sym = clean_symptom_state(merged)
     ctx.state["symptom"] = sym
     if sym["ids"] and evaluate_check(RULESET, sym["ids"], sym["answers"])["severity"] == "EMERGENCY":
         return _finish(ctx, sym)
@@ -282,7 +282,7 @@ def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None
 def finish_symptom_check(ctx: ToolContext) -> dict:
     if "symptom" not in ctx.state:
         return _err("No symptom check in progress. Call update_symptom_check first.")
-    sym = _clean_symptom_state(ctx.state["symptom"])
+    sym = clean_symptom_state(ctx.state["symptom"])
     remaining = _open_questions(sym)
     if remaining:
         return {**_err("These questions still need an answer before SmartPoli can decide."),

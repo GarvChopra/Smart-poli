@@ -3,7 +3,7 @@ canonical ORM model for (de)serialisation only — not a second data shape."""
 
 import base64
 import binascii
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -147,3 +147,18 @@ class EmergencyProfileUpdate(BaseModel):
             if unknown:
                 raise ValueError(f"Unknown share fields: {sorted(unknown)}")
         return v
+
+
+# ---------------------------------------------------------------- voice assistant
+
+class VoiceMessage(BaseModel):
+    role: str
+    content: str
+
+
+class VoiceTurnRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1000)
+    lang: Literal["en", "hi"] = "en"
+    client_time: Optional[str] = None   # browser's local time, ISO 8601 with offset
+    history: list[VoiceMessage] = Field(default_factory=list, max_length=40)
+    state: dict = Field(default_factory=dict)

@@ -44,6 +44,7 @@ from scheduler import (
 )
 from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
+import voice_assistant
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import run_ocr_on_image, OCRUnavailable
@@ -53,7 +54,7 @@ from i18n import to_plain_language_hi, localized_symptom_label, localized_questi
 from schemas import (
     PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
-    EmergencyProfileUpdate,
+    EmergencyProfileUpdate, VoiceTurnRequest,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
@@ -609,6 +610,39 @@ def triage_check(body: TriageCheckRequest, user: User = Depends(get_current_user
     result, check = record_symptom_check(db, body.patient_id, f"patient:{user.id}", RULESET,
                                          body.symptom_ids, body.answers)
     return {**result, "check_id": check.id, "action": localized_action(result["action"], lang)}
+
+
+# ---------------------------------------------------------------- voice assistant
+#
+# Groq is only the conversational layer (voice_assistant.py); every action
+# goes through voice_tools' validated router and every severity comes from
+# triage.py. The voice page (static/voice.html) is the only caller.
+
+def _local_now(client_time: Optional[str]) -> datetime:
+    """Dose times are stored as the patient's local wall-clock time, so the
+    assistant reasons in the browser's local time, not the server's."""
+    try:
+        return datetime.fromisoformat(client_time).replace(tzinfo=None) if client_time else datetime.now()
+    except ValueError:
+        return datetime.now()
+
+
+@app.get("/voice/available")
+def voice_available(user: User = Depends(get_current_user)):
+    return {"available": voice_assistant.is_available()}
+
+
+@app.post("/patients/{patient_id}/voice/turn")
+def voice_turn(patient_id: int, body: VoiceTurnRequest, user: User = Depends(require_patient_write_access),
+               db: Session = Depends(get_db_session)):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "Say or type something first.")
+    if not voice_assistant.check_rate_limit(user.id):
+        raise HTTPException(429, "Too many voice requests. Wait a moment and try again.")
+    return voice_assistant.run_turn(db, patient_id, user, text, body.lang,
+                                    _local_now(body.client_time),
+                                    [m.model_dump() for m in body.history], body.state)
 
 
 # ---------------------------------------------------------------- clinical notes (doctor view)
