@@ -43,6 +43,7 @@ from scheduler import (
     mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, undo_taken,
 )
 from triage import load_ruleset, evaluate_check, next_question
+from triage_service import record_symptom_check
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import run_ocr_on_image, OCRUnavailable
@@ -605,23 +606,8 @@ def triage_check(body: TriageCheckRequest, user: User = Depends(get_current_user
         if sid not in RULESET["symptoms"]:
             raise HTTPException(404, f"Unknown symptom {sid}")
 
-    result = evaluate_check(RULESET, body.symptom_ids, body.answers)
-
-    check = SymptomCheck(
-        patient_id=body.patient_id,
-        symptoms=json.dumps(body.symptom_ids),
-        answers=json.dumps(body.answers),
-        severity=result["severity"],
-        reasons=json.dumps(result["reasons"]),
-        action=result["action"],
-        ruleset_version=result["ruleset_version"],
-    )
-    db.add(check)
-    db.commit()
-
-    log_audit(db, body.patient_id, f"patient:{user.id}", "triage_check",
-              f"severity={result['severity']} symptoms={body.symptom_ids}")
-
+    result, check = record_symptom_check(db, body.patient_id, f"patient:{user.id}", RULESET,
+                                         body.symptom_ids, body.answers)
     return {**result, "check_id": check.id, "action": localized_action(result["action"], lang)}
 
 
