@@ -98,7 +98,7 @@ def spoken_language(text: str, toggle: str) -> str:
 
 
 def is_available() -> bool:
-    return bool(os.getenv("GROQ_API_KEY"))
+    return bool(os.getenv("GROQ_API_KEY")) or bool(os.getenv("GEMINI_API_KEY"))
 
 
 def reset_rate_limits() -> None:
@@ -359,14 +359,16 @@ def _offline_turn(ctx: ToolContext, text: str) -> dict:
 # ---------------------------------------------------------------- Groq
 
 def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
-    from groq import Groq
-    # max_retries=0: the SDK's own retry-on-429 waits out Groq's full Retry-After
-    # (seen up to 30s per attempt x 2 retries — over a minute stuck on one model).
-    # _create_with_fallback already moves to the next model / the offline net
-    # instantly on a rate limit, so the SDK's slow built-in retry is pure downside
-    # for a live voice conversation.
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
-    models = _voice_models()
+    groq_client = None
+    if os.getenv("GROQ_API_KEY"):
+        from groq import Groq
+        # max_retries=0: the SDK's own retry-on-429 waits out Groq's full Retry-After
+        # (seen up to 30s per attempt x 2 retries — over a minute stuck on one model).
+        # _create_with_fallback already moves to the next model / provider
+        # instantly on a rate limit, so the SDK's slow built-in retry is pure downside
+        # for a live voice conversation.
+        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
+    chain = _build_chain([(groq_client, _voice_models()), (_gemini_client(), _gemini_models())])
 
     messages = [{"role": "system", "content": _system_prompt(ctx, first_name)}]
     messages += _history_messages(_stored_history(ctx))
@@ -375,7 +377,7 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     def complete(tool_choice: str):
         # max_tokens is generous because reasoning models spend part of it
         # thinking before they write; too low and the reply comes back empty.
-        return _create_with_fallback(client, models, messages=messages, tools=TOOLS,
+        return _create_with_fallback(chain, messages=messages, tools=TOOLS,
                                      tool_choice=tool_choice, temperature=0.3, max_tokens=1500)
 
     reply: Optional[str] = None
@@ -416,17 +418,25 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     # Anything beyond pure schedule/app operations may carry medical content:
     # it is only spoken once it's grounded in this turn's evidence.
     if not called or not set(called) <= OPERATIONAL_TOOLS:
-        reply = _grounded(client, [_guard_model()] + models, ctx, text, reply, evidence)
+        guard_chain = _build_chain([(groq_client, [_guard_model()])]) + chain
+        reply = _grounded(guard_chain, ctx, text, reply, evidence)
     return _result(ctx, reply, "assistant")
 
 
 def _voice_models() -> list[str]:
     """Models to try in order — when one hits its rate limit (e.g. Groq's free-tier
-    tokens-per-day), the next is used instead of dropping to the offline net."""
+    tokens-per-day), the next is used instead of dropping to the offline net.
+    Groq's free tier gives each model its own separate RPM/TPD quota (not a
+    shared pool), so listing three models here is three separate 200K-token
+    daily buffers, not just one. 20b and Qwen 3.8 27B go first — both handle
+    tool calls fine and are fast enough for a live conversation; 120b is a
+    slower "thinking" model, so it's last: a genuine extra bucket, not
+    something worth the added latency on every normal turn."""
     configured = os.getenv("GROQ_VOICE_MODELS")
     if configured:
         return [m.strip() for m in configured.split(",") if m.strip()]
-    return list(dict.fromkeys([os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-120b"), "openai/gpt-oss-20b"]))
+    return list(dict.fromkeys([os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-20b"),
+                               "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]))
 
 
 def _guard_model() -> str:
@@ -435,21 +445,55 @@ def _guard_model() -> str:
     return os.getenv("GROQ_GUARD_MODEL", "openai/gpt-oss-20b")
 
 
+def _gemini_models() -> list[str]:
+    configured = os.getenv("GEMINI_VOICE_MODELS")
+    if configured:
+        return [m.strip() for m in configured.split(",") if m.strip()]
+    # "-latest" tracks Google's current stable flash model, so this doesn't
+    # need updating every time Google retires a dated version.
+    return [os.getenv("GEMINI_VOICE_MODEL", "gemini-flash-latest")]
+
+
+def _gemini_client():
+    """None when there's no key, so a missing GEMINI_API_KEY never raises —
+    it just means the fallback chain has one fewer provider to try."""
+    if not os.getenv("GEMINI_API_KEY"):
+        return None
+    from openai import OpenAI
+    # Gemini's OpenAI-compatible endpoint: same chat.completions.create shape
+    # (including tool_calls) as Groq's client, so it drops into the same
+    # fallback chain with no separate provider-specific code path.
+    return OpenAI(api_key=os.getenv("GEMINI_API_KEY"),
+                  base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+
+
+def _build_chain(sources: list[tuple]) -> list[tuple]:
+    """sources: (client_or_None, [model, ...]) pairs, in the order they should
+    be tried. A None client (key not configured) contributes nothing."""
+    chain = []
+    for client, models in sources:
+        if client is not None:
+            chain += [(client, m) for m in models]
+    return chain
+
+
 def _is_rate_limited(err: Exception) -> bool:
     return getattr(err, "status_code", None) == 429 or "rate limit" in str(err).lower() \
-        or "tokens per day" in str(err).lower()
+        or "tokens per day" in str(err).lower() or "high demand" in str(err).lower()
 
 
-def _create_with_fallback(client, models: list[str], **kwargs):
+def _create_with_fallback(chain: list[tuple], **kwargs):
     last = None
-    for model in models:
+    for client, model in chain:
         try:
             return client.chat.completions.create(model=model, **kwargs)
         except Exception as err:  # only a rate limit moves on to the next model
             if not _is_rate_limited(err):
                 raise
-            logger.warning("Groq model %s rate-limited, trying the next one", model)
+            logger.warning("Model %s rate-limited, trying the next one", model)
             last = err
+    if last is None:
+        raise RuntimeError("No model configured (no GROQ_API_KEY or GEMINI_API_KEY).")
     raise last
 
 
@@ -480,7 +524,7 @@ If nothing medical survives, keep the empathy and ask a gentle follow-up questio
 Reply with ONLY the final text to speak — no quotes, no labels, no explanation."""
 
 
-def _grounded(client, models: list[str], ctx: ToolContext, patient_text: str, draft: str, evidence: list) -> str:
+def _grounded(chain: list[tuple], ctx: ToolContext, patient_text: str, draft: str, evidence: list) -> str:
     """Second, strict pass: the spoken reply may only contain medical content the
     evidence supports. If this check can't run, the unchecked draft is NOT spoken."""
     try:
@@ -491,7 +535,7 @@ def _grounded(client, models: list[str], ctx: ToolContext, patient_text: str, dr
                                                    "allergies": record["allergies"]}}]
         # plain text, not JSON mode: the lighter model sometimes fails Groq's strict JSON validation
         response = _create_with_fallback(
-            client, list(dict.fromkeys(models)), temperature=0, max_tokens=1500,
+            chain, temperature=0, max_tokens=1500,
             messages=[{"role": "system", "content": GUARD_PROMPT},
                       {"role": "user", "content": json.dumps({"patient_said": patient_text, "evidence": evidence,
                                                               "draft_reply": draft}, ensure_ascii=False, default=str)}])

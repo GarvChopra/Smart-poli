@@ -22,6 +22,7 @@ from test_voice_turn import install_fake_groq, _msg, _call  # noqa: E402
 @pytest.fixture(autouse=True)
 def _no_key_and_fresh_limits(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     voice_assistant.reset_rate_limits()
 
 

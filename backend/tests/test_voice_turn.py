@@ -61,6 +61,32 @@ def install_fake_groq(monkeypatch, script, calls=None):
     monkeypatch.setattr("groq.Groq", FakeClient)
 
 
+def install_fake_gemini(monkeypatch, script, calls=None):
+    """`script` is a list of responses, or callables(messages) -> response.
+    Mimics Gemini's OpenAI-compatible endpoint, which voice_assistant reaches
+    through the plain `openai` client."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    steps = list(script)
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            if calls is not None:
+                calls.append(kwargs)
+            if _is_guard_call(kwargs) and (not steps or not getattr(steps[0], "is_guard", False)):
+                # the grounding check: unless a test scripts it, pass the draft through unchanged
+                return _msg(content=json.loads(kwargs["messages"][-1]["content"])["draft_reply"])
+            step = steps.pop(0)
+            if isinstance(step, Exception):
+                raise step
+            return step(kwargs["messages"]) if callable(step) else step
+
+    class FakeClient:
+        def __init__(self, api_key=None, base_url=None, **_):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
+
+
 def _setup(client, due_now=1):
     register_and_login(client)
     pid = client.post("/patients", json={"name": "Ramesh Kumar", "emergency_contact": "Anita, +91 98765 43210"}).json()["id"]
@@ -186,6 +212,7 @@ def test_groq_failure_falls_back(monkeypatch):
 
 def test_fallback_without_key(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, due = _setup(client)
         body = _turn(client, pid, "maine dawai le li").json()
@@ -204,6 +231,7 @@ def test_fallback_without_key(monkeypatch):
 
 def test_fallback_asks_when_two_doses_are_due(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, due = _setup(client, due_now=2)
         body = _turn(client, pid, "I took my medicine").json()
@@ -214,6 +242,7 @@ def test_fallback_asks_when_two_doses_are_due(monkeypatch):
 
 def test_validation_and_permissions(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, _ = _setup(client)
         assert _turn(client, pid, "").status_code == 422
@@ -226,6 +255,7 @@ def test_validation_and_permissions(monkeypatch):
 
 def test_rate_limit(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(voice_assistant, "RATE_LIMIT_PER_MINUTE", 2)
     with TestClient(app) as client:
         pid, _ = _setup(client)
@@ -236,6 +266,7 @@ def test_rate_limit(monkeypatch):
 
 def test_voice_available(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         register_and_login(client)
         assert client.get("/voice/available").json() == {"available": False, "stt": False}
@@ -299,6 +330,7 @@ def test_open_symptom_questions_are_in_every_turns_prompt(monkeypatch):
 ])
 def test_fallback_never_marks_a_dose_on_negations_questions_or_unrelated_text(monkeypatch, text):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, due = _setup(client)
         body = _turn(client, pid, text).json()
@@ -308,6 +340,7 @@ def test_fallback_never_marks_a_dose_on_negations_questions_or_unrelated_text(mo
 
 def test_fallback_confirms_before_marking_even_one_dose(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, due = _setup(client)
         body = _turn(client, pid, "maine dawai le li").json()
@@ -318,6 +351,7 @@ def test_fallback_confirms_before_marking_even_one_dose(monkeypatch):
 
 def test_fallback_when_sentence_about_symptom_goes_to_symptom_check(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, _ = _setup(client)
         body = _turn(client, pid, "when I stand up I get dizzy").json()
@@ -330,6 +364,7 @@ def test_fallback_when_sentence_about_symptom_goes_to_symptom_check(monkeypatch)
 ])
 def test_malformed_state_never_breaks_the_emergency_path(monkeypatch, bad_state):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with TestClient(app) as client:
         pid, _ = _setup(client)
         r = _turn(client, pid, "papa behosh ho gaye", state=bad_state)
@@ -456,3 +491,54 @@ def test_the_grounding_check_uses_the_lighter_model_by_default(monkeypatch):
         _turn(client, pid, "khansi hai")
     guard = next(c for c in calls if _is_guard_call(c))
     assert guard["model"] == "openai/gpt-oss-20b"
+
+
+# ---------------------------------------------------------------- Gemini fallback
+
+def test_gemini_is_used_when_only_a_gemini_key_is_configured(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    calls = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_gemini(monkeypatch, [_msg(content="Agli dawai 8 baje.")], calls)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert body["reply"] == "Agli dawai 8 baje."
+    assert calls[0]["model"] == "gemini-flash-latest"
+
+
+def test_falls_back_to_gemini_when_every_groq_model_is_rate_limited(monkeypatch):
+    class RateLimited(Exception):
+        status_code = 429
+    models = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        monkeypatch.setenv("GROQ_VOICE_MODELS", "big-model,small-model")
+        install_fake_groq(monkeypatch, [RateLimited("tokens per day"), RateLimited("tokens per day")], None)
+
+        def record_model(messages):
+            return _msg(content="Agli dawai 8 baje.")
+        install_fake_gemini(monkeypatch, [record_model], None)
+        import openai
+        real = openai.OpenAI
+
+        class Spy(real):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                inner = self.chat.completions.create
+
+                def create(**kw):
+                    models.append(kw["model"])
+                    return inner(**kw)
+                self.chat.completions.create = create
+        monkeypatch.setattr("openai.OpenAI", Spy)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert body["reply"] == "Agli dawai 8 baje."
+    assert models == ["gemini-flash-latest"]
+
+
+def test_voice_available_is_true_with_only_a_gemini_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    with TestClient(app) as client:
+        register_and_login(client)
+        assert client.get("/voice/available").json()["available"] is True
