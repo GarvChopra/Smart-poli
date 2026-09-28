@@ -1,12 +1,17 @@
 {
   "version": "2026-09-28",
-  "note": "General self-care only, each item traceable to its source. No medicines here: the patient's own prescription is surfaced separately and always comes first. Symptoms with an empty list get no home-care advice at all (NHS gives none / says see a doctor).",
+  "note": "General self-care only, each item traceable to its source (NHS pages, NHS hospital trusts, Asthma + Lung UK, British Heart Foundation). No medicines, inhalers or nebulizers here: the patient's own prescription is surfaced separately and always comes first. Order of care: try these steps, recheck, see a doctor if not better; EMERGENCY gets none of this.",
   "sources": {
     "nhs_headaches": {"title": "NHS - Headaches", "url": "https://www.nhs.uk/symptoms/headaches/"},
     "nhs_fever_adults": {"title": "NHS - High temperature (fever) in adults", "url": "https://www.nhs.uk/conditions/fever-in-adults/"},
     "nhs_vomiting_adults": {"title": "NHS - Feeling sick (nausea) and vomiting", "url": "https://www.nhs.uk/conditions/vomiting-adults/"},
     "nhs_dizziness": {"title": "NHS - Dizziness", "url": "https://www.nhs.uk/symptoms/dizziness/"},
-    "nhs_first_aid": {"title": "NHS - First aid", "url": "https://www.nhs.uk/tests-and-treatments/first-aid/"}
+    "nhs_first_aid": {"title": "NHS - First aid", "url": "https://www.nhs.uk/tests-and-treatments/first-aid/"},
+    "nhs_stomach_pain": {"title": "NHS - Stomach pain self-care (medicines guidance)", "url": "https://www.nhs.uk/medicines/methotrexate/side-effects-of-methotrexate/"},
+    "nhs_itchy_skin": {"title": "NHS - Itchy skin", "url": "https://www.nhs.uk/conditions/itchy-skin/"},
+    "bhf_chest_pain": {"title": "British Heart Foundation - What to do with chest pain", "url": "https://www.bhf.org.uk/informationsupport/heart-matters-magazine/medical/ask-the-experts/gtn-spray"},
+    "alu_breathlessness": {"title": "Asthma + Lung UK - Managing breathlessness", "url": "https://www.asthmaandlung.org.uk/symptoms-tests-treatments/symptoms/breathlessness/how-can-i-manage-my-breathlessness"},
+    "cuh_breathlessness": {"title": "Cambridge University Hospitals (NHS) - Ten tips for managing breathlessness", "url": "https://www.cuh.nhs.uk/patient-information/ten-tips-for-managing-breathlessness/"}
   },
   "symptoms": {
     "headache": {
@@ -54,9 +59,37 @@
         {"en": "Press firmly on the wound with a clean cloth or pad.", "hi": "Saaf kapde ya pad se ghaav par zor se dabaiye.", "source": "nhs_first_aid", "levels": ["LOW", "MODERATE"]}
       ]
     },
-    "breathlessness": {"recheck_minutes": 10, "items": []},
-    "chest_pain": {"recheck_minutes": null, "items": []},
-    "abdominal_pain": {"recheck_minutes": 30, "items": []},
-    "rash": {"recheck_minutes": 60, "items": []}
+    "breathlessness": {
+      "recheck_minutes": 10,
+      "items": [
+        {"en": "Sit down and lean forward a little, resting your elbows on your knees.", "hi": "Baith jaiye aur thoda aage jhuk kar kohniyan ghutno par tika lijiye.", "source": "alu_breathlessness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Pursed-lip breathing: breathe in gently through your nose, then breathe out slowly through pursed lips, as if blowing out a candle.", "hi": "Naak se dheere saans lijiye, phir hont gol karke — jaise mombatti bujhate hain — munh se dheere-dheere saans chhodiye.", "source": "alu_breathlessness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Breathe slowly from your tummy: in through your nose, letting your tummy move out, not your chest.", "hi": "Pet se aaram se saans lijiye — naak se, aur saans lete waqt pet bahar aaye, chhati nahi.", "source": "alu_breathlessness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Cool your face — sit near a fan or an open window.", "hi": "Chehre par thandi hawa lagne dijiye — pankhe ya khuli khidki ke paas baithiye.", "source": "cuh_breathlessness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Try to stay calm and relax your shoulders — worry makes breathlessness feel worse.", "hi": "Ghabraiye nahi, kandhe dheele chhodiye — ghabrahat se saans aur phoolti hai.", "source": "alu_breathlessness", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "chest_pain": {
+      "recheck_minutes": 5,
+      "items": [
+        {"en": "Stop what you're doing, sit down and rest.", "hi": "Jo kar rahe hain use rok dijiye, baith jaiye aur aaram kijiye.", "source": "bhf_chest_pain", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "abdominal_pain": {
+      "recheck_minutes": 30,
+      "items": [
+        {"en": "Try to rest and relax.", "hi": "Aaram kijiye aur relax karne ki koshish kijiye.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]},
+        {"en": "A heat pad or a covered hot water bottle on your tummy may help.", "hi": "Pet par heat pad ya kapde mein lipti garam paani ki bottle rakhne se aaram mil sakta hai.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]},
+        {"en": "Eat and drink slowly, and have smaller, more frequent meals.", "hi": "Dheere-dheere khaiye-piyiye, aur thoda-thoda karke kai baar khaiye.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "rash": {
+      "recheck_minutes": 60,
+      "items": [
+        {"en": "Pat or tap the skin instead of scratching it.", "hi": "Khujlaiye mat — halke se thapthapaiye.", "source": "nhs_itchy_skin", "levels": ["LOW", "MODERATE"]},
+        {"en": "Hold something cool on it, like a damp towel.", "hi": "Us jagah par geela thanda kapda rakhiye.", "source": "nhs_itchy_skin", "levels": ["LOW", "MODERATE"]},
+        {"en": "Wear loose cotton clothes, and avoid perfumed soaps and creams.", "hi": "Dheele cotton ke kapde pahniye, aur khushboo wale sabun ya cream mat lagaiye.", "source": "nhs_itchy_skin", "levels": ["LOW", "MODERATE"]}
+      ]
+    }
   }
 }

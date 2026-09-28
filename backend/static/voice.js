@@ -35,12 +35,12 @@ const TEXT = {
     chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
     taken: 'Taken', undo: 'Undo', undone: 'Undone — the dose is back to pending.', which: 'Which one did you take?',
     open: 'Open', openCard: 'Open my emergency card', resultFrom: "Result from SmartPoli's clinical rules",
-    sev: { LOW: 'Self-care & monitor', MODERATE: 'See a doctor', EMERGENCY: 'Get medical help now', NOT_ASSESSED: 'Keep an eye on it' },
+    sev: { LOW: 'Self-care & monitor', MODERATE: 'Try first, then a doctor', EMERGENCY: 'Get medical help now', NOT_ASSESSED: 'Keep an eye on it' },
     sevText: { LOW: 'This can usually be looked after at home. Keep an eye on how it goes.',
-      MODERATE: 'Please see a doctor within the next day or two. You can keep monitoring meanwhile.' },
+      MODERATE: "Try the steps below first. If it isn't better when I check back, please see a doctor — within a day or two either way." },
     fromPrescription: 'From your prescription', mayHelp: 'What may help',
     prescriptionNote: 'Only if your doctor gave this for this problem — take it the way they told you.',
-    calmNote: "Take your time answering. If it ever feels much worse, help is one tap away.", call112: 'Call 112',
+
     recheckAt: "I'll check with you at {time}", recheckHow: 'Or tell me any time how it feels:',
     better: 'Better', same: 'Same', worse: 'Worse', howNow: 'How are you feeling now?',
     notAssessed: "SmartPoli's rules don't cover this symptom. If it is severe, getting worse, or worrying you, contact your doctor.",
@@ -60,12 +60,12 @@ const TEXT = {
     chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
     taken: 'Le li', undo: 'Wapas lein', undone: 'Wapas le liya — dawai phir se pending hai.', which: 'Aapne kaun si li?',
     open: 'Kholiye', openCard: 'Mera emergency card kholiye', resultFrom: 'SmartPoli ke clinical rules ka nateeja',
-    sev: { LOW: 'Ghar par dhyan rakhiye', MODERATE: 'Doctor ko dikhaiye', EMERGENCY: 'Abhi doctor ki madad lijiye', NOT_ASSESSED: 'Nazar rakhiye' },
+    sev: { LOW: 'Ghar par dhyan rakhiye', MODERATE: 'Pehle upay, phir doctor', EMERGENCY: 'Abhi doctor ki madad lijiye', NOT_ASSESSED: 'Nazar rakhiye' },
     sevText: { LOW: 'Iska dhyan aam taur par ghar par rakha ja sakta hai. Dekhte rahiye kaisa lag raha hai.',
-      MODERATE: 'Agle ek-do din mein doctor ko dikha lijiye. Tab tak dhyan rakhte rahiye.' },
+      MODERATE: 'Pehle neeche diye upay try kijiye. Agar main dobara poochun tab tak farak na pade, to doctor ko dikhaiye — waise bhi ek-do din mein dikha lijiye.' },
     fromPrescription: 'Aapke prescription se', mayHelp: 'Isse madad mil sakti hai',
     prescriptionNote: 'Sirf tab, jab doctor ne ise isi problem ke liye diya ho — unke bataye tareeke se lijiye.',
-    calmNote: 'Aaram se jawab dijiye. Agar kabhi bhi bahut zyada takleef lage, madad bas ek button door hai.', call112: '112 par call',
+
     recheckAt: 'Main {time} baje aapse poochunga', recheckHow: 'Ya kabhi bhi batayein kaisa lag raha hai:',
     better: 'Behtar', same: 'Waisa hi', worse: 'Zyada kharab', howNow: 'Ab kaisa lag raha hai?',
     notAssessed: 'SmartPoli ke rules is lakshan ko cover nahi karte. Agar yeh tez hai, badh raha hai ya chinta ho rahi hai, to doctor se sampark kijiye.',
@@ -251,7 +251,6 @@ function renderActions(actions) {
     if (a.type === 'prn_logged') addEntry(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${esc(a.medicine)}</h3><p>${tx('taken')}</p></div></div>`, 'vx-card');
     if (a.type === 'choose_dose') chooseDoseCard(a);
     if (a.type === 'triage_result') triageCard(a);
-    if (a.type === 'calm_check') calmCheckCard();
     if (a.type === 'recheck') recheckCard(a);
     if (a.type === 'open_card') linkCard(tx('openCard'), '/static/index.html#tab=emergency');
     if (a.type === 'prescription_draft') {
@@ -320,11 +319,6 @@ function triageCard(a) {
     ${sev !== 'NOT_ASSESSED' ? `<div class="vx-source">${tx('resultFrom')}</div>` : ''}`, `vx-card vx-level-${esc(sev)}`);
 }
 
-/** Worrying words: one calm question is being asked; help stays one tap away. */
-function calmCheckCard() {
-  addEntry(`<p>${tx('calmNote')}</p><div class="vx-card-actions"><a class="vx-btn is-quiet" href="tel:112">${tx('call112')}</a></div>`,
-    'vx-card vx-calm');
-}
 
 /** "I'll check back at 10:45" — Better / Same / Worse, and a gentle ask when it's time. */
 function recheckCard(a) {

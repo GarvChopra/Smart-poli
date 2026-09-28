@@ -162,12 +162,23 @@ def test_guidance_has_sources_and_prescribed_first():
     assert "paracetamol" not in text and "ibuprofen" not in text
 
 
-def test_no_home_remedies_for_breathing_or_chest_pain():
-    for sid in ("breathlessness", "chest_pain"):
-        g = guidance_for([sid], "MODERATE", "en", prescribed=[])
-        assert g["general"] == [], sid
-        text = str(g).lower()
-        assert "nebuli" not in text
+@pytest.mark.parametrize("sid", list(RULESET["symptoms"]))
+def test_every_symptom_gets_sourced_steps_to_try_first(sid):
+    for severity in ("LOW", "MODERATE"):
+        for lang in ("en", "hi"):
+            g = guidance_for([sid], severity, lang, prescribed=[])
+            assert g["general"], (sid, severity, lang)
+            assert g["recheck_minutes"], sid
+            assert all(i["source_url"].startswith("https://") and i["source_title"] for i in g["general"])
+
+
+def test_steps_never_name_a_medicine_or_device():
+    """Only the patient's own prescription may name a medicine."""
+    for sid in RULESET["symptoms"]:
+        for lang in ("en", "hi"):
+            text = " ".join(i["text"] for i in guidance_for([sid], "MODERATE", lang, prescribed=[])["general"]).lower()
+            for banned in ("nebuli", "inhaler", "paracetamol", "ibuprofen", "spray", "tablet", "dawai", "goli"):
+                assert banned not in text, (sid, lang, banned)
 
 
 def test_no_guidance_or_recheck_for_emergency():

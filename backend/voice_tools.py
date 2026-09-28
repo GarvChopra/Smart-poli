@@ -337,10 +337,13 @@ def _finish(ctx: ToolContext, sym: dict) -> dict:
     _schedule_recheck(ctx, sym, guidance["recheck_minutes"])
     return {"ok": True, "severity": result["severity"], "reasons": result["reasons"],
             "next_action": result["action"], "guidance": guidance,
-            "explain": "This result comes from SmartPoli's clinical rules — explain it simply and calmly; never change it. "
-                       "Guidance: first any 'prescribed' instruction (their own doctor's, as written — only suggest it "
-                       "'if your doctor gave this for this problem'), then the 'general' steps exactly as listed. "
-                       "Add nothing else. If recheck_minutes is set, say you'll ask how they feel in that many minutes."}
+            "explain": "Severity comes from SmartPoli's clinical rules — never change it. Order your reply as: "
+                       "1) what to try now — any 'prescribed' instruction first (their own doctor's, as written; say "
+                       "'agar doctor ne ise isi problem ke liye diya hai'), then the 'general' steps exactly as listed, "
+                       "nothing else; 2) that you'll ask how they feel in recheck_minutes; 3) only then: if it isn't "
+                       "better by then, see a doctor (for MODERATE add: within a day or two either way). "
+                       "Don't lead with 'see a doctor'. Say at most the first three general steps aloud — "
+                       "the screen shows them all."}
 
 
 def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None, answers=None) -> dict:
