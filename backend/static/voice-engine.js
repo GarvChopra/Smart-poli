@@ -2,9 +2,8 @@
 //
 // One loop, no tapping:   listening → thinking → speaking → listening …
 //
-// - Speech-to-text via a pluggable `recognition` object — Groq Whisper
-//   (voice-stt.js, one clean recording per utterance) when available, else the
-//   browser's own SpeechRecognition; a short pause after the patient stops
+// - Speech-to-text via a pluggable `recognition` object (the browser's own
+//   SpeechRecognition); a short pause after the patient stops
 //   talking ends their turn, so "sir dard hai … aur chakkar bhi" arrives as
 //   ONE message, never repeated.
 // - Replies are spoken sentence by sentence, so speech starts immediately.

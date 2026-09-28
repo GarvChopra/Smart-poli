@@ -19,7 +19,7 @@ import io
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -463,6 +463,11 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
 
     upcoming.sort(key=lambda pair: pair[0].scheduled_at)
     all_doses = [d for _, doses in medicines_with_doses for d in doses]
+    # Every dose from a day and a half either side of now, whatever its state:
+    # the voice page works out "due now", "left today" and "did I take it" in
+    # the patient's own timezone from this, with no request of its own.
+    recent = sorted(((d, m) for m, doses in medicines_with_doses for d in doses
+                     if abs(d.scheduled_at - now) <= timedelta(hours=36)), key=lambda pair: pair[0].scheduled_at)
 
     return {
         "patient_id": patient_id,
@@ -471,6 +476,10 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
         "upcoming_doses": [
             {**serialize_dose(dose), "medicine_name": medicine.name or medicine.raw_text}
             for dose, medicine in upcoming[:20]
+        ],
+        "recent_doses": [
+            {**serialize_dose(dose), "medicine_name": medicine.name or medicine.raw_text}
+            for dose, medicine in recent
         ],
         "prn_medicines": [
             serialize_medicine(m) for pres in prescriptions for m in pres.medicines if m.is_prn

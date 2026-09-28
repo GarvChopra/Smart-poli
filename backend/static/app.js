@@ -21,7 +21,29 @@ const state = {
   triageDone: false,
 };
 
-const api = apiFetch; // defined in auth.js — attaches the bearer token, handles 401
+// apiFetch is defined in auth.js — attaches the bearer token, handles 401.
+// Any write may change what the dashboard shows, so it drops the cached one.
+function api(method, path, body) {
+  if (method !== 'GET') dashboardCache = null;
+  return apiFetch(method, path, body);
+}
+
+// The dashboard view and the side glance panel both need /dashboard, and every
+// tab switch redraws the glance. Each fetch is several database round trips,
+// so one response is shared for a few seconds instead of fetched again.
+const DASHBOARD_TTL_MS = 15000;
+let dashboardCache = null; // { patientId, at, promise }
+
+function getDashboard() {
+  const now = Date.now();
+  if (dashboardCache && dashboardCache.patientId === state.patientId && now - dashboardCache.at < DASHBOARD_TTL_MS) {
+    return dashboardCache.promise;
+  }
+  const promise = apiFetch('GET', `/patients/${state.patientId}/dashboard`);
+  dashboardCache = { patientId: state.patientId, at: now, promise };
+  promise.catch(() => { dashboardCache = null; });
+  return promise;
+}
 
 function el(html) {
   const t = document.createElement('template');
@@ -280,7 +302,7 @@ async function renderGlance() {
   const panel = document.getElementById('glancePanel');
   if (!panel || !state.patientId) return;
   const patient = state.patients.find(p => p.id === state.patientId);
-  const dash = await api('GET', `/patients/${state.patientId}/dashboard`);
+  const dash = await getDashboard();
   const pct = dash.adherence.adherence_percent;
   const next = dash.upcoming_doses[0];
 
@@ -397,6 +419,7 @@ Syrup Crocin 5ml SOS"></textarea>
 
     try {
       const auth = getAuth();
+      dashboardCache = null;  // the photo becomes a draft prescription
       const res = await fetch('/prescriptions/from-image', {
         method: 'POST', body: form,
         headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
@@ -585,7 +608,7 @@ function showTakenPopup(medName, scheduledAt) {
 async function renderDashboard() {
   const view = document.getElementById('view-dashboard');
   view.innerHTML = `<div class="empty">Loading...</div>`;
-  const dash = await api('GET', `/patients/${state.patientId}/dashboard`);
+  const dash = await getDashboard();
 
   const a = dash.adherence;
   const pct = a.adherence_percent === null ? '—' : `${a.adherence_percent}%`;
@@ -1093,6 +1116,10 @@ async function renderTimeline() {
 async function renderEmergencyCard() {
   // The whole screen is the 3D health card (health-card.js).
   await mountHealthCard(document.getElementById('view-emergency'), state.patientId);
+  if (state.openCardEditor) {
+    state.openCardEditor = false;
+    document.querySelector('#view-emergency [data-hc="edit"]')?.click();
+  }
 }
 
 // Care-team linking lives in Settings (moved off the emergency card screen).
@@ -1161,18 +1188,19 @@ async function renderCareTeamLists() {
 
 // ---------------------------------------------------------------- voice
 //
-// The mic button opens the voice-first page (voice.html): Groq holds the
-// conversation there, SmartPoli's own services do every action, and the
-// triage rules decide every severity. It links back here with #tab=<name>.
+// The mic button opens the voice command page (voice.html). It links back
+// here with #tab=<name>, plus &edit=1 to open the card editor ("update my details").
 
 document.getElementById('voiceBtn').addEventListener('click', () => {
   window.location.href = '/static/voice.html';
 });
 
 function openTabFromHash() {
-  const m = window.location.hash.match(/^#tab=([a-z]+)$/);
+  const m = window.location.hash.match(/^#tab=([a-z]+)(&edit=1)?$/);
   const btn = m && document.querySelector(`nav.pill-nav button[data-tab="${m[1]}"]`);
+  state.openCardEditor = !!(m && m[2]);
   if (btn) btn.click();
+  return !!btn;
 }
 
 // ---------------------------------------------------------------- boot
@@ -1184,6 +1212,7 @@ function openTabFromHash() {
   injectNavIcons();
   await loadPatients();
   applyNavTranslation();
-  renderActiveTab();
-  openTabFromHash();
+  // Straight to the tab in the URL (#tab=… from the voice page); rendering the
+  // dashboard first and then switching would load both.
+  if (!openTabFromHash()) renderActiveTab();
 })();

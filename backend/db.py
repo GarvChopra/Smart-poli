@@ -140,7 +140,12 @@ class Prescription(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     patient = relationship("Patient", back_populates="prescriptions")
-    medicines = relationship("Medicine", back_populates="prescription", cascade="all, delete-orphan")
+    # selectin: loading prescriptions fetches all their medicines (and, below,
+    # all their doses) in one batched query each, instead of one query per
+    # prescription / per medicine. Each query is a full round trip to the
+    # database, which dominated page load time.
+    medicines = relationship("Medicine", back_populates="prescription", cascade="all, delete-orphan",
+                             lazy="selectin")
 
 
 class Medicine(Base):
@@ -171,7 +176,7 @@ class Medicine(Base):
     plain_language_hi = Column(Text, nullable=True)  # Hindi rendering — optional Feature G
 
     prescription = relationship("Prescription", back_populates="medicines")
-    doses = relationship("Dose", back_populates="medicine", cascade="all, delete-orphan")
+    doses = relationship("Dose", back_populates="medicine", cascade="all, delete-orphan", lazy="selectin")
 
 
 class Dose(Base):
