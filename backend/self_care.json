@@ -8,6 +8,7 @@
     "nhs_dizziness": {"title": "NHS - Dizziness", "url": "https://www.nhs.uk/symptoms/dizziness/"},
     "nhs_first_aid": {"title": "NHS - First aid", "url": "https://www.nhs.uk/tests-and-treatments/first-aid/"},
     "nhs_stomach_pain": {"title": "NHS - Stomach pain self-care (medicines guidance)", "url": "https://www.nhs.uk/medicines/methotrexate/side-effects-of-methotrexate/"},
+    "nhs_cough": {"title": "NHS - Cough", "url": "https://www.nhs.uk/conditions/cough/"},
     "nhs_itchy_skin": {"title": "NHS - Itchy skin", "url": "https://www.nhs.uk/conditions/itchy-skin/"},
     "bhf_chest_pain": {"title": "British Heart Foundation - What to do with chest pain", "url": "https://www.bhf.org.uk/informationsupport/heart-matters-magazine/medical/ask-the-experts/gtn-spray"},
     "alu_breathlessness": {"title": "Asthma + Lung UK - Managing breathlessness", "url": "https://www.asthmaandlung.org.uk/symptoms-tests-treatments/symptoms/breathlessness/how-can-i-manage-my-breathlessness"},
@@ -81,6 +82,14 @@
         {"en": "Try to rest and relax.", "hi": "Aaram kijiye aur relax karne ki koshish kijiye.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]},
         {"en": "A heat pad or a covered hot water bottle on your tummy may help.", "hi": "Pet par heat pad ya kapde mein lipti garam paani ki bottle rakhne se aaram mil sakta hai.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]},
         {"en": "Eat and drink slowly, and have smaller, more frequent meals.", "hi": "Dheere-dheere khaiye-piyiye, aur thoda-thoda karke kai baar khaiye.", "source": "nhs_stomach_pain", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "cough": {
+      "recheck_minutes": 60,
+      "items": [
+        {"en": "Rest.", "hi": "Aaram kijiye.", "source": "nhs_cough", "levels": ["LOW", "MODERATE", "NOT_ASSESSED"]},
+        {"en": "Drink plenty of fluids.", "hi": "Khoob paani aur taral cheezein lijiye.", "source": "nhs_cough", "levels": ["LOW", "MODERATE", "NOT_ASSESSED"]},
+        {"en": "A hot lemon and honey drink may help (not for babies under 1 year).", "hi": "Garam paani mein nimbu aur shahad lene se aaram mil sakta hai (1 saal se chhote bachchon ko shahad nahi).", "source": "nhs_cough", "levels": ["LOW", "MODERATE", "NOT_ASSESSED"]}
       ]
     },
     "rash": {

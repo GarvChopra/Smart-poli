@@ -26,6 +26,17 @@ def _msg(content=None, tool_calls=None):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls))])
 
 
+def _guard(reply):
+    """A scripted answer from the grounding check."""
+    m = _msg(content=reply)
+    m.is_guard = True
+    return m
+
+
+def _is_guard_call(kwargs):
+    return kwargs["messages"][0]["content"].startswith("You check a health assistant")
+
+
 def install_fake_groq(monkeypatch, script, calls=None):
     """`script` is a list of responses, or callables(messages) -> response."""
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
@@ -35,6 +46,9 @@ def install_fake_groq(monkeypatch, script, calls=None):
         def create(self, **kwargs):
             if calls is not None:
                 calls.append(kwargs)
+            if _is_guard_call(kwargs) and (not steps or not getattr(steps[0], "is_guard", False)):
+                # the grounding check: unless a test scripts it, pass the draft through unchanged
+                return _msg(content=json.loads(kwargs["messages"][-1]["content"])["draft_reply"])
             step = steps.pop(0)
             if isinstance(step, Exception):
                 raise step
@@ -336,3 +350,109 @@ def test_tool_crash_after_emergency_still_speaks_emergency_reply(monkeypatch):
     assert r.status_code == 200
     assert "112" in r.json()["reply"]
     assert r.json()["actions"][-1]["type"] == "emergency"
+
+
+
+# ---------------------------------------------------------------- grounding check
+
+def test_medical_reply_is_checked_against_the_evidence(monkeypatch):
+    calls = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("search_clinical_guidance", {"query": "cough"})]),
+            _msg(content="MoHFW ke hisaab se steam lijiye aur inhaler lijiye."),
+            _guard("Aaram kijiye aur khoob paani piyiye. Kab se khansi hai?"),
+        ], calls)
+        body = _turn(client, pid, "mujhe khansi ho rahi hai kya karu").json()
+    assert body["reply"] == "Aaram kijiye aur khoob paani piyiye. Kab se khansi hai?"
+    guard_call = next(c for c in calls if _is_guard_call(c))
+    payload = json.loads(guard_call["messages"][-1]["content"])
+    assert payload["draft_reply"].startswith("MoHFW ke hisaab se steam")
+    assert any("Coughing is a reflex" in json.dumps(e) for e in payload["evidence"])
+
+
+def test_pure_medicine_schedule_turn_skips_the_check(monkeypatch):
+    calls = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("get_next_dose", {})]),
+            _msg(content="Agli dawai 8 baje."),
+        ], calls)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert body["reply"] == "Agli dawai 8 baje."
+    assert not any(_is_guard_call(c) for c in calls)
+
+
+def test_if_the_check_fails_the_unchecked_advice_is_not_spoken(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        guard_error = RuntimeError("guard down")
+        guard_error.is_guard = True
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("search_clinical_guidance", {"query": "cough"})]),
+            _msg(content="Steam lijiye."),
+            guard_error,
+        ])
+        body = _turn(client, pid, "khansi hai").json()
+    assert "Steam" not in body["reply"]
+
+
+def test_if_the_check_fails_the_sourced_card_steps_are_spoken_instead(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        guard_error = RuntimeError("json_validate_failed")
+        guard_error.is_guard = True
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"symptom_labels": ["khansi"]}),
+                             _call("finish_symptom_check", {}, "c2")]),
+            _msg(content="Steam lijiye aur inhaler lijiye."),
+            guard_error,
+        ])
+        body = _turn(client, pid, "khansi hai").json()
+    assert "Steam" not in body["reply"] and "inhaler" not in body["reply"].lower()
+    assert "Rest" in body["reply"] or "Aaram" in body["reply"]
+
+
+def test_a_rate_limited_model_falls_back_to_the_next_one(monkeypatch):
+    class RateLimited(Exception):
+        status_code = 429
+    models = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        monkeypatch.setenv("GROQ_VOICE_MODELS", "big-model,small-model")
+
+        def by_model(messages):
+            raise AssertionError("unused")
+        install_fake_groq(monkeypatch, [RateLimited("tokens per day"), _msg(content="Agli dawai 8 baje.")], None)
+        import groq
+        real = groq.Groq
+
+        class Spy(real):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                inner = self.chat.completions.create
+
+                def create(**kw):
+                    models.append(kw["model"])
+                    return inner(**kw)
+                self.chat.completions.create = create
+        monkeypatch.setattr("groq.Groq", Spy)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert body["reply"] == "Agli dawai 8 baje."
+    assert models[:2] == ["big-model", "small-model"]
+
+
+def test_the_grounding_check_uses_the_lighter_model_by_default(monkeypatch):
+    calls = []
+    monkeypatch.delenv("GROQ_GUARD_MODEL", raising=False)
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("search_clinical_guidance", {"query": "cough"})]),
+            _msg(content="Aaram kijiye."),
+        ], calls)
+        _turn(client, pid, "khansi hai")
+    guard = next(c for c in calls if _is_guard_call(c))
+    assert guard["model"] == "openai/gpt-oss-20b"

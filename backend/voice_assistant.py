@@ -127,6 +127,20 @@ def _result(ctx: ToolContext, reply: str, mode: str) -> dict:
 
 # ---------------------------------------------------------------- prompt
 
+def _earlier_lines(ctx: ToolContext) -> str:
+    """Up to three things the patient said on earlier days — enough for "wahi problem"
+    to land; recall_previous has the rest."""
+    try:
+        rows = (ctx.db.query(VoiceMessage)
+                .filter(VoiceMessage.patient_id == ctx.patient_id, VoiceMessage.role == "user",
+                        VoiceMessage.created_at >= datetime.utcnow() - timedelta(days=3),
+                        VoiceMessage.created_at < datetime.utcnow() - timedelta(hours=6))
+                .order_by(VoiceMessage.created_at.desc()).limit(3).all())
+    except Exception:
+        return "none"
+    return "; ".join(f'{r.created_at.date().isoformat()}: "{r.content[:120]}"' for r in rows) or "none"
+
+
 def _record_context(ctx: ToolContext) -> str:
     """A compact profile every turn — enough that no one is treated as a blank
     new patient, without dumping the record. Everything else (doctor notes,
@@ -151,6 +165,7 @@ PATIENT RECORD (from SmartPoli — compact; use tools for more):
 - As-needed medicines prescribed by their doctor (instruction as written): {prn}
 - Latest doctor's note: {latest_note}
 - Recent symptom episodes: {episodes}
+- They said on earlier days (last 3 days): {_earlier_lines(ctx)}
 MEMORY RULE: anything from before is context, not a diagnosis. "Aapko kal bhi … hua tha" is fine; "so it's the same
 cause" is not. If they say "wahi problem" / "phir se", call recall_previous, say what happened before, ask whether
 today feels the same, and run today's check as usual.
@@ -346,7 +361,7 @@ def _offline_turn(ctx: ToolContext, text: str) -> dict:
 def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     from groq import Groq
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    model = os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-120b")
+    models = _voice_models()
 
     messages = [{"role": "system", "content": _system_prompt(ctx, first_name)}]
     messages += _history_messages(_stored_history(ctx))
@@ -355,10 +370,12 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     def complete(tool_choice: str):
         # max_tokens is generous because reasoning models spend part of it
         # thinking before they write; too low and the reply comes back empty.
-        return client.chat.completions.create(model=model, messages=messages, tools=TOOLS,
-                                              tool_choice=tool_choice, temperature=0.3, max_tokens=1500)
+        return _create_with_fallback(client, models, messages=messages, tools=TOOLS,
+                                     tool_choice=tool_choice, temperature=0.3, max_tokens=1500)
 
     reply: Optional[str] = None
+    called: list[str] = []
+    evidence: list = []
     for _ in range(MAX_TOOL_ROUNDS):
         response = complete("auto")
         msg = response.choices[0].message
@@ -376,17 +393,122 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
                 result = {"ok": False, "error": "Arguments were not valid JSON."}
             else:
                 result = run_tool(ctx, c.function.name, args)
+            called.append(c.function.name)
+            if c.function.name not in OPERATIONAL_TOOLS and result.get("ok"):
+                evidence.append({"tool": c.function.name, "result": result})
             messages.append({"role": "tool", "tool_call_id": c.id, "content": json.dumps(result, default=str)})
         if _has_emergency(ctx):
             break
 
     if _has_emergency(ctx):
         # The rules said EMERGENCY: the spoken words are fixed and calm, not model text.
-        reply = _say(EMERGENCY_REPLY, ctx.lang)
+        return _result(ctx, _say(EMERGENCY_REPLY, ctx.lang), "assistant")
     if not reply:
         # The model sometimes ends without any words; ask once more for text only.
         reply = (complete("none").choices[0].message.content or "").strip()
-    return _result(ctx, reply or _say(TOOL_LOOP_REPLY, ctx.lang), "assistant")
+    if not reply:
+        return _result(ctx, _say(TOOL_LOOP_REPLY, ctx.lang), "assistant")
+    # Anything beyond pure schedule/app operations may carry medical content:
+    # it is only spoken once it's grounded in this turn's evidence.
+    if not called or not set(called) <= OPERATIONAL_TOOLS:
+        reply = _grounded(client, [_guard_model()] + models, ctx, text, reply, evidence)
+    return _result(ctx, reply, "assistant")
+
+
+def _voice_models() -> list[str]:
+    """Models to try in order — when one hits its rate limit (e.g. Groq's free-tier
+    tokens-per-day), the next is used instead of dropping to the offline net."""
+    configured = os.getenv("GROQ_VOICE_MODELS")
+    if configured:
+        return [m.strip() for m in configured.split(",") if m.strip()]
+    return list(dict.fromkeys([os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-120b"), "openai/gpt-oss-20b"]))
+
+
+def _guard_model() -> str:
+    """The grounding check is a simpler task, so it defaults to the lighter model
+    and leaves the main model's daily token budget for the conversation."""
+    return os.getenv("GROQ_GUARD_MODEL", "openai/gpt-oss-20b")
+
+
+def _is_rate_limited(err: Exception) -> bool:
+    return getattr(err, "status_code", None) == 429 or "rate limit" in str(err).lower() \
+        or "tokens per day" in str(err).lower()
+
+
+def _create_with_fallback(client, models: list[str], **kwargs):
+    last = None
+    for model in models:
+        try:
+            return client.chat.completions.create(model=model, **kwargs)
+        except Exception as err:  # only a rate limit moves on to the next model
+            if not _is_rate_limited(err):
+                raise
+            logger.warning("Groq model %s rate-limited, trying the next one", model)
+            last = err
+    raise last
+
+
+# Tools that only read or change the medicine schedule / app — a reply built only on
+# these is operational ("next dose at 8"), not medical advice, so it skips the check.
+OPERATIONAL_TOOLS = {"get_today_schedule", "get_next_dose", "mark_dose_taken", "log_prn_taken", "get_medicines",
+                     "get_adherence", "get_emergency_card", "open_screen", "decode_prescription",
+                     "confirm_prescription", "get_treatment_history"}
+
+SAFE_REPLY = {
+    "en": "I don't have reliable information to guide you on that right now. Could you tell me a little more about how you feel?",
+    "hi": "Is baare mein abhi mere paas bharosemand jaankari nahi hai. Kya aap thoda aur batayenge ki aap kaisa mehsoos kar rahe hain?",
+}
+
+GUARD_PROMPT = """You check a health assistant's draft reply before it is spoken to a patient.
+EVIDENCE is the ONLY approved medical information for this turn: retrieved guidance (with its source), SmartPoli's
+rules result and self-care list, and the patient's own prescriptions and doctor's notes.
+Rewrite the draft so that:
+- every medical statement, self-care step, remedy or medicine is supported by EVIDENCE; remove anything that isn't
+  (no invented remedies, medicines, devices, doses or home treatments);
+- a source is only credited ("MoHFW guidance ke hisaab se…") for what that source's evidence actually says;
+- a doctor's instruction or a prescribed as-needed medicine is mentioned only for the situation it names
+  (e.g. an instruction "if wheezy" only when the patient reports wheezing), and always as "if your doctor gave this
+  for this problem";
+- nothing diagnoses, and nothing falsely reassures ("kuch nahi hai", "you're fine");
+- questions, empathy, schedule facts and anything non-medical stay as they are; same language and script; short.
+If nothing medical survives, keep the empathy and ask a gentle follow-up question.
+Reply with ONLY the final text to speak — no quotes, no labels, no explanation."""
+
+
+def _grounded(client, models: list[str], ctx: ToolContext, patient_text: str, draft: str, evidence: list) -> str:
+    """Second, strict pass: the spoken reply may only contain medical content the
+    evidence supports. If this check can't run, the unchecked draft is NOT spoken."""
+    try:
+        record = get_patient_context(ctx)
+        evidence = evidence + [{"patient_record": {"as_needed_medicines": record["as_needed_medicines"],
+                                                   "doctor_notes": record["doctor_notes"][:3],
+                                                   "conditions": record["conditions"],
+                                                   "allergies": record["allergies"]}}]
+        # plain text, not JSON mode: the lighter model sometimes fails Groq's strict JSON validation
+        response = _create_with_fallback(
+            client, list(dict.fromkeys(models)), temperature=0, max_tokens=1500,
+            messages=[{"role": "system", "content": GUARD_PROMPT},
+                      {"role": "user", "content": json.dumps({"patient_said": patient_text, "evidence": evidence,
+                                                              "draft_reply": draft}, ensure_ascii=False, default=str)}])
+        reply = (response.choices[0].message.content or "").strip().strip('"').strip()
+        return reply or _sourced_fallback(ctx)
+    except Exception:
+        logger.exception("Grounding check failed; not speaking the unchecked reply")
+        return _sourced_fallback(ctx)
+
+
+def _sourced_fallback(ctx: ToolContext) -> str:
+    """When the check can't run, never the unchecked draft: speak the approved,
+    sourced steps already on the card (if any), else a gentle safe line."""
+    card = next((a for a in ctx.actions if a["type"] == "triage_result" and a.get("guidance")), None)
+    steps = [g["text"] for g in (card["guidance"].get("general") or [])][:3] if card else []
+    if not steps:
+        return _say(SAFE_REPLY, ctx.lang)
+    minutes = next((a["minutes"] for a in ctx.actions if a["type"] == "recheck"), None)
+    intro = {"hi": "Abhi yeh kar sakte hain:", "en": "Here's what you can do for now:"}
+    later = {"hi": f" Main {minutes} minute baad poochunga ki aap kaisa mehsoos kar rahe hain.",
+             "en": f" I'll check how you feel in {minutes} minutes."}
+    return f"{_say(intro, ctx.lang)} {' '.join(steps)}" + (_say(later, ctx.lang) if minutes else "")
 
 
 def _has_emergency(ctx: ToolContext) -> bool:

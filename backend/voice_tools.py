@@ -382,18 +382,51 @@ def _schedule_recheck(ctx: ToolContext, sym: dict, minutes: int | None) -> None:
     ctx.actions.append({"type": "recheck", "minutes": minutes, "due_at": due.isoformat()})
 
 
+def prescribed_for(ctx: ToolContext, symptom_ids: list[str], labels: list[str]) -> list[dict]:
+    """The patient's own doctor's instructions and as-needed medicines — but only
+    those that NAME this problem ("If wheezy: 2 puffs…" for breathlessness). A
+    prescription that doesn't say what it's for is never offered for a symptom."""
+    words = set(clinical_knowledge._tokens(
+        clinical_knowledge.expand(" ".join(labels)) + " " +
+        " ".join(clinical_knowledge.SYMPTOM_TERMS.get(s, s) for s in symptom_ids)))
+    words -= {"pain", "difficulty", "problem", "high"}  # too general to link on alone
+    if not words:
+        return []
+
+    def names_it(text: str) -> bool:
+        return bool(words & set(clinical_knowledge._tokens(text or "")))
+
+    notes = (ctx.db.query(AuditLog).filter(AuditLog.patient_id == ctx.patient_id, AuditLog.action == "clinical_note")
+             .order_by(AuditLog.at.desc()).limit(10).all())
+    out = [{"name": f"Doctor's note ({n.at.date().isoformat()})", "instruction": n.detail}
+           for n in notes if names_it(n.detail)]
+    out += [m for m in prescribed_as_needed(ctx) if names_it(m["instruction"])]
+    return out[:3]
+
+
+def _general_self_care(labels: list[str], lang: str) -> list[dict]:
+    """Sourced self-care for a symptom outside the triage rules (e.g. "khansi")."""
+    hits = clinical_knowledge.search(" ".join(labels))
+    return [{"text": (h.get("text_hi") or h["text"]) if lang == "hi" else h["text"],
+             "source_title": h["document"], "source_url": h["url"]}
+            for h in hits if h["kind"] == "self_care"][:4]
+
+
 def _finish(ctx: ToolContext, sym: dict) -> dict:
     ctx.state.pop("symptom", None)
-    prescribed = prescribed_as_needed(ctx)
+    prescribed = prescribed_for(ctx, sym["ids"], sym["labels"])
     if not sym["ids"]:
         guidance = guidance_for([], "NOT_ASSESSED", ctx.lang, prescribed)
+        guidance["general"] = _general_self_care(sym["labels"], ctx.lang)
         ctx.actions.append({"type": "triage_result", "severity": "NOT_ASSESSED", "labels": sym["labels"],
                             "guidance": guidance})
         _schedule_recheck(ctx, sym, guidance["recheck_minutes"])
         return {"ok": True, "severity": "NOT_ASSESSED", "guidance": guidance,
-                "explain": "SmartPoli's rules can't rate this symptom automatically. Say so calmly; if their doctor "
-                           "prescribed something for it, remind them to follow that instruction; say you'll check back, "
-                           "and to see their doctor if it persists or gets worse."}
+                "explain": "SmartPoli's rules can't rate this symptom automatically — say so calmly. Then: any "
+                           "'prescribed' instruction exactly as written (only if the list isn't empty); otherwise say "
+                           "'agar doctor ne is problem ke liye koi dawa batayi hai, to wahi follow kijiye' without naming "
+                           "any medicine; then the 'general' steps exactly as listed; say you'll check back, and to see "
+                           "their doctor if it persists or gets worse."}
     result, check = record_symptom_check(ctx.db, ctx.patient_id, ctx.actor, RULESET, sym["ids"], sym["answers"],
                                          min_severity=sym.get("floor"), source="voice")
     guidance = guidance_for(sym["ids"], result["severity"], ctx.lang, prescribed)
@@ -405,8 +438,9 @@ def _finish(ctx: ToolContext, sym: dict) -> dict:
     return {"ok": True, "severity": result["severity"], "reasons": result["reasons"],
             "next_action": result["action"], "guidance": guidance,
             "explain": "Severity comes from SmartPoli's clinical rules — never change it. Order your reply as: "
-                       "1) what to try now — any 'prescribed' instruction first (their own doctor's, as written; say "
-                       "'agar doctor ne ise isi problem ke liye diya hai'), then the 'general' steps exactly as listed, "
+                       "1) what to try now — any 'prescribed' instruction first (their own doctor's, exactly as "
+                       "written; if the list is empty, just say 'agar doctor ne is problem ke liye koi dawa batayi hai, "
+                       "to wahi follow kijiye' and name NO medicine), then the 'general' steps exactly as listed, "
                        "nothing else; 2) that you'll ask how they feel in recheck_minutes; 3) only then: if it isn't "
                        "better by then, see a doctor (for MODERATE add: within a day or two either way). "
                        "Don't lead with 'see a doctor'. Say at most the first three general steps aloud — "
@@ -503,7 +537,9 @@ def record_recheck(ctx: ToolContext, status=None) -> dict:
 
 
 def search_clinical_guidance(ctx: ToolContext, query=None, symptom_ids=None) -> dict:
-    hits = clinical_knowledge.search(str(query or "")[:200], _as_list(symptom_ids))
+    conditions = emergency_card_data(ctx.db, ctx.patient_id)["profile"]["conditions"] or ""
+    hits = clinical_knowledge.search(str(query or "")[:200], _as_list(symptom_ids),
+                                     conditions=[c.strip() for c in re.split(r"[,;\n]", conditions) if c.strip()])
     if not hits:
         return {"ok": True, "guidance": [],
                 "use": "No trusted SmartPoli guidance matches. Say you don't have reliable information on this, "

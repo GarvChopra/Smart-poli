@@ -70,3 +70,17 @@ def test_groq_tool_returns_guidance_and_shows_sources():
     assert "rules" in r["use"].lower()
     src = next(a for a in ctx.actions if a["type"] == "sources")
     assert src["items"] and all(s["url"].startswith("https://") for s in src["items"])
+
+
+def test_disease_guidance_only_when_the_condition_is_asked_about_or_in_the_record():
+    topics = [h["topic"] for h in clinical_knowledge.search("cough")]
+    assert "Sarcoidosis" not in topics and "Pleural Diseases" not in topics
+    assert "Cough" in topics
+    asthma = clinical_knowledge.search("breathing trouble", conditions=["Asthma"])
+    assert any(h["source"] == "mohfw_stg" and "Asthma" in h["topic"] for h in asthma)
+
+
+def test_cough_has_sourced_self_care_without_medicines():
+    care = [h for h in clinical_knowledge.search("cough") if h["kind"] == "self_care"]
+    assert care and all("nhs.uk" in h["url"] for h in care)
+    assert not any(re.search(r"paracetamol|ibuprofen|pelargonium", h["text"], re.I) for h in care)

@@ -92,7 +92,8 @@ def test_turns_are_stored_server_side_and_used_as_history(monkeypatch):
         install_fake_groq(monkeypatch, [_msg(content="Kab se?"), _msg(content="Theek hai.")], calls)
         _turn(client, pid, "mujhe raat ko wheezing ho rahi thi")
         _turn(client, pid, "subah se")   # the client sends NO history
-    second = [m["content"] for m in calls[1]["messages"] if m["role"] in ("user", "assistant")]
+    turn_calls = [c for c in calls if not c["messages"][0]["content"].startswith("You check a health assistant")]
+    second = [m["content"] for m in turn_calls[1]["messages"] if m["role"] in ("user", "assistant")]
     assert "mujhe raat ko wheezing ho rahi thi" in second and "Kab se?" in second
     db = SessionLocal()
     try:
@@ -170,3 +171,66 @@ def test_patient_can_delete_their_voice_history():
         assert db.query(VoiceMessage).filter(VoiceMessage.patient_id == pid).count() == 0
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------- prescribed first — only when linked
+
+def _check(db, pid, uid, ids, labels, answers_all_false=True):
+    from voice_tools import open_questions, clean_symptom_state
+    sym = clean_symptom_state({"ids": ids, "labels": labels})
+    qs = [q["id"] for q in open_questions(sym)]
+    ctx = _ctx(db, pid, uid, state={"symptom": {"ids": ids, "labels": labels, "answers": {}, "asked": qs}})
+    if qs:
+        run_tool(ctx, "update_symptom_check", {"answers": {q: False for q in qs}})
+    run_tool(ctx, "finish_symptom_check", {})
+    return next(a for a in ctx.actions if a["type"] == "triage_result")["guidance"]
+
+
+def test_a_prescription_is_not_suggested_for_an_unrelated_symptom():
+    with TestClient(app) as client:
+        uid, pid = _patient(client)   # has "Asthalin inhaler 2 puffs SOS"
+    db = SessionLocal()
+    try:
+        g = _check(db, pid, uid, ["headache"], ["sir dard"])
+    finally:
+        db.close()
+    assert g["prescribed"] == []
+
+
+def test_the_doctors_instruction_for_this_symptom_comes_first():
+    with TestClient(app) as client:
+        uid, pid = _patient(client)
+    db = SessionLocal()
+    try:
+        log_audit(db, pid, "doctor:9", "clinical_note", "If wheezy or breathless: 2 puffs of Asthalin, recheck in 10 minutes")
+        g = _check(db, pid, uid, ["breathlessness"], ["saans phool rahi"])
+    finally:
+        db.close()
+    assert g["prescribed"] and "Asthalin" in g["prescribed"][0]["instruction"]
+
+
+def test_hinglish_symptom_finds_its_sourced_self_care():
+    with TestClient(app) as client:
+        uid, pid = _patient(client)
+    db = SessionLocal()
+    try:
+        g = _check(db, pid, uid, [], ["khansi"])
+    finally:
+        db.close()
+    assert g["general"] and all("nhs.uk" in i["source_url"] for i in g["general"])
+
+
+def test_what_they_said_on_earlier_days_is_in_the_prompt(monkeypatch):
+    calls = []
+    with TestClient(app) as client:
+        uid, pid = _patient(client)
+        db = SessionLocal()
+        try:
+            db.add(VoiceMessage(patient_id=pid, role="user", content="mujhe raat ko wheezing ho rahi thi",
+                                created_at=datetime.utcnow() - timedelta(days=1)))
+            db.commit()
+        finally:
+            db.close()
+        install_fake_groq(monkeypatch, [_msg(content="Kal bhi?")], calls)
+        _turn(client, pid, "aaj phir wahi problem")
+    assert "mujhe raat ko wheezing ho rahi thi" in calls[0]["messages"][0]["content"]
