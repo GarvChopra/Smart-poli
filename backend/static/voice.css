@@ -29,7 +29,7 @@ body {
 button, input { font: inherit; color: inherit; }
 svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
-.vx-app { min-height: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; }
+.vx-app { min-height: 100vh; min-height: 100dvh; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; }
 
 /* top bar */
 .vx-top { display: flex; align-items: center; justify-content: space-between; padding: max(14px, env(safe-area-inset-top)) 16px 8px; }
@@ -43,13 +43,17 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 .vx-icon-btn svg { width: 19px; height: 19px; }
 .vx-icon-btn[aria-pressed="true"] { color: var(--red); }
 
-/* main column */
-.vx-main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 16px max(24px, env(safe-area-inset-bottom)); text-align: center; }
-.vx-title { font-family: 'Figtree', 'Noto Sans Devanagari', sans-serif; font-weight: 800; font-size: clamp(26px, 7vw, 32px); letter-spacing: -0.015em; margin: 18px 0 4px; }
-.vx-subline { color: var(--soft); margin: 0 0 26px; }
+/* main column: the conversation fills the screen, today's glance sits at the bottom */
+.vx-main { flex: 1; display: flex; flex-direction: column; padding: 4px 16px max(18px, env(safe-area-inset-bottom)); text-align: center; }
+.vx-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 0 20px; }
+.vx-app.is-talking .vx-stage { justify-content: flex-start; }
+.vx-title { font-family: 'Figtree', 'Noto Sans Devanagari', sans-serif; font-weight: 800; font-size: clamp(26px, 7vw, 34px); letter-spacing: -0.015em; margin: 0 0 6px; }
+.vx-subline { color: var(--soft); margin: 0 0 clamp(20px, 5vh, 40px); }
+.vx-app.is-talking .vx-title { font-size: 22px; }
+.vx-app.is-talking .vx-subline { display: none; }
 
 /* ---- the orb: the page's one visual ---- */
-.vx-orb { position: relative; width: 190px; height: 190px; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; }
+.vx-orb { position: relative; width: clamp(170px, 30vh, 230px); height: clamp(170px, 30vh, 230px); flex: none; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; }
 .vx-orb:focus-visible { outline: 3px solid var(--teal-dark); outline-offset: 8px; }
 .vx-orb-core {
   position: absolute; inset: 30px; border-radius: 50%; display: grid; place-items: center;
@@ -144,9 +148,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
   font-size: 18px; padding: 14px; border-radius: 14px; text-decoration: none; }
 .vx-help-call:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 
-/* the one tap browsers require before the mic and speech can start */
-.vx-start { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  gap: 10px; padding: 24px 24px max(56px, env(safe-area-inset-bottom)); background: linear-gradient(to top, rgba(244, 247, 246, 0.98) 30%, rgba(244, 247, 246, 0)); }
+/* the one tap browsers require before the mic and speech can start — right under the orb */
+.vx-start { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 22px; }
 .vx-start[hidden] { display: none; }
 .vx-start-btn { border: 0; border-radius: 999px; padding: 16px 34px; background: var(--teal); color: #fff; font-family: 'Figtree', sans-serif;
   font-weight: 700; font-size: 18px; cursor: pointer; box-shadow: 0 14px 30px -12px rgba(15, 138, 112, 0.7); }
@@ -161,3 +164,38 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 .vx-sources { margin: 8px 0 0; font-size: 12.5px; color: var(--faint); }
 .vx-sources[hidden] { display: none; }
 .vx-sources a { color: var(--teal-dark); }
+
+/* today at a glance (real SmartPoli data) + what you can say */
+.vx-dock { display: flex; flex-direction: column; gap: 12px; }
+.vx-today { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.vx-today[hidden] { display: none; }
+.vx-tile {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 11px;
+  display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 0;
+}
+.vx-tile-label { font-size: 12px; color: var(--faint); font-weight: 600; }
+.vx-tile strong { font-family: 'Figtree', sans-serif; font-size: 17px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-tile-sub { font-size: 12.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-try { margin: 0; min-height: 22px; font-size: 14px; color: var(--soft); transition: opacity 0.4s ease; }
+.vx-try b { color: var(--teal-dark); font-weight: 600; }
+.vx-try.is-fading { opacity: 0; }
+@media (max-width: 380px) {
+  .vx-tile strong { font-size: 15px; }
+  .vx-today { gap: 7px; }
+}
+@media (prefers-reduced-motion: reduce) { .vx-try { transition: none; } }
+
+/* phones: tile text wraps instead of being cut, and everything fits one screen */
+@media (max-width: 480px) {
+  .vx-tile { padding: 10px 10px 9px; }
+  .vx-tile strong { white-space: normal; font-size: 15px; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .vx-tile-sub { white-space: normal; font-size: 12px; line-height: 1.3; }
+}
+@media (max-height: 780px) {
+  .vx-title { font-size: 26px; }
+  .vx-subline { margin-bottom: 16px; }
+  .vx-orb { width: clamp(140px, 24vh, 190px); height: clamp(140px, 24vh, 190px); }
+  .vx-start { margin-top: 14px; }
+  .vx-stage { padding: 4px 0 12px; }
+}

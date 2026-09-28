@@ -34,6 +34,8 @@ const TEXT = {
     micBlocked: 'Microphone is blocked. Allow it in your browser settings, then tap to start.',
     basic: 'Basic mode: I can help with your medicines. Full conversation needs the AI service switched on.',
     privacy: 'To understand you, your words are sent to our AI service (Groq). Only your own SmartPoli data is used.',
+    trySaying: 'Try saying', tomorrow: 'Tomorrow', noneLeft: 'None left', doseWord: 'dose', dosesWord: 'doses', takenWord: 'taken', missedWord: 'missed',
+    tNext: 'Next dose', tLeft: 'Left today', tAdh: 'Adherence',
     ok: 'Got it', basedOn: 'Based on:', error: "I couldn't reach SmartPoli. Check your connection — I'm still listening.",
     slow: 'Too many requests — give me a moment.',
     taken: 'Taken', undo: 'Undo', undone: 'Undone — the dose is back to pending.', which: 'Which one did you take?',
@@ -61,6 +63,8 @@ const TEXT = {
     micBlocked: 'Microphone band hai. Browser settings mein allow kijiye, phir dabaiye.',
     basic: 'Basic mode: main dawaiyon mein madad kar sakta hoon. Poori baatcheet ke liye AI service chahiye.',
     privacy: 'Aapki baat samajhne ke liye aapke shabd hamari AI service (Groq) ko bheje jaate hain. Sirf aapka SmartPoli data use hota hai.',
+    trySaying: 'Aise boliye', tomorrow: 'Kal', noneLeft: 'Koi nahi', doseWord: 'dawai', dosesWord: 'dawaiyan', takenWord: 'li', missedWord: 'chhooti',
+    tNext: 'Agli dawai', tLeft: 'Aaj baaki', tAdh: 'Niyamitata',
     ok: 'Theek hai', basedOn: 'Jaankari ka srot:', error: 'SmartPoli tak nahi pahunch paaye. Internet check kijiye — main sun raha hoon.',
     slow: 'Bahut saari requests — thoda rukiye.',
     taken: 'Le li', undo: 'Wapas lein', undone: 'Wapas le liya — dawai phir se pending hai.', which: 'Aapne kaun si li?',
@@ -102,6 +106,11 @@ function applyLanguage() {
   $('subline').textContent = tx('subline');
   $('startBtn').textContent = tx('start');
   $('startHint').textContent = tx('startHint');
+  $('tNextLabel').textContent = tx('tNext');
+  $('tLeftLabel').textContent = tx('tLeft');
+  $('tAdhLabel').textContent = tx('tAdh');
+  tryIndex = 0;
+  if ($('tryLine').textContent) rotateTry();
   document.querySelectorAll('.vx-lang button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === VX.lang)));
   if (VX.engine) {
     VX.engine.rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
@@ -166,9 +175,61 @@ async function sendTurn(text, extra = {}) {
 }
 
 function onReply(res) {
+  document.querySelector('.vx-app').classList.add('is-talking');
   showReply(res.reply);
   showSources([]);
   renderActions(res.actions || []);
+  if ((res.actions || []).some(a => ['dose_taken', 'prn_logged', 'prescription_confirmed'].includes(a.type))) loadToday();
+}
+
+// ---------------------------------------------------------------- today at a glance + what to say
+
+const TRY = {
+  en: ['“When is my next medicine?”', '“I took my morning medicine.”', '“I have a headache since morning.”',
+       '“What should I avoid with my medicines?”', '“Show my emergency card.”', '“How many doses did I miss today?”'],
+  hi: ['“Meri agli medicine kab hai?”', '“Maine subah wali dawai le li.”', '“Subah se sir dard ho raha hai.”',
+       '“Meri dawaiyon ke saath kya avoid karna hai?”', '“Mera emergency card kholo.”', '“Aaj kitni dawai miss hui?”'],
+};
+let tryIndex = 0;
+
+function rotateTry() {
+  const el = $('tryLine');
+  const list = TRY[VX.lang] || TRY.en;
+  el.classList.add('is-fading');
+  setTimeout(() => {
+    el.innerHTML = `${esc(tx('trySaying'))} <b>${esc(list[tryIndex % list.length])}</b>`;
+    el.classList.remove('is-fading');
+    tryIndex++;
+  }, 350);
+}
+
+/** Next dose, doses left today, adherence — straight from the SmartPoli dashboard. */
+async function loadToday() {
+  if (!VX.patientId) return;
+  try {
+    const d = await apiFetch('GET', `/patients/${VX.patientId}/dashboard`);
+    const today = new Date().toDateString();
+    const upcoming = d.upcoming_doses || [];
+    const next = upcoming[0];
+    const left = upcoming.filter(x => new Date(x.scheduled_at).toDateString() === today).length;
+    const pct = d.adherence?.adherence_percent;
+    $('tNext').textContent = next ? next.medicine_name : tx('noneLeft');
+    if (next) {
+      const at = new Date(next.scheduled_at);
+      const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const tomorrow = new Date(Date.now() + 86400000).toDateString();
+      const day = at.toDateString() === today ? '' : at.toDateString() === tomorrow ? `${tx('tomorrow')} `
+        : `${at.toLocaleDateString([], { weekday: 'short' })} `;
+      $('tNextTime').textContent = day + time;
+    } else {
+      $('tNextTime').textContent = '';
+    }
+    $('tLeft').textContent = String(left);
+    $('tLeftSub').textContent = tx(left === 1 ? 'doseWord' : 'dosesWord');
+    $('tAdh').textContent = pct == null ? '—' : `${Math.round(pct)}%`;
+    $('tAdhSub').textContent = `${d.adherence?.taken ?? 0} ${tx('takenWord')} · ${d.adherence?.missed ?? 0} ${tx('missedWord')}`;
+    $('today').hidden = false;
+  } catch { /* the glance is a nice-to-have — the conversation still works */ }
 }
 
 /** Subtle "Based on …" line — where the medical information came from. */
@@ -405,6 +466,8 @@ async function boot() {
   applyLanguage();
   applyMute();
   showState('idle');
+  rotateTry();
+  setInterval(rotateTry, 4500);
 
   document.querySelector('.vx-lang').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lang]');
@@ -436,6 +499,8 @@ async function boot() {
     }
     VX.patientId = patients[0].id;
     loadConvState();
+    loadToday();
+    setInterval(loadToday, 5 * 60 * 1000);
     if (VX.convState.recheck?.due_at) recheckCard({ due_at: VX.convState.recheck.due_at });
     const phone = (patients[0].emergency_contact || '').match(/\+?\d[\d\s-]{6,}\d/);
     VX.contactPhone = phone ? phone[0].replace(/[\s-]/g, '') : null;

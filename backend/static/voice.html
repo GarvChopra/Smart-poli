@@ -26,31 +26,44 @@
   </header>
 
   <main class="vx-main">
-    <h1 class="vx-title" id="greeting">Talk to SmartPoli</h1>
-    <p class="vx-subline" id="subline">Speak naturally — Hindi, English or Hinglish.</p>
+    <!-- the conversation: centred in the space the screen has -->
+    <section class="vx-stage">
+      <h1 class="vx-title" id="greeting">Talk to SmartPoli</h1>
+      <p class="vx-subline" id="subline">Speak naturally — Hindi, English or Hinglish.</p>
 
-    <!-- the one visual: listening / understanding / speaking -->
-    <button type="button" class="vx-orb" id="orb" aria-label="Tap to start">
-      <span class="vx-orb-ring r1" aria-hidden="true"></span>
-      <span class="vx-orb-ring r2" aria-hidden="true"></span>
-      <span class="vx-orb-core" aria-hidden="true">
-        <span class="vx-wave"><i></i><i></i><i></i><i></i><i></i></span>
-      </span>
-    </button>
-    <div class="vx-status" id="status" aria-live="polite">Tap to start</div>
+      <!-- the one visual: listening / understanding / speaking -->
+      <button type="button" class="vx-orb" id="orb" aria-label="Tap to start">
+        <span class="vx-orb-ring r1" aria-hidden="true"></span>
+        <span class="vx-orb-ring r2" aria-hidden="true"></span>
+        <span class="vx-orb-core" aria-hidden="true">
+          <span class="vx-wave"><i></i><i></i><i></i><i></i><i></i></span>
+        </span>
+      </button>
+      <div class="vx-status" id="status" aria-live="polite">Tap to start</div>
 
-    <p class="vx-heard" id="heard" aria-live="polite"></p>
-    <p class="vx-reply" id="reply" aria-live="polite" hidden></p>
-    <p class="vx-sources" id="sources" hidden></p>
+      <div class="vx-start" id="startScreen">
+        <button type="button" class="vx-start-btn" id="startBtn">Start talking</button>
+        <p id="startHint">Tap once to turn on your microphone.</p>
+      </div>
 
-    <div class="vx-note" id="note" hidden></div>
-    <section class="vx-cards" id="cards" aria-live="polite"></section>
+      <p class="vx-heard" id="heard" aria-live="polite"></p>
+      <p class="vx-reply" id="reply" aria-live="polite" hidden></p>
+      <p class="vx-sources" id="sources" hidden></p>
+
+      <div class="vx-note" id="note" hidden></div>
+      <section class="vx-cards" id="cards" aria-live="polite"></section>
+    </section>
+
+    <!-- today at a glance, from SmartPoli — and what you can say -->
+    <section class="vx-dock" aria-label="Today">
+      <div class="vx-today" id="today" hidden>
+        <div class="vx-tile"><span class="vx-tile-label" id="tNextLabel">Next dose</span><strong id="tNext">—</strong><span class="vx-tile-sub" id="tNextTime"></span></div>
+        <div class="vx-tile"><span class="vx-tile-label" id="tLeftLabel">Left today</span><strong id="tLeft">—</strong><span class="vx-tile-sub" id="tLeftSub"></span></div>
+        <div class="vx-tile"><span class="vx-tile-label" id="tAdhLabel">Adherence</span><strong id="tAdh">—</strong><span class="vx-tile-sub" id="tAdhSub"></span></div>
+      </div>
+      <p class="vx-try" id="tryLine" aria-live="off"></p>
+    </section>
   </main>
-</div>
-
-<div class="vx-start" id="startScreen">
-  <button type="button" class="vx-start-btn" id="startBtn">Start talking</button>
-  <p id="startHint">Tap once to turn on your microphone.</p>
 </div>
 
 <script src="/static/auth.js"></script>
