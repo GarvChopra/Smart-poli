@@ -4,9 +4,13 @@ services:
     # Docker instead of Render's native Python runtime: Tesseract OCR needs
     # the `tesseract-ocr` system binary, and native runtime can only `pip
     # install` — no way to install a non-Python package. See backend/Dockerfile.
+    # dockerfilePath/dockerContext are resolved relative to rootDir (verified
+    # against a real failed deploy: "backend" + "./backend" doubled into a
+    # nonexistent "backend/backend" — Render's own docs say repo-root-relative,
+    # which is wrong in practice), so both are just "." here.
     runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     region: oregon
     rootDir: backend
