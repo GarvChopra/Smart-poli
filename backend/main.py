@@ -17,7 +17,6 @@ entry" rather than breaking anything else (CLAUDE.md section 5).
 
 import io
 import json
-from html import escape as html_escape
 import logging
 import os
 from datetime import datetime
@@ -53,11 +52,13 @@ from i18n import to_plain_language_hi, localized_symptom_label, localized_questi
 from schemas import (
     PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
+    EmergencyProfileUpdate,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
     serialize_patient, serialize_medicine, serialize_dose,
     gather_report_data, emergency_card_data as _emergency_card_data,
+    card_profile, card_photo, save_card_profile,
 )
 from auth import (
     get_current_user, require_patient_write_access, require_patient_read_access,
@@ -68,6 +69,8 @@ from nudges import compute_nudges
 from safety import build_safety_center
 from ics_export import build_ics
 from emergency_tokens import patient_id_for_token, rotate_token
+from emergency_page import render_public_card, INACTIVE_CARD_HTML
+from health_card_pdf import build_wallet_card_pdf
 import auth_router
 import caregiver_router
 import doctor_router
@@ -781,107 +784,63 @@ def revoke_emergency_card(patient_id: int, user: User = Depends(require_patient_
     return {"card_path": f"/emergency/{token}"}
 
 
-_INACTIVE_CARD_HTML = """<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex">
-<title>Emergency card not active</title></head>
-<body style="font-family:system-ui,sans-serif;padding:24px;max-width:480px;">
-<h1 style="color:#AE2B22;font-size:22px;">This emergency card is no longer active</h1>
-<p>The link may have been replaced by a newer card. In an emergency, call 112.</p>
-</body></html>"""
+@app.get("/patients/{patient_id}/emergency-card/profile")
+def get_card_profile(patient_id: int, user: User = Depends(require_patient_read_access),
+                     db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    return card_profile(db, patient_id)
+
+
+@app.put("/patients/{patient_id}/emergency-card/profile")
+def put_card_profile(patient_id: int, body: EmergencyProfileUpdate,
+                     user: User = Depends(require_patient_write_access),
+                     db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    save_card_profile(db, patient_id, body.model_dump(exclude_unset=True))
+    log_audit(db, patient_id, f"patient:{user.id}", "emergency_profile_updated",
+              ",".join(sorted(body.model_dump(exclude_unset=True))))
+    return card_profile(db, patient_id)
+
+
+@app.get("/patients/{patient_id}/emergency-card/photo")
+def get_card_photo(patient_id: int, user: User = Depends(require_patient_read_access),
+                   db: Session = Depends(get_db_session)):
+    photo = card_photo(db, patient_id)
+    if not photo:
+        raise HTTPException(404, "No photo on this card.")
+    return Response(content=photo[0], media_type=photo[1])
+
+
+@app.get("/patients/{patient_id}/emergency-card/card.pdf")
+def get_wallet_card_pdf(patient_id: int, request: Request, user: User = Depends(require_patient_read_access),
+                        db: Session = Depends(get_db_session)):
+    data = _emergency_card_data(db, patient_id)
+    photo = card_photo(db, patient_id) if data["profile"]["share"]["photo"] else None
+    pdf = build_wallet_card_pdf(data, str(request.base_url).rstrip("/") + data["card_path"],
+                                photo[0] if photo else None)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="smartpoli-health-card.pdf"'})
+
+
+_PUBLIC_HEADERS = {"Referrer-Policy": "no-referrer"}
 
 
 @app.get("/emergency/{token}", response_class=HTMLResponse, include_in_schema=False)
 def emergency_card_page(token: str, db: Session = Depends(get_db_session)):
     """Public, standalone, no-login card — what a QR scan opens. Addressed by
-    a random revocable token (emergency_tokens.py), never the patient id.
-    Deliberately plain server-rendered HTML, not the SPA, so it works even on
-    a phone browser with nothing cached and renders instantly."""
+    a random revocable token (emergency_tokens.py), never the patient id;
+    shows only what the patient chose to share (emergency_page.py)."""
     patient_id = patient_id_for_token(db, token)
     if patient_id is None:
-        return HTMLResponse(content=_INACTIVE_CARD_HTML, status_code=404,
-                            headers={"Referrer-Policy": "no-referrer"})
-    data = _emergency_card_data(db, patient_id)
-    # Every patient-entered value is HTML-escaped: this page is served from
-    # the app's own origin (where the SPA keeps its login token), so an
-    # unescaped name/allergy would be stored XSS against anyone opening it.
-    esc = lambda v: html_escape(str(v)) if v is not None else None  # noqa: E731
-    p = {k: esc(v) for k, v in data["patient"].items()}
+        return HTMLResponse(content=INACTIVE_CARD_HTML, status_code=404, headers=_PUBLIC_HEADERS)
+    return HTMLResponse(content=render_public_card(_emergency_card_data(db, patient_id)),
+                        headers=_PUBLIC_HEADERS)
 
-    def rows(items, empty_text):
-        if not items:
-            return f'<p class="muted">{empty_text}</p>'
-        items = [{k: esc(v) for k, v in i.items()} for i in items]
-        lis = "".join(
-            f'<li><strong>{i["name"]}</strong>'
-            f'{" " + i["dose_amount"] + (i.get("dose_unit") or "") if i.get("dose_amount") else ""}'
-            f'{" — " + i["schedule_code"] if i.get("schedule_code") else ""}</li>'
-            for i in items
-        )
-        return f"<ul>{lis}</ul>"
 
-    emergency_flag = (
-        '<div class="flag">This patient has a history of an EMERGENCY-graded symptom check in SmartPoli.</div>'
-        if data["has_emergency_triage_history"] else ""
-    )
-
-    html = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex">
-<title>Emergency card — {p['name']}</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; background: #fff; color: #1a1a1a; margin: 0; padding: 24px; max-width: 480px; }}
-  h1 {{ color: #AE2B22; font-size: 22px; margin: 0 0 4px; }}
-  .sub {{ color: #555; font-size: 14px; margin-bottom: 20px; }}
-  .flag {{ background: #AE2B22; color: #fff; padding: 10px 14px; border-radius: 6px; font-weight: 600; margin-bottom: 18px; }}
-  section {{ margin-bottom: 18px; }}
-  h2 {{ font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #777; border-bottom: 1px solid #ddd; padding-bottom: 4px; }}
-  ul {{ padding-left: 20px; margin: 6px 0; }}
-  .muted {{ color: #888; font-size: 14px; }}
-  .allergy {{ background: #F5DBD7; color: #AE2B22; padding: 8px 12px; border-radius: 6px; font-weight: 600; }}
-  .offline-note {{ background: #444; color: #fff; font-size: 12px; padding: 6px 10px; border-radius: 6px; margin-bottom: 14px; }}
-  footer {{ font-size: 11px; color: #999; margin-top: 24px; border-top: 1px solid #eee; padding-top: 10px; }}
-</style></head>
-<body>
-  <h1>Emergency medical information</h1>
-  <div class="sub">{p['name']}{', ' + str(p['age']) if p['age'] else ''}{', ' + p['sex'] if p['sex'] else ''}{', blood group ' + p['blood_group'] if p.get('blood_group') else ''}</div>
-  <div class="offline-note" id="offlineNote" style="display:none;">Showing OFFLINE / CACHED information — this may be out of date.</div>
-  {emergency_flag}
-  <section>
-    <h2>Allergies</h2>
-    {f'<div class="allergy">{p["allergies"]}</div>' if p['allergies'] else '<p class="muted">None recorded.</p>'}
-  </section>
-  <section>
-    <h2>Emergency contact</h2>
-    <p>{p['emergency_contact'] or '<span class="muted">None recorded.</span>'}</p>
-  </section>
-  <section>
-    <h2>Current scheduled medicines</h2>
-    {rows(data['scheduled_medicines'], 'None on file.')}
-  </section>
-  <section>
-    <h2>As-needed medicines</h2>
-    {rows(data['as_needed_medicines'], 'None on file.')}
-  </section>
-  <footer>Last updated {datetime.fromisoformat(data['last_updated']).strftime('%d %b %Y, %I:%M %p')} UTC<br>{data['disclaimer']}</footer>
-  <script>
-    // Offline emergency fallback (Part 16 of the brief): this page registers
-    // its own tiny service worker scoped ONLY to itself and the QR image, so
-    // once a patient/caregiver has opened it once, it still opens with no
-    // signal — the badge below makes clear when that's what's happening.
-    // The rest of the app is NOT made offline-capable; this is deliberately
-    // narrow to "critical emergency information only".
-    function updateOfflineBadge() {{
-      document.getElementById('offlineNote').style.display = navigator.onLine ? 'none' : 'block';
-    }}
-    window.addEventListener('online', updateOfflineBadge);
-    window.addEventListener('offline', updateOfflineBadge);
-    updateOfflineBadge();
-    if ('serviceWorker' in navigator) {{
-      navigator.serviceWorker.register('/static/sw-emergency.js', {{ scope: '/emergency/' }}).catch(() => {{}});
-    }}
-  </script>
-</body></html>"""
-    return HTMLResponse(content=html, headers={"Referrer-Policy": "no-referrer"})
+@app.get("/emergency/{token}/photo", include_in_schema=False)
+def emergency_card_public_photo(token: str, db: Session = Depends(get_db_session)):
+    patient_id = patient_id_for_token(db, token)
+    photo = card_photo(db, patient_id) if patient_id is not None else None
+    if not photo or not card_profile(db, patient_id)["share"]["photo"]:
+        raise HTTPException(404, "Not found.")
+    return Response(content=photo[0], media_type=photo[1], headers=_PUBLIC_HEADERS)

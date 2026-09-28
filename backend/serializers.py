@@ -5,6 +5,7 @@ SAME shape of data the patient app does — no second representation of a
 Medicine, Dose or report (CLAUDE.md section 6: "One model.").
 """
 
+import base64
 import json
 from datetime import datetime
 from typing import Optional
@@ -13,11 +14,15 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db import Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog
+from db import (
+    Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog,
+    EmergencyCardProfile, CaregiverLink, DoctorLink, User,
+)
 from scheduler import compute_adherence, compute_medicine_breakdown, sweep_missed
 from interactions import check_interactions
 from food_warnings import check_food_warnings
 from emergency_tokens import get_or_create_active_token
+from schemas import CARD_SHARE_FIELDS
 
 
 def get_patient_or_404(db: Session, patient_id: int) -> Patient:
@@ -214,8 +219,60 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
 CARD_AUDIT_ACTIONS = (
     "patient_created", "patient_updated", "prescription_confirmed", "medicine_confirmed",
     "medicine_corrected", "triage_check", "caregiver_link_accepted", "caregiver_link_revoked",
-    "doctor_link_accepted", "doctor_link_revoked",
+    "doctor_link_accepted", "doctor_link_revoked", "emergency_profile_updated",
 )
+
+
+def _card_profile_row(db: Session, patient_id: int) -> Optional[EmergencyCardProfile]:
+    return db.query(EmergencyCardProfile).filter(EmergencyCardProfile.patient_id == patient_id).first()
+
+
+def card_profile(db: Session, patient_id: int) -> dict:
+    """The 3D card's extra content and share choices, with defaults applied
+    (every field shared unless the patient turned it off)."""
+    row = _card_profile_row(db, patient_id)
+    stored = json.loads(row.share) if row and row.share else {}
+    return {
+        "conditions": row.conditions if row else None,
+        "instructions": row.instructions if row else None,
+        "has_photo": bool(row and row.photo),
+        "share": {f: stored.get(f, True) for f in CARD_SHARE_FIELDS},
+    }
+
+
+def card_photo(db: Session, patient_id: int) -> Optional[tuple[bytes, str]]:
+    """(image bytes, media type) or None."""
+    row = _card_profile_row(db, patient_id)
+    if not row or not row.photo:
+        return None
+    prefix, _, payload = row.photo.partition(",")
+    return base64.b64decode(payload), prefix[len("data:"):-len(";base64")]
+
+
+def save_card_profile(db: Session, patient_id: int, update: dict) -> None:
+    """`update` holds only the fields the client sent; "" clears a field."""
+    row = _card_profile_row(db, patient_id)
+    if row is None:
+        row = EmergencyCardProfile(patient_id=patient_id)
+        db.add(row)
+    for field in ("conditions", "instructions", "photo"):
+        if field in update:
+            setattr(row, field, update[field] or None)
+    if "share" in update and update["share"] is not None:
+        merged = json.loads(row.share) if row.share else {}
+        merged.update(update["share"])
+        row.share = json.dumps(merged)
+    db.commit()
+
+
+def _care_team(db: Session, patient_id: int) -> dict:
+    def names(link_model, user_col):
+        return [name for (name,) in db.query(User.name)
+                .join(link_model, user_col == User.id)
+                .filter(link_model.patient_id == patient_id, link_model.status == "active")
+                .order_by(link_model.accepted_at).all()]
+    return {"caregivers": names(CaregiverLink, CaregiverLink.caregiver_user_id),
+            "doctors": names(DoctorLink, DoctorLink.doctor_user_id)}
 
 
 def emergency_card_data(db: Session, patient_id: int) -> dict:
@@ -250,6 +307,8 @@ def emergency_card_data(db: Session, patient_id: int) -> dict:
     last_updated = max(c for c in candidates if c is not None)
 
     return {
+        "profile": card_profile(db, patient_id),
+        "care_team": _care_team(db, patient_id),
         "card_path": f"/emergency/{get_or_create_active_token(db, patient_id)}",
         "last_updated": last_updated.isoformat(),
         "patient": {"name": patient.name, "age": patient.age, "sex": patient.sex,

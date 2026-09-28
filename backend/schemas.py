@@ -1,8 +1,10 @@
 """SmartPoli API request/response schemas (Pydantic). Thin mirrors of db.py's
 canonical ORM model for (de)serialisation only — not a second data shape."""
 
+import base64
+import binascii
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class PatientCreate(BaseModel):
@@ -104,3 +106,44 @@ class DoctorPrescriptionCreate(BaseModel):
 class PrescriptionTemplateCreate(BaseModel):
     label: str
     lines: list[str]
+
+
+# ---------------------------------------------------------------- 3D health card
+
+CARD_SHARE_FIELDS = ("photo", "blood_group", "allergies", "conditions", "medicines",
+                     "emergency_contact", "caregiver", "doctor", "instructions")
+CARD_PHOTO_MAX_BYTES = 200_000
+
+
+class EmergencyProfileUpdate(BaseModel):
+    """Every field optional: only what's sent changes. An empty string
+    clears a text field or removes the photo."""
+    conditions: Optional[str] = Field(None, max_length=500)
+    instructions: Optional[str] = Field(None, max_length=500)
+    photo: Optional[str] = None
+    share: Optional[dict[str, bool]] = None
+
+    @field_validator("photo")
+    @classmethod
+    def _valid_photo(cls, v):
+        if not v:
+            return v
+        prefix, _, payload = v.partition(",")
+        if prefix not in ("data:image/jpeg;base64", "data:image/png;base64"):
+            raise ValueError("Photo must be a JPEG or PNG data URL.")
+        try:
+            raw = base64.b64decode(payload, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("Photo is not valid base64.")
+        if len(raw) > CARD_PHOTO_MAX_BYTES:
+            raise ValueError("Photo is too large (max 200 KB).")
+        return v
+
+    @field_validator("share")
+    @classmethod
+    def _valid_share(cls, v):
+        if v is not None:
+            unknown = set(v) - set(CARD_SHARE_FIELDS)
+            if unknown:
+                raise ValueError(f"Unknown share fields: {sorted(unknown)}")
+        return v

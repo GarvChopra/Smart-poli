@@ -237,6 +237,22 @@ class EmergencyCardToken(Base):
     revoked_at = Column(DateTime, nullable=True)
 
 
+class EmergencyCardProfile(Base):
+    """The extra, patient-chosen content of the 3D health card that the
+    core record doesn't have — photo, conditions, instructions — plus which
+    fields the public QR view may show. A separate table for the same
+    Postgres reason as EmergencyCardToken. Created on first save."""
+    __tablename__ = "emergency_card_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, unique=True, index=True)
+    conditions = Column(Text, nullable=True)
+    instructions = Column(Text, nullable=True)
+    photo = Column(Text, nullable=True)   # data:image/(jpeg|png);base64,... — resized in the browser
+    share = Column(Text, nullable=True)   # JSON {field: bool}; a missing key means "share"
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WhatsAppSession(Base):
     """
     Conversation state for one WhatsApp number (whatsapp_bot.py). Separate
