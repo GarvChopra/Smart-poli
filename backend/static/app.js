@@ -346,7 +346,7 @@ function renderPrescriptions(lastResult) {
       <div style="margin-top:12px;">
         <button class="primary" id="uploadBtn">Read prescription</button>
       </div>
-      <div id="uploadStatus" style="margin-top:10px;font-size:13px;color:var(--ink-soft);"></div>
+      <div id="uploadStatus"></div>
     </div>
 
     <div class="card">
@@ -378,11 +378,18 @@ Syrup Crocin 5ml SOS"></textarea>
   document.getElementById('uploadBtn').addEventListener('click', async () => {
     const fileInput = document.getElementById('rxImageInput');
     const status = document.getElementById('uploadStatus');
+    const btn = document.getElementById('uploadBtn');
+    const setStatus = (kind, text) => {
+      status.className = kind ? `upload-status-banner ${kind}` : '';
+      status.innerHTML = kind === 'loading' ? `<span class="upload-spinner"></span><span>${text}</span>` : text;
+    };
     if (!fileInput.files.length) {
-      status.textContent = 'Choose a photo first.';
+      setStatus('error', 'Choose a photo first.');
       return;
     }
-    status.textContent = 'Reading photo — this can take a little while the first time (loading the OCR model)...';
+    btn.disabled = true;
+    btn.textContent = 'Reading…';
+    setStatus('loading', 'Reading photo — a full-size phone photo can take up to a minute…');
 
     const form = new FormData();
     form.append('patient_id', state.patientId);
@@ -396,14 +403,18 @@ Syrup Crocin 5ml SOS"></textarea>
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        status.textContent = detail.detail || `Could not read that photo (${res.status}).`;
+        setStatus('error', detail.detail || `Could not read that photo (${res.status}).`);
         return;
       }
       const result = await res.json();
-      status.textContent = `Found ${result.ocr_lines_found} line(s) in the photo.`;
+      setStatus(null, '');
+      showQuickPopup('Photo read successfully', null, `${result.ocr_lines_found} medicine line(s) found`);
       renderRxResult(result);
     } catch (e) {
-      status.textContent = 'Could not reach the server. Use manual entry instead.';
+      setStatus('error', 'Could not reach the server. Use manual entry instead.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Read prescription';
     }
   });
 
@@ -543,19 +554,18 @@ function renderDoseCalendar(doses) {
   `).join('')}</div>`;
 }
 
-/** A brief on-screen confirmation for marking a dose taken — a green check
- * plus the exact medicine/day/time, so the action is visibly acknowledged
- * beyond just the list quietly re-rendering. Closes on click or after 2.5s. */
-function showTakenPopup(medName, scheduledAt) {
+/** A brief on-screen confirmation popup — a big check icon plus a short
+ * headline/detail/label, so an action is visibly acknowledged beyond just
+ * the page quietly re-rendering. Closes on click or after 2.5s. */
+function showQuickPopup(title, detail, label) {
   document.querySelectorAll('.taken-popup-overlay').forEach(el => el.remove());
-  const when = new Date(scheduledAt);
   const overlay = el(`
     <div class="taken-popup-overlay">
       <div class="taken-popup">
         <span class="taken-popup-icon">${ICONS.checkCircle}</span>
-        <div class="taken-popup-med">${medName}</div>
-        <div class="taken-popup-when">${when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-        <div class="taken-popup-label">Marked as taken</div>
+        <div class="taken-popup-med">${title}</div>
+        ${detail ? `<div class="taken-popup-when">${detail}</div>` : ''}
+        <div class="taken-popup-label">${label}</div>
       </div>
     </div>
   `);
@@ -563,6 +573,13 @@ function showTakenPopup(medName, scheduledAt) {
   const dismiss = () => overlay.remove();
   overlay.addEventListener('click', dismiss);
   setTimeout(dismiss, 2500);
+}
+
+function showTakenPopup(medName, scheduledAt) {
+  const when = new Date(scheduledAt);
+  showQuickPopup(medName,
+    `${when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+    'Marked as taken');
 }
 
 async function renderDashboard() {
