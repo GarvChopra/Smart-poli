@@ -239,3 +239,25 @@ def test_min_severity_only_raises():
         assert emer["severity"] == "EMERGENCY"
     finally:
         db.close()
+
+
+def test_fixed_replies_follow_the_patients_language_not_the_toggle():
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        r = client.post(f"/patients/{pid}/voice/turn", json={
+            "text": "Mujhe saans lene mein thodi dikkat ho rahi hai", "lang": "en",
+            "client_time": datetime.now().astimezone().isoformat(), "history": [], "state": {}}).json()
+        assert "poora sentence" in r["reply"]
+        r = client.post(f"/patients/{pid}/voice/turn", json={
+            "text": "I have some trouble breathing", "lang": "hi",
+            "client_time": datetime.now().astimezone().isoformat(), "history": [], "state": {}}).json()
+        assert "full sentence" in r["reply"]
+
+
+def test_reply_says_which_language_it_is_in():
+    with TestClient(app) as client:
+        _, pid = _patient(client)
+        r = client.post(f"/patients/{pid}/voice/turn", json={
+            "text": "meri agli dawai kab hai", "lang": "en",
+            "client_time": datetime.now().astimezone().isoformat(), "history": [], "state": {}}).json()
+    assert r["lang"] == "hi"

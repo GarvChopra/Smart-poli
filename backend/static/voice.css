@@ -146,17 +146,25 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 .vx-type button { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; cursor: pointer; }
 .vx-type button svg { width: 20px; height: 20px; }
 
-/* emergency: takes over the screen until dismissed */
-.vx-emergency { position: fixed; inset: 0; z-index: 50; background: var(--red); color: #fff; display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
-.vx-emergency[hidden] { display: none; }
-.vx-em-inner { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 12px; }
-.vx-em-inner h2 { font-family: 'Figtree', sans-serif; font-size: 32px; margin: 0; }
-.vx-em-inner p { margin: 0; font-size: 18px; }
-.vx-em-inner ul { margin: 0; padding-left: 20px; opacity: 0.92; }
-.vx-em-call { display: block; text-align: center; background: #fff; color: var(--red); font-weight: 800; font-size: 22px; padding: 18px; border-radius: 16px; text-decoration: none; margin-top: 8px; }
-.vx-em-btn { display: block; text-align: center; border: 2px solid rgba(255, 255, 255, 0.8); color: #fff; font-weight: 700; padding: 13px; border-radius: 14px; text-decoration: none; }
-.vx-em-btn[hidden] { display: none; }
-.vx-em-close { background: none; border: 0; color: #fff; text-decoration: underline; padding: 10px; cursor: pointer; font-size: 15px; }
+/* levels and help — calm: light cards, a coloured edge, no full-screen alarm */
+.vx-card.vx-level-LOW { border-left: 4px solid var(--teal); }
+.vx-card.vx-level-MODERATE { border-left: 4px solid var(--amber); }
+.vx-card.vx-level-NOT_ASSESSED { border-left: 4px solid var(--faint); }
+.vx-guide { margin-top: 12px; }
+.vx-guide h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--ink); }
+.vx-guide ul { margin: 0; }
+.vx-src { font-size: 12px; color: var(--teal-dark); margin-left: 4px; }
+.vx-small { font-size: 12.5px !important; color: var(--faint) !important; margin-top: 6px !important; }
+.vx-calm { background: var(--teal-tint); border-color: transparent; }
+.vx-calm p { color: var(--teal-dark); }
+.vx-btn.is-quiet { color: var(--red); border-color: #F3C9C4; background: #fff; }
+.vx-recheck.is-due { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-tint); }
+.vx-help { border-left: 4px solid var(--red); }
+.vx-help h3 { color: var(--red); }
+.vx-help p { color: var(--ink); }
+.vx-help-call { display: block; text-align: center; margin-top: 12px; background: var(--red); color: #fff; font-weight: 700;
+  font-size: 18px; padding: 14px; border-radius: 14px; text-decoration: none; }
+.vx-help-call:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 
 .vx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 

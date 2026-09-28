@@ -81,6 +81,24 @@ _RECHECK_WORDS = [
 ]
 
 
+_HINGLISH = re.compile(r"\b(mujhe|mujhko|mera|meri|mere|hai|hain|ho rahi|ho raha|nahi|nahin|mein|kya|aap|kaise|"
+                       r"dard|saans|dawai|dawa|le li|kab|abhi|bahut|thoda|thodi|kuch|hoon|haan|theek|chakkar)\b", re.I)
+_ENGLISH = re.compile(r"\b(i|i'm|my|the|is|am|have|has|what|when|please|feel|feeling|some|it)\b", re.I)
+
+
+def spoken_language(text: str, toggle: str) -> str:
+    """Reply in the language the patient actually used; the toggle only
+    decides when their words don't show it."""
+    if re.search(r"[ऀ-ॿ]", text or ""):
+        return "hi"
+    hi, en = len(_HINGLISH.findall(text or "")), len(_ENGLISH.findall(text or ""))
+    if hi > en:
+        return "hi"
+    if en > hi:
+        return "en"
+    return toggle
+
+
 def is_available() -> bool:
     return bool(os.getenv("GROQ_API_KEY"))
 
@@ -349,6 +367,14 @@ def _has_emergency(ctx: ToolContext) -> bool:
 
 def run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
              now_local: datetime, history, state, recheck: Optional[str] = None) -> dict:
+    lang = spoken_language(text, lang)
+    out = _run_turn(db, patient_id, user, text, lang, now_local, history, state, recheck)
+    out.setdefault("lang", lang)  # the page picks the speaking voice from this
+    return out
+
+
+def _run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
+              now_local: datetime, history, state, recheck: Optional[str]) -> dict:
     patient = get_patient_or_404(db, patient_id)
     ctx = ToolContext(db=db, patient_id=patient_id, user=user, now=now_local, lang=lang,
                       state=state if isinstance(state, dict) else {})

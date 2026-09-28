@@ -35,12 +35,20 @@ const TEXT = {
     chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
     taken: 'Taken', undo: 'Undo', undone: 'Undone — the dose is back to pending.', which: 'Which one did you take?',
     open: 'Open', openCard: 'Open my emergency card', resultFrom: "Result from SmartPoli's clinical rules",
-    sev: { LOW: 'Low concern', MODERATE: 'See a doctor soon', EMERGENCY: 'Emergency', NOT_ASSESSED: "Can't be rated automatically" },
+    sev: { LOW: 'Self-care & monitor', MODERATE: 'See a doctor', EMERGENCY: 'Get medical help now', NOT_ASSESSED: 'Keep an eye on it' },
+    sevText: { LOW: 'This can usually be looked after at home. Keep an eye on how it goes.',
+      MODERATE: 'Please see a doctor within the next day or two. You can keep monitoring meanwhile.' },
+    fromPrescription: 'From your prescription', mayHelp: 'What may help',
+    prescriptionNote: 'Only if your doctor gave this for this problem — take it the way they told you.',
+    calmNote: "Take your time answering. If it ever feels much worse, help is one tap away.", call112: 'Call 112',
+    recheckAt: "I'll check with you at {time}", recheckHow: 'Or tell me any time how it feels:',
+    better: 'Better', same: 'Same', worse: 'Worse', howNow: 'How are you feeling now?',
     notAssessed: "SmartPoli's rules don't cover this symptom. If it is severe, getting worse, or worrying you, contact your doctor.",
     scheduled: 'Prescription scheduled', draft: 'Prescription read — say yes to schedule it',
     noPatient: 'Create your patient profile in the SmartPoli app first.', openApp: 'Open SmartPoli',
     screens: { dashboard: 'Dashboard', prescriptions: 'Prescriptions', safety: 'Safety center', triage: 'Symptom check', report: 'Care report', timeline: 'Timeline', emergency: 'Emergency card', settings: 'Settings' },
-    emTitle: 'Get help now', emClose: "I'm safe — close", emCall: 'Call 112', emContact: 'Call my emergency contact', emCard: 'Show my emergency card',
+    emTitle: 'Please get medical help now', emText: "Stay calm. Call 112, or ask someone near you to call — the button below does it for you.",
+    emCall: 'Call 112', emContact: 'Call my emergency contact', emCard: 'Show my emergency card',
   },
   hi: {
     greeting: 'Aaj main aapki kya madad karoon?', subline: 'Hindi, English ya Hinglish mein boliye.',
@@ -52,12 +60,20 @@ const TEXT = {
     chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
     taken: 'Le li', undo: 'Wapas lein', undone: 'Wapas le liya — dawai phir se pending hai.', which: 'Aapne kaun si li?',
     open: 'Kholiye', openCard: 'Mera emergency card kholiye', resultFrom: 'SmartPoli ke clinical rules ka nateeja',
-    sev: { LOW: 'Kam chinta', MODERATE: 'Jaldi doctor ko dikhaiye', EMERGENCY: 'Emergency', NOT_ASSESSED: 'Automatic rating nahi ho sakti' },
+    sev: { LOW: 'Ghar par dhyan rakhiye', MODERATE: 'Doctor ko dikhaiye', EMERGENCY: 'Abhi doctor ki madad lijiye', NOT_ASSESSED: 'Nazar rakhiye' },
+    sevText: { LOW: 'Iska dhyan aam taur par ghar par rakha ja sakta hai. Dekhte rahiye kaisa lag raha hai.',
+      MODERATE: 'Agle ek-do din mein doctor ko dikha lijiye. Tab tak dhyan rakhte rahiye.' },
+    fromPrescription: 'Aapke prescription se', mayHelp: 'Isse madad mil sakti hai',
+    prescriptionNote: 'Sirf tab, jab doctor ne ise isi problem ke liye diya ho — unke bataye tareeke se lijiye.',
+    calmNote: 'Aaram se jawab dijiye. Agar kabhi bhi bahut zyada takleef lage, madad bas ek button door hai.', call112: '112 par call',
+    recheckAt: 'Main {time} baje aapse poochunga', recheckHow: 'Ya kabhi bhi batayein kaisa lag raha hai:',
+    better: 'Behtar', same: 'Waisa hi', worse: 'Zyada kharab', howNow: 'Ab kaisa lag raha hai?',
     notAssessed: 'SmartPoli ke rules is lakshan ko cover nahi karte. Agar yeh tez hai, badh raha hai ya chinta ho rahi hai, to doctor se sampark kijiye.',
     scheduled: 'Prescription schedule ho gaya', draft: 'Prescription padh liya — schedule karne ke liye haan boliye',
     noPatient: 'Pehle SmartPoli app mein apni patient profile banaiye.', openApp: 'SmartPoli kholiye',
     screens: { dashboard: 'Dashboard', prescriptions: 'Prescription', safety: 'Safety center', triage: 'Lakshan jaanch', report: 'Care report', timeline: 'Timeline', emergency: 'Emergency card', settings: 'Settings' },
-    emTitle: 'Abhi madad lijiye', emClose: 'Main theek hoon — band karein', emCall: '112 par call karein', emContact: 'Emergency contact ko call karein', emCard: 'Mera emergency card dikhaiye',
+    emTitle: 'Abhi doctor ki madad lijiye', emText: 'Ghabraiye nahi. 112 par call kijiye, ya paas kisi se call karwaiye — neeche ka button call kar dega.',
+    emCall: '112 par call karein', emContact: 'Emergency contact ko call karein', emCard: 'Mera emergency card dikhaiye',
   },
 };
 const tx = (k) => (TEXT[VX.lang] || TEXT.en)[k];
@@ -83,11 +99,6 @@ function applyLanguage() {
   $('typeInput').placeholder = tx('typeHere');
   document.querySelectorAll('.vx-lang button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === VX.lang)));
   $('chips').innerHTML = tx('chips').map(c => `<button type="button">${esc(c)}</button>`).join('');
-  $('emTitle').textContent = tx('emTitle');
-  $('emClose').textContent = tx('emClose');
-  document.querySelector('.vx-em-call').textContent = tx('emCall');
-  $('emContact').textContent = tx('emContact');
-  $('emCard').textContent = tx('emCard');
   setStatus(VX.listening ? 'listening' : VX.busy ? 'thinking' : 'tap');
   if (VX.recognition) VX.recognition.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
 }
@@ -126,13 +137,13 @@ const addBot = (text) => addEntry(esc(text), 'vx-msg is-bot');
 
 // ---------------------------------------------------------------- speech out
 
-function speak(text, onDone) {
+function speak(text, onDone, lang) {
   const synth = window.speechSynthesis;
   if (VX.muted || !synth || !text) { onDone?.(); return; }
   synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
   // Devanagari replies need a Hindi voice even when the toggle says EN.
-  u.lang = VX.lang === 'hi' || /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN';
+  u.lang = (lang || VX.lang) === 'hi' || /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN';
   const voice = synth.getVoices().find(v => v.lang === u.lang) || synth.getVoices().find(v => v.lang.startsWith(u.lang.slice(0, 2)));
   if (voice) u.voice = voice;
   u.onstart = () => { setStatus('speaking'); $('micBtn').classList.add('is-speaking'); };
@@ -181,7 +192,7 @@ function onMic() {
 
 // ---------------------------------------------------------------- server turn
 
-async function send(text) {
+async function send(text, extra = {}) {
   if (VX.busy || !text || !VX.patientId) return;
   VX.busy = true;
   $('micBtn').classList.add('is-busy');
@@ -190,16 +201,17 @@ async function send(text) {
   const typing = addEntry('<span class="vx-typing"><i></i><i></i><i></i></span><span class="vx-sr">' + esc(tx('thinking')) + '</span>', 'vx-msg is-bot is-typing');
   try {
     const res = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
-      text, lang: VX.lang, client_time: localIsoNow(), history: VX.history.slice(-20), state: VX.convState,
+      text, lang: VX.lang, client_time: localIsoNow(), history: VX.history.slice(-20), state: VX.convState, ...extra,
     });
     VX.history.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply });
     VX.convState = res.state || {};
+    saveConvState();
     const emergency = (res.actions || []).find(a => a.type === 'emergency');
     typing.remove();
     addBot(res.reply);
     const afterSpeech = renderActions(res.actions || []);
     if (emergency) showEmergency(emergency);
-    speak(res.reply, afterSpeech);
+    speak(res.reply, afterSpeech, res.lang);
   } catch (err) {
     typing.remove();
     addEntry(esc(/429|Too many/.test(err.message) ? tx('slow') : tx('error')), 'vx-msg is-error');
@@ -208,6 +220,16 @@ async function send(text) {
     $('micBtn').classList.remove('is-busy');
     if (!window.speechSynthesis?.speaking) setStatus('tap');
   }
+}
+
+// A symptom check or a pending recheck survives a reload of the page.
+function saveConvState() {
+  store.set(`smartpoli_voice_state_${VX.patientId}`, JSON.stringify(VX.convState || {}));
+}
+
+function loadConvState() {
+  try { VX.convState = JSON.parse(store.get(`smartpoli_voice_state_${VX.patientId}`) || '{}') || {}; }
+  catch { VX.convState = {}; }
 }
 
 function localIsoNow() {
@@ -229,7 +251,8 @@ function renderActions(actions) {
     if (a.type === 'prn_logged') addEntry(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${esc(a.medicine)}</h3><p>${tx('taken')}</p></div></div>`, 'vx-card');
     if (a.type === 'choose_dose') chooseDoseCard(a);
     if (a.type === 'triage_result') triageCard(a);
-    if (a.type === 'emergency') triageCard(a);
+    if (a.type === 'calm_check') calmCheckCard();
+    if (a.type === 'recheck') recheckCard(a);
     if (a.type === 'open_card') linkCard(tx('openCard'), '/static/index.html#tab=emergency');
     if (a.type === 'prescription_draft') {
       addEntry(`<h3>${tx('draft')}</h3><ul>${a.medicines.map(m => `<li>${esc([m.name || m.line, m.dose, m.schedule].filter(Boolean).join(' · '))}</li>`).join('')}</ul>`, 'vx-card');
@@ -279,26 +302,73 @@ function chooseDoseCard(a) {
   }));
 }
 
+/** Self-care / see a doctor / not rated — with the guidance SmartPoli is
+ * allowed to give: the patient's own prescription first, then sourced steps. */
 function triageCard(a) {
   const sev = a.severity || 'NOT_ASSESSED';
-  const body = sev === 'NOT_ASSESSED' ? tx('notAssessed') : a.action;
-  const reasons = (a.reasons || []).length ? `<ul>${a.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '';
-  addEntry(`<span class="vx-sev ${esc(sev)}">${esc(tx('sev')[sev] || sev)}</span><p>${esc(body)}</p>${reasons}
-    ${sev !== 'NOT_ASSESSED' ? `<div class="vx-source">${tx('resultFrom')}</div>` : ''}`, 'vx-card');
+  const body = sev === 'NOT_ASSESSED' ? tx('notAssessed') : (tx('sevText')[sev] || a.action);
+  const g = a.guidance || {};
+  const prescribed = (g.prescribed || []).length ? `
+    <div class="vx-guide"><h4>${tx('fromPrescription')}</h4><ul>${g.prescribed.map(m =>
+      `<li><strong>${esc(m.name)}</strong> — ${esc(m.instruction)}</li>`).join('')}</ul>
+      <p class="vx-small">${tx('prescriptionNote')}</p></div>` : '';
+  const general = (g.general || []).length ? `
+    <div class="vx-guide"><h4>${tx('mayHelp')}</h4><ul>${g.general.map(i =>
+      `<li>${esc(i.text)} <a class="vx-src" href="${esc(i.source_url)}" target="_blank" rel="noopener noreferrer">${esc(i.source_title.split(' - ')[0])}</a></li>`).join('')}</ul></div>` : '';
+  addEntry(`<span class="vx-sev ${esc(sev)}">${esc(tx('sev')[sev] || sev)}</span><p>${esc(body)}</p>
+    ${prescribed}${general}
+    ${sev !== 'NOT_ASSESSED' ? `<div class="vx-source">${tx('resultFrom')}</div>` : ''}`, `vx-card vx-level-${esc(sev)}`);
+}
+
+/** Worrying words: one calm question is being asked; help stays one tap away. */
+function calmCheckCard() {
+  addEntry(`<p>${tx('calmNote')}</p><div class="vx-card-actions"><a class="vx-btn is-quiet" href="tel:112">${tx('call112')}</a></div>`,
+    'vx-card vx-calm');
+}
+
+/** "I'll check back at 10:45" — Better / Same / Worse, and a gentle ask when it's time. */
+function recheckCard(a) {
+  const due = new Date(a.due_at);
+  const time = due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const li = addEntry(`<h3>${esc(tx('recheckAt').replace('{time}', time))}</h3><p>${tx('recheckHow')}</p>
+    <div class="vx-card-actions">
+      <button type="button" class="vx-btn" data-recheck="better">${tx('better')}</button>
+      <button type="button" class="vx-btn" data-recheck="same">${tx('same')}</button>
+      <button type="button" class="vx-btn" data-recheck="worse">${tx('worse')}</button>
+    </div>`, 'vx-card vx-recheck');
+  li.querySelectorAll('[data-recheck]').forEach(btn => btn.addEventListener('click', () => {
+    li.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    send(btn.textContent, { recheck: btn.dataset.recheck });
+  }));
+  scheduleRecheckPrompt(due);
+}
+
+function scheduleRecheckPrompt(due) {
+  clearTimeout(VX.recheckTimer);
+  const wait = due.getTime() - Date.now();
+  VX.recheckTimer = setTimeout(() => {
+    if (!VX.convState.recheck) return;
+    addBot(tx('howNow'));
+    speak(tx('howNow'));
+    document.querySelector('.vx-recheck:last-of-type')?.classList.add('is-due');
+  }, Math.max(wait, 0));
 }
 
 function linkCard(label, url) {
   addEntry(`<a class="vx-btn is-primary" href="${esc(url)}">${esc(label)}</a>`, 'vx-card');
 }
 
+/** Calm, in-conversation help — no full-screen alarm, no flashing. */
 function showEmergency(a) {
   VX.recognition?.abort?.();
-  $('emText').textContent = a.action || tx('emTitle');
-  $('emReasons').innerHTML = (a.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
-  const contact = $('emContact');
-  if (VX.contactPhone) { contact.href = `tel:${VX.contactPhone}`; contact.hidden = false; }
-  $('emergency').hidden = false;
-  document.querySelector('.vx-em-call').focus();
+  const contact = VX.contactPhone ? `<a class="vx-btn" href="tel:${esc(VX.contactPhone)}">${tx('emContact')}</a>` : '';
+  const li = addEntry(`
+    <h3>${tx('emTitle')}</h3>
+    <p>${tx('emText')}</p>
+    <a class="vx-help-call" href="tel:112">${tx('emCall')}</a>
+    <div class="vx-card-actions">${contact}<a class="vx-btn" href="/static/index.html#tab=emergency">${tx('emCard')}</a></div>
+    ${(a.reasons || []).length ? `<p class="vx-small">${a.reasons.map(esc).join(' · ')}</p>` : ''}`, 'vx-card vx-help');
+  li.querySelector('.vx-help-call').focus({ preventScroll: true });
 }
 
 // ---------------------------------------------------------------- boot
@@ -337,7 +407,6 @@ async function boot() {
     $('typeInput').value = '';
     send(text);
   });
-  $('emClose').addEventListener('click', () => { $('emergency').hidden = true; });
 
   try {
     const patients = await apiFetch('GET', '/patients');
@@ -347,6 +416,8 @@ async function boot() {
       return;
     }
     VX.patientId = patients[0].id;
+    loadConvState();
+    if (VX.convState.recheck?.due_at) recheckCard({ due_at: VX.convState.recheck.due_at });
     const phone = (patients[0].emergency_contact || '').match(/\+?\d[\d\s-]{6,}\d/);
     VX.contactPhone = phone ? phone[0].replace(/[\s-]/g, '') : null;
     const { available } = await apiFetch('GET', '/voice/available');
