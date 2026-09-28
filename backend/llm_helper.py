@@ -57,7 +57,10 @@ def interpret_free_text(text: str, ruleset: dict) -> dict:
 
     try:
         from groq import Groq
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        # max_retries=0: fail fast on a 429 rather than the SDK silently waiting out
+        # Groq's Retry-After (seen up to 30s x 2 attempts) — the caller already
+        # falls back to the manual symptom picker on any failure here.
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
         model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
         response = client.chat.completions.create(

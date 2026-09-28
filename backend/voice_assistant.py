@@ -360,7 +360,12 @@ def _offline_turn(ctx: ToolContext, text: str) -> dict:
 
 def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     from groq import Groq
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    # max_retries=0: the SDK's own retry-on-429 waits out Groq's full Retry-After
+    # (seen up to 30s per attempt x 2 retries — over a minute stuck on one model).
+    # _create_with_fallback already moves to the next model / the offline net
+    # instantly on a rate limit, so the SDK's slow built-in retry is pure downside
+    # for a live voice conversation.
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
     models = _voice_models()
 
     messages = [{"role": "system", "content": _system_prompt(ctx, first_name)}]

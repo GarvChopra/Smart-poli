@@ -26,7 +26,7 @@ class _FakeGroqResponse:
 
 def test_valid_llm_output_is_passed_through(monkeypatch):
     class FakeClient:
-        def __init__(self, api_key): pass
+        def __init__(self, api_key, **_): pass
         class chat:
             class completions:
                 @staticmethod
@@ -45,7 +45,7 @@ def test_valid_llm_output_is_passed_through(monkeypatch):
 
 def test_hallucinated_symptom_id_is_dropped(monkeypatch):
     class FakeClient:
-        def __init__(self, api_key): pass
+        def __init__(self, api_key, **_): pass
         class chat:
             class completions:
                 @staticmethod
@@ -63,7 +63,7 @@ def test_hallucinated_symptom_id_is_dropped(monkeypatch):
 
 def test_hallucinated_question_id_for_a_real_symptom_is_dropped(monkeypatch):
     class FakeClient:
-        def __init__(self, api_key): pass
+        def __init__(self, api_key, **_): pass
         class chat:
             class completions:
                 @staticmethod
@@ -82,7 +82,7 @@ def test_hallucinated_question_id_for_a_real_symptom_is_dropped(monkeypatch):
 
 def test_non_boolean_answer_value_is_dropped(monkeypatch):
     class FakeClient:
-        def __init__(self, api_key): pass
+        def __init__(self, api_key, **_): pass
         class chat:
             class completions:
                 @staticmethod

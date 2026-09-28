@@ -32,6 +32,7 @@ const TEXT = {
     paused: 'Paused — tap to continue',
     noSpeech: "This browser can't listen. Open SmartPoli in Chrome to talk to it.",
     micBlocked: 'Microphone is blocked. Allow it in your browser settings, then tap to start.',
+    couldNotHear: "Couldn't quite catch that — please try again.",
     basic: 'Basic mode: I can help with your medicines. Full conversation needs the AI service switched on.',
     privacy: 'To understand you, your words are sent to our AI service (Groq). Only your own SmartPoli data is used.',
     trySaying: 'Try saying', transcribing: 'Got it — writing down what you said…', tomorrow: 'Tomorrow', noneLeft: 'None left', doseWord: 'dose', dosesWord: 'doses', takenWord: 'taken', missedWord: 'missed',
@@ -61,6 +62,7 @@ const TEXT = {
     paused: 'Ruka hua — jaari rakhne ke liye dabaiye',
     noSpeech: 'Yeh browser sun nahi sakta. Baat karne ke liye SmartPoli ko Chrome mein kholiye.',
     micBlocked: 'Microphone band hai. Browser settings mein allow kijiye, phir dabaiye.',
+    couldNotHear: 'Woh samajh nahi paya — kripya dobara boliye.',
     basic: 'Basic mode: main dawaiyon mein madad kar sakta hoon. Poori baatcheet ke liye AI service chahiye.',
     privacy: 'Aapki baat samajhne ke liye aapke shabd hamari AI service (Groq) ko bheje jaate hain. Sirf aapka SmartPoli data use hota hai.',
     trySaying: 'Aise boliye', transcribing: 'Suna — likh raha hoon…', tomorrow: 'Kal', noneLeft: 'Koi nahi', doseWord: 'dawai', dosesWord: 'dawaiyan', takenWord: 'li', missedWord: 'chhooti',
@@ -450,6 +452,11 @@ function createEngine() {
       engine.stop();
       showNote(esc(tx('micBlocked')));
       $('startScreen').hidden = false;
+    } else if (e.error === 'network') {
+      // WhisperRecognizer: the upload/transcription failed (e.g. Groq rate-limited).
+      // The mic reopens on its own (via onend); just let the patient know to repeat themselves
+      // instead of leaving "transcribing…" on screen with no explanation.
+      showHeard(tx('couldNotHear'));
     }
   };
   return engine;

@@ -32,7 +32,11 @@ def transcribe(audio: bytes, filename: str, lang_hint: str = "") -> str:
     if not is_available():
         raise TranscriptionUnavailable("GROQ_API_KEY is not set.")
     from groq import Groq
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    # max_retries=0: on a 429 the SDK's own retry can wait out Groq's full
+    # Retry-After (seen up to 30s x 2 attempts) before raising — the patient
+    # would sit on "transcribing…" for a minute for nothing. Fail fast instead;
+    # voice.js shows "couldn't hear that" and the mic reopens for another try.
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
     kwargs = {"file": (filename, audio), "model": os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo"),
               "prompt": STT_PROMPT, "response_format": "json", "temperature": 0}
     if lang_hint == "en":
