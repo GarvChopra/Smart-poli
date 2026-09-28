@@ -29,7 +29,7 @@ from auth import create_token
 from prescription_service import create_prescription_from_lines
 from scheduler import generate_doses, SchedulingBlocked
 from serializers import emergency_card_data, serialize_medicine
-from ocr_plugin import run_ocr_on_image, OCRUnavailable
+from ocr_plugin import read_prescription_image, OCRUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ def _handle_prescription_photo(
         return "I couldn't download that image — please try sending the photo again."
 
     try:
-        ocr_lines = run_ocr_on_image(image_bytes)
+        ocr_lines = read_prescription_image(image_bytes)
     except OCRUnavailable as e:
         return f"I couldn't read that photo right now ({e}). You can also type the prescription as plain text."
 

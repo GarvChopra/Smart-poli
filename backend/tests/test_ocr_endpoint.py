@@ -3,7 +3,7 @@ Tests for the image-upload path (backend/ocr_plugin.py wired into main.py).
 
 These deliberately do NOT invoke the real TrOCR model — that needs a
 ~1.3GB download and is not something a fast, deterministic test suite
-should depend on. Instead they monkeypatch main.run_ocr_on_image, which is
+should depend on. Instead they monkeypatch main.read_prescription_image, which is
 exactly the seam ocr_plugin.py exists to provide: everything downstream of
 "here are some text lines with confidences" is the same parser.py the
 manual path already exercises, so that is what these tests actually prove.
@@ -26,7 +26,7 @@ def _fake_file():
 
 
 def test_image_upload_reuses_the_manual_parser_and_tags_source_ocr(monkeypatch):
-    monkeypatch.setattr(main, "run_ocr_on_image", lambda image_bytes: [
+    monkeypatch.setattr(main, "read_prescription_image", lambda image_bytes: [
         {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.92},
         {"text": "Tab X 1-?-1", "confidence": 0.88},
     ])
@@ -52,7 +52,7 @@ def test_image_upload_reuses_the_manual_parser_and_tags_source_ocr(monkeypatch):
 def test_low_ocr_confidence_forces_needs_confirmation_even_with_a_perfect_read(monkeypatch):
     """A clean, well-formed line can still get blocked if the OCR itself was unsure —
     confidence is min(ocr, name, schedule), never just the parser's own two signals."""
-    monkeypatch.setattr(main, "run_ocr_on_image", lambda image_bytes: [
+    monkeypatch.setattr(main, "read_prescription_image", lambda image_bytes: [
         {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.2},
     ])
 
@@ -69,7 +69,7 @@ def test_low_ocr_confidence_forces_needs_confirmation_even_with_a_perfect_read(m
 
 
 def test_no_readable_lines_returns_422_not_a_crash(monkeypatch):
-    monkeypatch.setattr(main, "run_ocr_on_image", lambda image_bytes: [])
+    monkeypatch.setattr(main, "read_prescription_image", lambda image_bytes: [])
 
     with TestClient(app) as client:
         register_and_login(client)
@@ -82,7 +82,7 @@ def test_no_readable_lines_returns_422_not_a_crash(monkeypatch):
 def test_ocr_unavailable_returns_503_and_points_to_manual_entry(monkeypatch):
     def boom(image_bytes):
         raise OCRUnavailable("model failed to download")
-    monkeypatch.setattr(main, "run_ocr_on_image", boom)
+    monkeypatch.setattr(main, "read_prescription_image", boom)
 
     with TestClient(app) as client:
         register_and_login(client)
@@ -94,7 +94,7 @@ def test_ocr_unavailable_returns_503_and_points_to_manual_entry(monkeypatch):
 
 
 def test_prescriptions_created_from_image_are_confirmable_exactly_like_manual_ones(monkeypatch):
-    monkeypatch.setattr(main, "run_ocr_on_image", lambda image_bytes: [
+    monkeypatch.setattr(main, "read_prescription_image", lambda image_bytes: [
         {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
     ])
 

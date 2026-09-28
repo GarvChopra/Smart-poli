@@ -71,7 +71,7 @@ def test_menu_and_notify_toggle():
 
 def test_prescription_photo_then_confirm_schedules_doses(monkeypatch):
     monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
-    monkeypatch.setattr(whatsapp_bot, "run_ocr_on_image", lambda image_bytes: [
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
         {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
         {"text": "Tab X 1-?-1", "confidence": 0.9},
     ])

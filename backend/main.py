@@ -48,7 +48,7 @@ import voice_assistant
 import voice_stt
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
-from ocr_plugin import run_ocr_on_image, OCRUnavailable
+from ocr_plugin import read_prescription_image, OCRUnavailable
 from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
@@ -275,7 +275,7 @@ async def create_prescription_from_image(
         raise HTTPException(400, "Empty file upload.")
 
     try:
-        ocr_lines = run_ocr_on_image(image_bytes)
+        ocr_lines = read_prescription_image(image_bytes)
     except OCRUnavailable as e:
         raise HTTPException(
             503,

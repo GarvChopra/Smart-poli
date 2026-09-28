@@ -1,21 +1,19 @@
 services:
   - type: web
     name: smartpoli
-    runtime: python
+    # Docker instead of Render's native Python runtime: Tesseract OCR needs
+    # the `tesseract-ocr` system binary, and native runtime can only `pip
+    # install` — no way to install a non-Python package. See backend/Dockerfile.
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:
-      # Render's default runtime drifts to whatever Python is newest (was
-      # 3.14 at one point) — too new for some dependencies' prebuilt wheels
-      # (psycopg2-binary crashed on import: undefined symbol
-      # _PyInterpreterState_Get). Pin to a version with mature wheel
-      # support across the board instead of chasing one package at a time.
-      - key: PYTHON_VERSION
-        value: "3.12.7"
+      # PYTHON_VERSION is a native-runtime setting — not read under Docker,
+      # where backend/Dockerfile's FROM line pins the version instead.
       - key: SMARTPOLI_JWT_SECRET
         generateValue: true
       # sync:false, not a fixed value — this now points at a real Postgres

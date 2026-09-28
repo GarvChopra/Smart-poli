@@ -23,10 +23,11 @@ qrcode==7.4.2
 pyjwt==2.9.0
 bcrypt==4.2.0
 
-# Optional OCR path (Feature 1, image-upload) lives in a separate file —
-# see requirements-ocr.txt. ocr_plugin.py loads it lazily (CLAUDE.md
-# section 5: "OCR is a plugin, not a foundation"), so this base file is
-# everything the app needs to boot and serve every feature except photo
-# upload. Installing torch/transformers/opencv here would push a Render
-# free-tier build past its build time and memory limits for no benefit —
-# the manual prescription path is the one the product guarantees works.
+# OCR (Feature 1, image-upload path) — the Tesseract engine, which runs
+# everywhere including Render (needs the tesseract-ocr apt package, added
+# in backend/Dockerfile, alongside these). The much larger TrOCR engine
+# (more accurate on handwriting) lives in requirements-ocr.txt instead —
+# see that file for why it's kept separate.
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+pytesseract==0.3.13
