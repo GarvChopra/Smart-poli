@@ -1,239 +1,172 @@
 # Talk to SmartPoli — voice assistant design
 
-Date: 2026-09-28
-Status: draft, awaiting review
+Date: 2026-09-28 (revised the same day with the user's final direction)
+Status: approved direction; details below are rulings made on the user's behalf.
 
 ## Goal
 
-A voice-first patient app. The patient opens SmartPoli, sees one big
-"TALK TO SMARTPOLI" orb, and does everything by speaking — in Hindi, English
-or Hinglish. The assistant answers on screen and out loud, performs real
-actions in the app (the same actions the buttons perform), and confirms each
-action with a popup. The screens remain for checking updates.
+A voice-first page any patient can open on their phone (installable as a
+PWA) and just talk to — Hindi, English or Hinglish. No dashboard, no menus:
+a large microphone, live transcription, SmartPoli's reply on screen and
+spoken aloud. The assistant performs real actions through SmartPoli's
+existing services and conducts symptom checks conversationally.
 
-Example session:
+> "Maine apni BP ki dawai le li." → dose marked taken, popup, next dose told
+> "Meri agli medicine kab hai?" → next dose from the real schedule
+> "Mere sir mein bahut dard ho raha hai." → conversational symptom check →
+> existing triage engine decides LOW / MODERATE / EMERGENCY → explained
 
-> "Meri aaj ki medicines kya hain?" → "Aaj aapki 3 medicines hain…"
-> "Maine subah wali le li." → "Done. Morning dose recorded." + popup
-> ✓ Metformin 500 mg — Taken 8:12 AM
-> "Ab mujhe kya lena hai?" → "Aapki next medicine Metformin 500 mg hai, 8:30 PM par."
-> "Mere sar mein bahut dard hai." → symptom mode (below)
+## The one rule that shapes everything
 
-## Decisions already agreed
-
-- Languages: Hindi, English and mixed Hinglish; reply in the language spoken.
-- The brain is Groq (LLM). It is not limited to the rules table — it can
-  hold a symptom conversation about any symptom.
-- A safety layer runs alongside it and can only raise severity. On
-  EMERGENCY the conversation is interrupted by a persistent emergency panel.
-- The orb screen becomes the patient home screen; existing screens stay
-  reachable from the menu.
-- Health-app integrations and the rest of the health-card roadmap are
-  separate projects, not part of this one.
-
-## Architecture
+**Groq is the conversational layer. SmartPoli's existing backend is the
+decision and safety layer.**
 
 ```
-Browser (patient app)                     Backend (FastAPI)
-─────────────────────                     ────────────────────────────────
-Mic → Web Speech API (hi-IN / en-IN)
-   → transcript ───────────────►  POST /patients/{id}/voice/turn
-                                        │
-                                        ├─ red-flag scan (deterministic)
-                                        ├─ Groq chat with tools
-                                        │     tools call existing modules
-                                        │     (scheduler, prescription_service,
-                                        │      serializers, triage, food/interactions)
-                                        ├─ safety merge (rules + red flags + LLM,
-                                        │   escalate-only)
-                                        ▼
-   ◄───── {reply, lang, actions[], state} 
-Render reply text, speak it (speechSynthesis),
-run actions (popup / navigate / emergency panel)
+Voice → Speech-to-Text (browser) → Groq (understanding + conversation)
+      → Action router (voice_tools.py: validated, permission-checked)
+      → Existing SmartPoli services (scheduler, prescription_service,
+        serializers, triage.py) → Database
+      → Response → text on screen + spoken aloud
 ```
 
-The server is stateless between turns: the client sends the recent message
-history (capped at the last 20 messages) plus an opaque `state` object the
-server returned last time (current mode, symptom answers collected so far).
+- Groq never writes to the database. It can only *request* a tool; the
+  router validates arguments, checks the patient owns the record, and calls
+  the same functions the app's buttons call.
+- Groq never decides severity. Severity comes only from `triage.py`
+  (`evaluate_check` over the existing `triage_rules.json`) plus a
+  deterministic red-flag phrase check (below). Groq explains the result in
+  simple language; its text cannot change it.
 
-### New backend units
+## Symptom checks
 
-- **`voice_assistant.py`** — the conversation loop. Builds the system prompt
-  (patient's name, the current local date/time sent by the browser with
-  each turn as an ISO timestamp with UTC offset, language
-  rule, safety wording rules), calls Groq with tool definitions, executes
-  tool calls (max 5 tool rounds per turn), returns reply + actions.
-- **`voice_tools.py`** — one plain function per tool. Each takes `(db,
-  patient_id, user, **args)`, validates ownership, calls the existing
-  module, and returns JSON for the model plus an optional UI action. This
-  keeps every tool testable without the LLM.
-- **`voice_safety.py`** — deterministic red-flag scanner and the severity
-  merge (details under *Symptom mode*).
-- **`voice_fallback.py`** — a keyword intent matcher for when
-  `GROQ_API_KEY` is unset or Groq fails (see *Degraded mode*).
-- **Route** in `main.py`: `POST /patients/{patient_id}/voice/turn`, patient
-  write access (same dependency the dose endpoints use), plus
-  `GET /voice/available`.
+1. **Intake (Groq).** The patient describes a symptom in their own words.
+   Groq asks natural follow-up questions one at a time ("Ye kab se ho raha
+   hai?"), in the patient's language.
+2. **Structuring (router).** Groq calls `update_symptom_check` with the
+   symptoms mapped to rule ids (validated against `triage_rules.json`;
+   unknown ids dropped, as `llm_helper.py` already does), free-text labels,
+   and yes/no answers to rule question ids. The router returns the rule
+   questions still unanswered (`triage.next_question`) with their English
+   and Hindi text; Groq must work these into the conversation. Groq may ask
+   extra context questions (onset, duration) of its own.
+3. **Decision (triage.py).** Groq calls `finish_symptom_check`. The router
+   refuses while rule questions remain unanswered (unless severity is
+   already EMERGENCY, matching `next_question`'s own rule). It then runs
+   `evaluate_check` and saves a `SymptomCheck` exactly like
+   `POST /triage/check` (same fields, audit entry `triage_check`), so the
+   doctor dashboard, care report and emergency card all see it.
+4. **Explanation (Groq).** The router returns severity, reasons and the
+   localized action; Groq explains them simply. The screen shows the
+   rule-engine result verbatim as a result card, independent of Groq's
+   wording.
+5. **Symptoms the rules don't cover** (cough, back pain…): the rule engine
+   cannot rate them, so the result is `NOT_ASSESSED` — never a guessed
+   severity. The assistant says SmartPoli can't rate this symptom
+   automatically and to contact a doctor if it is severe or getting worse;
+   the check is not saved as a LOW result.
+6. **Red flags (deterministic, every turn).** `voice_safety.py` scans the
+   patient's raw words (English, Hinglish, Devanagari) for emergency phrases
+   — can't breathe / saans nahi aa rahi / साँस नहीं, unconscious / behosh,
+   seizure / daura, chest pain with sweating, face drooping / slurred speech,
+   heavy bleeding, suicidal thoughts / khudkushi / आत्महत्या, overdose. A hit
+   returns EMERGENCY immediately, before any Groq call. This is a fixed
+   list in code, not an LLM judgement, and it can only raise severity.
+7. **EMERGENCY** (from rules or red flags): the page stops listening and
+   speaking and shows a persistent red panel — Call 112, Call my emergency
+   contact, Show my emergency card — with the reasons, until the patient
+   dismisses it. The spoken line is a fixed sentence, not Groq text.
 
-Model: env `GROQ_VOICE_MODEL`, default a Groq model that supports tool
-calling (e.g. `llama-3.3-70b-versatile`). The existing `GROQ_MODEL` for
-triage extraction is unchanged.
+## Tools (action router, `voice_tools.py`)
 
-### Tools
+Each tool is a plain function `(db, patient_id, user, **args) -> dict`,
+testable without Groq; it returns JSON for the model and optional UI
+actions for the page.
 
-| tool | what it does | reuses | UI action |
+| tool | does | reuses | UI action |
 |---|---|---|---|
-| `get_today_schedule` | today's doses with state (pending/taken/missed) | dashboard query | — |
-| `get_next_dose` | next pending dose after now | dashboard query | — |
-| `mark_dose_taken(dose_id)` | marks taken, returns the next dose | `mark_taken` + audit log, same as `POST /doses/{id}/take` | `dose_taken` popup |
-| `log_prn_taken(medicine_id)` | logs an SOS/PRN use | same as `/log-prn` | `prn_logged` popup |
-| `get_medicines` | current medicines, dose, timing, food instruction, plain-language text | serializers | — |
-| `get_adherence_summary` | taken/missed counts, today and last 7 days | dashboard data | — |
-| `get_food_and_interaction_warnings` | food warnings and drug interactions | `food_warnings`, `interactions` | — |
-| `get_emergency_card` | allergies, contact, blood group | `emergency_card_data` | — |
-| `open_screen(screen)` | switches tab: dashboard, prescriptions, safety, triage, report, timeline, emergency, settings | — | `navigate` |
-| `decode_prescription(text)` | parses prescription text into a **draft** | `prescription_service.create_prescription_from_lines` | `navigate` to prescriptions + show decoded draft |
-| `confirm_prescription(prescription_id)` | schedules a draft | same as `POST /prescriptions/{id}/confirm` | `prescription_confirmed` popup |
-| `record_symptom_findings(...)` | see Symptom mode | `triage` | possibly `emergency` |
+| `get_today_schedule` | today's doses + state, marks which are due now | dose rows | — |
+| `get_next_dose` | next pending dose | dashboard logic | — |
+| `mark_dose_taken(dose_id)` | marks taken, returns next dose | `scheduler.mark_taken` + audit `dose_taken_via_voice` | `dose_taken` popup with Undo |
+| `log_prn_taken(medicine_id)` | logs an SOS use | same as `/log-prn` | `prn_logged` popup |
+| `get_medicines` | current medicines, dose, timing, food | serializers | — |
+| `get_adherence` | taken / missed / skipped, today and overall | `compute_adherence` | — |
+| `get_emergency_card` | allergies, contact, blood group, card link | `emergency_card_data` | `open_card` |
+| `get_treatment_history` | prescriptions with dates + recent symptom checks | db | — |
+| `open_screen(screen)` | opens the full app on a tab | — | `navigate` |
+| `decode_prescription(text)` | parses text into a **draft** | `create_prescription_from_lines` | `prescription_draft` |
+| `confirm_prescription(id)` | schedules a draft — only if the previous turn asked and the patient said yes | same as `/confirm` | `prescription_confirmed` |
+| `update_symptom_check(...)`, `finish_symptom_check()` | see above | `triage.py` | `triage_result` / `emergency` |
 
-Rules for actions:
-- **Dose matching.** "Maine subah wali le li" → the model calls
-  `get_today_schedule` and picks the dose. `mark_dose_taken` only accepts a
-  pending dose belonging to this patient, scheduled between 12 h before and
-  2 h after now. Otherwise it returns an error the model must relay. If more
-  than one dose fits ("I took my medicine" at 9 AM with two morning pills),
-  the model must ask which one. This is a prompt rule: `get_today_schedule`
-  marks which doses are "due now" so the model can see there are several.
-  If exactly one fits, it marks it directly, as in the example. Every
-  marked dose is shown in the popup, so a wrong match is visible at once.
-  The popup has an **Undo** button backed by a new
-  `POST /doses/{id}/undo` (same write access; only for a dose marked taken
-  in the last 10 minutes; returns it to pending, with an audit entry). The
-  app has no undo today, so this is new, and it's needed because voice
-  matching can pick the wrong dose.
-- **Scheduling a prescription always needs an explicit "yes"** from the
-  patient in a later turn (it creates many doses). `confirm_prescription`
-  only runs if the previous assistant turn asked for confirmation of that
-  same prescription id (tracked in `state`).
-- The model never invents data: every fact about medicines/doses must come
-  from a tool result in the same turn.
+Dose rules: `mark_dose_taken` accepts a dose of this patient scheduled from
+12 h before to 2 h after now that is pending, snoozed, or auto-missed by the
+2-hour sweep (the patient is correcting the sweep's guess). If several doses
+fit ("I took my medicine" with two due), Groq must ask which; the popup
+shows exactly what was marked and has **Undo** (new
+`POST /doses/{id}/undo`: taken within the last 10 minutes → back to pending,
+audit logged).
 
-### Symptom mode (the safety pipeline)
+## Backend
 
-```
-VOICE → SYMPTOM UNDERSTANDING → FOLLOW-UP QUESTIONS → RULES / SAFETY CHECK → SEVERITY → NEXT ACTION
-          (Groq)                  (Groq, doctor-like)   (voice_safety + triage.py)
-```
+- `voice_assistant.py` — the turn loop: red-flag scan → Groq chat with tool
+  definitions (max 5 tool rounds) → router → reply + actions + state.
+  System prompt: patient's first name, the browser's local time, reply in
+  the patient's language, one question at a time, never diagnose, never
+  tell the patient to start/stop/change a medicine, never state a severity
+  that didn't come from `finish_symptom_check`, every fact from a tool.
+- `voice_tools.py` — the router (above). `voice_safety.py` — red flags.
+  `voice_fallback.py` — keyword intents when `GROQ_API_KEY` is unset or
+  Groq fails: took medicine, next dose, today's medicines, open a screen;
+  symptoms → red-flag check, then "use the symptom check" + opens it.
+- `POST /patients/{id}/voice/turn` (patient write access) with
+  `{text, lang, client_time, history (last 20 {role, content}), state}`;
+  returns `{reply, lang, actions, state}`. The server is stateless between
+  turns; `state` carries the in-progress symptom check and a pending
+  prescription confirmation. `GET /voice/available`.
+- Per-user rate limit 30 turns/minute; text capped at 1,000 characters.
+- Model: env `GROQ_VOICE_MODEL`, default `llama-3.3-70b-versatile`.
 
-1. **Understanding.** When the patient reports a symptom, the model calls
-   `record_symptom_findings` with the free-text symptom(s), any rule
-   `symptom_id`s it maps to (validated against `triage_rules.json`; unknown
-   ids dropped, as in `llm_helper.py`) and any answered rule `question_id`s.
-2. **Follow-up questions.** Groq asks one question at a time, naturally,
-   like a doctor (onset, severity, duration, associated symptoms, what
-   medicines were taken). For symptoms covered by the rules, the tool
-   returns the still-unanswered red-flag questions (`triage.next_question`)
-   and the model **must** cover them before finishing — phrased
-   conversationally, in the patient's language (`text_hi` exists). For
-   other symptoms (cough, back pain, …) Groq chooses the questions itself.
-3. **Safety check — runs on every turn, not only at the end:**
-   - **Red-flag scanner** (`voice_safety.py`): a deterministic phrase list
-     in English, Hinglish (Latin script) and Devanagari over the patient's
-     raw transcript — e.g. can't breathe / saans nahi aa rahi / साँस नहीं,
-     unconscious / behosh, seizure / daura / mirgi, chest pain with sweating,
-     face drooping / slurred speech, heavy bleeding, suicidal thoughts /
-     khud ko nuksan / आत्महत्या, overdose / "zyada goliyan kha li". A hit
-     means EMERGENCY immediately, without waiting for the model.
-   - **Rules engine:** `triage.evaluate_check` over the mapped rule
-     symptoms and answers.
-   - **Model's assessment:** the model states LOW / MODERATE / EMERGENCY
-     with its reasons.
-   - **Final severity** = `escalate(red_flags, rules, model)` — the highest
-     of the three. Nothing can lower a rules or red-flag result.
-4. **Next action.**
-   - LOW / MODERATE: the model gives what to do now, following wording
-     rules in the prompt: no diagnosis ("this could be…", "discuss with
-     your doctor"), never tell the patient to start, stop or change a
-     prescribed medicine, and mention relevant current medicines/food
-     warnings from tools as *context*, not cause. MODERATE always includes
-     "contact your doctor today".
-   - EMERGENCY: the server returns an `emergency` action. The client stops
-     speech recognition and TTS mid-sentence and shows a **persistent red
-     panel** that stays until the patient dismisses it: *Call 112*, *Call
-     my doctor / emergency contact* (from the emergency card), *Show
-     emergency card*, with the reasons listed. The spoken reply is a short
-     fixed sentence in the patient's language, not LLM text.
-5. **Record.** The finished check (or any EMERGENCY) is saved as a
-   `SymptomCheck` row — `symptoms` = rule ids plus free-text labels,
-   `answers`, final `severity`, `reasons` (tagged `[rules]`, `[red flag]`
-   or `[assistant]`), `ruleset_version` = `"<version>+voice"` — so the
-   doctor dashboard, care report and emergency-history flag all see it,
-   exactly like a manual check.
+## The voice PWA page
 
-### Frontend
+- `static/voice.html` + `voice.js` + `voice.css`, `manifest.webmanifest`,
+  a small service worker for the app shell, an SVG icon. Opens straight to:
+  "SmartPoli" · "How can I help you today?" · large glowing mic.
+- Under the mic: live transcript (interim results while speaking), the
+  conversation as bubbles, SmartPoli's reply spoken via `speechSynthesis`.
+  Language toggle हिं / EN (sets `hi-IN` / `en-IN` recognition; `hi-IN`
+  handles Hinglish); mute toggle; a text box as an alternative to speaking.
+  Suggestion chips: *Aaj kaun si medicine?*, *Maine dawai le li*,
+  *Mujhe theek nahi lag raha*.
+- Actions render as popups (✓ Metformin 500 mg — Taken 8:12 AM + Undo),
+  result cards (triage result verbatim from the rule engine), the emergency
+  panel, and "Open in SmartPoli" links for navigation.
+- Login: not logged in → `login.html?next=/static/voice.html`; login.js
+  honours `next` only for same-site `/static/` paths. Patient accounts only.
+- Browsers without speech recognition (Firefox) get the text box with a
+  one-line note. The app's existing mic button opens this page instead of
+  its old keyword-only voice feature.
 
-- **`static/voice.js`** (new) plus styles in `style.css`; `index.html` adds
-  a `voice` view and makes it the default tab for patients.
-- **Orb screen:** large pulsing orb labelled "TALK TO SMARTPOLI" / "What do
-  you need?"; tap to listen, tap again to stop (it also auto-stops after
-  silence). The conversation shows as transcript bubbles under it, with a
-  text box for typing as an alternative. Suggestion chips: *Today's
-  medicines*, *I took my dose*, *I'm not feeling well*.
-- **Speech-to-text:** `SpeechRecognition` / `webkitSpeechRecognition`. A
-  language toggle (हिं / EN, default from the app's existing i18n setting)
-  sets `hi-IN` or `en-IN`; `hi-IN` handles Hinglish. Browsers without it
-  (Firefox) get typing only, with a one-line note.
-- **Text-to-speech:** `speechSynthesis` with a `hi-IN` or `en-IN` voice
-  matching the reply's `lang`; a mute toggle.
-- **Actions:** `dose_taken` / `prn_logged` / `prescription_confirmed` show
-  the existing taken popup (✓ Metformin 500 mg — Taken 8:12 AM) and refresh
-  cached dashboard data; `navigate` clicks the matching `data-tab` after the
-  reply is spoken; `emergency` shows the persistent panel described above.
-- Popups and the panel are in-page elements, never `alert`/`confirm`.
-- Home: patients land on the orb; a "Show dashboard" link sits under it.
+## Privacy
 
-### Degraded mode (no Groq key or Groq down)
-
-`voice_fallback.py` handles a small set of intents with keyword matching
-(EN + Hinglish + Devanagari): *took my medicine* (marks the single
-unambiguous current dose, or lists candidates as tap-to-mark chips),
-*next dose*, *today's medicines*, *open <screen>*. Any symptom phrase →
-the red-flag scan still runs; if there's no red flag it replies "Let's use
-the symptom check" and opens the existing manual symptom-check tab.
-The rest of the app is unaffected (the codebase's "runs with zero API
-keys" rule).
-
-### Privacy and limits
-
-- Transcripts are sent to Groq (already true for free-text triage); the
-  settings screen and the orb's first-use hint say so.
-- Only the patient's own data is ever put in the prompt, fetched through
-  tools scoped to the `patient_id` the user has write access to.
-- Voice turns that change data write the same audit log entries as the
-  buttons (actor `patient:{id}`, action suffixed `_via_voice`).
-- The server rate-limits `/voice/turn` per user (e.g. 30 turns/minute),
-  and each user message is capped at 1,000 characters.
+Transcripts go to Groq (already true for free-text triage); the page says
+so on first use. Only this patient's data, fetched through permission-
+checked tools, ever reaches the prompt.
 
 ## Testing
 
-Backend (pytest, Groq replaced by a scripted fake client that returns
-predetermined tool calls/replies — no network in tests):
-- Each tool in `voice_tools.py` directly: correct data, ownership enforced
-  (another patient's dose → error), dose window enforced, already-taken
-  dose refused, PRN logging.
-- `mark_dose_taken` via a turn writes the same dose state and audit entry
-  as `POST /doses/{id}/take`.
-- `confirm_prescription` refused without a prior confirmation question.
-- Red-flag scanner: a table of EN / Hinglish / Devanagari phrases → EMERGENCY,
-  plus near-miss phrases that must not trigger (e.g. "no chest pain").
-- Severity merge: model says LOW + rules say EMERGENCY → EMERGENCY; model
-  says EMERGENCY + rules LOW → EMERGENCY (never lowered either way).
-- Headache conversation: unanswered rule red-flag questions are returned
-  to the model until covered.
-- Finished check is saved as a `SymptomCheck` and appears in the
-  emergency-card history flag.
-- Fallback mode with `GROQ_API_KEY` unset: "maine dawai le li", "next dose",
-  "open report", and a red-flag phrase all behave as specified.
-
-Frontend: manual run in Chrome — orb, Hindi and English speech, the taken
-popup, navigation, and the emergency panel triggered by a red-flag phrase.
+pytest with a scripted fake Groq client (no network):
+- every tool directly: data, ownership (another patient's dose refused),
+  dose window, auto-missed correction, already-taken refused, PRN;
+- undo endpoint: within 10 min ok, later refused, other user refused;
+- `finish_symptom_check` refused while rule questions are open; result
+  equals `evaluate_check` for the same answers; saved `SymptomCheck`
+  matches `/triage/check`; model text claiming "not serious" cannot change
+  an EMERGENCY result;
+- unmapped symptom → `NOT_ASSESSED`, nothing saved;
+- red flags: EN / Hinglish / Devanagari phrases → EMERGENCY without any
+  Groq call; near-misses ("no chest pain") don't trigger;
+- `confirm_prescription` refused without the prior question;
+- fallback mode with no key: "maine dawai le li", "next dose",
+  "timeline dikhao", a red-flag phrase;
+- login `next` accepts `/static/voice.html`, rejects external URLs.
+Manual: Chrome — mic in Hindi and English, dose popup + undo, a full
+headache conversation, emergency panel from a red-flag phrase, install.
