@@ -1142,130 +1142,21 @@ async function renderCareTeamLists() {
   });
 }
 
-// ---------------------------------------------------------------- voice (Feature F, optional)
+// ---------------------------------------------------------------- voice
 //
-// Web Speech API only — no server call, no API key, no new dependency.
-// Routing is plain keyword matching (deterministic, same ethos as the
-// rest of the app): voice only navigates and reads back data that's
-// already on screen, and for a symptom description it hands off to the
-// SAME free-text triage flow a typed description would use — it never
-// itself decides a severity or takes an action on the patient's record.
-
-function speak(text) {
-  try {
-    if (!window.speechSynthesis) return;
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = state.lang === 'hi' ? 'hi-IN' : 'en-IN';
-    window.speechSynthesis.speak(utter);
-  } catch (e) { /* speech synthesis is a nice-to-have, never block on it */ }
-}
-
-async function handleVoiceCommand(transcript) {
-  const text = transcript.toLowerCase();
-  const voiceStatusEl = document.getElementById('voiceBtn');
-
-  const remindMatch = text.match(/remind me in (\d+)\s*(minute|min)/);
-  if (remindMatch) {
-    const minutes = Number(remindMatch[1]);
-    speak(`Okay, I will remind you in ${minutes} minutes.`);
-    setTimeout(async () => {
-      speak('This is your reminder.');
-      if (window.Notification && Notification.permission === 'granted') {
-        new Notification('SmartPoli reminder', { body: 'This is your reminder to take your medicine.' });
-      } else {
-        alert('SmartPoli reminder: time to take your medicine.');
-      }
-    }, minutes * 60000);
-    if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
-    return;
-  }
-
-  // "I took my evening medicine" / "I missed my morning medicine" — Part 6
-  // of the brief. Converts straight into the SAME take/miss endpoints the
-  // dashboard buttons call; no separate voice-only medication engine.
-  const takeMatch = text.match(/\bi took my (morning|afternoon|evening|night)?\s*medic/);
-  if (takeMatch) return voiceActOnDose('take', takeMatch[1]);
-
-  const missMatch = text.match(/\bi missed my (morning|afternoon|evening|night)?\s*medic/);
-  if (missMatch) return voiceActOnDose('miss', missMatch[1]);
-
-  if (/schedule|medic|dose|today/.test(text)) {
-    document.querySelector('[data-tab="dashboard"]').click();
-    await new Promise(r => setTimeout(r, 300));
-    const dash = await api('GET', `/patients/${state.patientId}/dashboard`);
-    const next = dash.upcoming_doses[0];
-    speak(next
-      ? `Your next dose is ${next.medicine_name} at ${new Date(next.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Adherence is ${dash.adherence.adherence_percent ?? 'not yet available'} percent.`
-      : 'You have nothing scheduled right now.');
-    return;
-  }
-
-  if (/taken|missed/.test(text)) {
-    const dash = await api('GET', `/patients/${state.patientId}/dashboard`);
-    speak(`You have taken ${dash.adherence.taken} doses and missed ${dash.adherence.missed} so far.`);
-    return;
-  }
-
-  // Anything else — treat as a symptom description, same as typing it in.
-  document.querySelector('[data-tab="triage"]').click();
-  await new Promise(r => setTimeout(r, 300));
-  const input = document.getElementById('freeTextInput');
-  if (input) {
-    input.value = transcript;
-    speak("I've put that in the symptom check for you to review.");
-    document.getElementById('interpretBtn')?.click();
-  } else {
-    speak('I heard: ' + transcript + '. Please use the symptom picker — free-text interpretation needs an API key that is not set up.');
-  }
-}
-
-async function voiceActOnDose(kind, slotWord) {
-  const dash = await api('GET', `/patients/${state.patientId}/dashboard`);
-  const candidates = dash.upcoming_doses.filter((d) => {
-    if (!slotWord) return true;
-    const hour = new Date(d.scheduled_at).getHours();
-    const slot = hour < 11 ? 'morning' : hour < 16 ? 'afternoon' : hour < 19 ? 'evening' : 'night';
-    return slot === slotWord;
-  });
-  const dose = candidates[0];
-  if (!dose) {
-    speak(`I couldn't find a matching ${slotWord ? slotWord + ' ' : ''}dose to mark. Please use the dashboard instead.`);
-    return;
-  }
-  await api('POST', `/doses/${dose.id}/${kind}`);
-  speak(kind === 'take' ? `Marked ${dose.medicine_name} as taken.` : `Marked ${dose.medicine_name} as missed.`);
-  document.querySelector('[data-tab="dashboard"]').click();
-  await new Promise((r) => setTimeout(r, 200));
-  renderDashboard();
-  renderGlance();
-}
+// The mic button opens the voice-first page (voice.html): Groq holds the
+// conversation there, SmartPoli's own services do every action, and the
+// triage rules decide every severity. It links back here with #tab=<name>.
 
 document.getElementById('voiceBtn').addEventListener('click', () => {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) {
-    alert('Voice input is not supported in this browser. Try Chrome.');
-    return;
-  }
-  const recognition = new Recognition();
-  recognition.lang = state.lang === 'hi' ? 'hi-IN' : 'en-IN';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  const fab = document.getElementById('voiceBtn');
-  const label = document.getElementById('voiceBtnLabel');
-  fab.classList.add('listening');
-  label.textContent = 'Listening...';
-  recognition.start();
-
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    fab.classList.remove('listening');
-    label.textContent = 'Voice';
-    handleVoiceCommand(transcript);
-  };
-  recognition.onerror = () => { fab.classList.remove('listening'); label.textContent = 'Voice'; };
-  recognition.onend = () => { fab.classList.remove('listening'); label.textContent = 'Voice'; };
+  window.location.href = '/static/voice.html';
 });
+
+function openTabFromHash() {
+  const m = window.location.hash.match(/^#tab=([a-z]+)$/);
+  const btn = m && document.querySelector(`nav.pill-nav button[data-tab="${m[1]}"]`);
+  if (btn) btn.click();
+}
 
 // ---------------------------------------------------------------- boot
 
@@ -1277,4 +1168,5 @@ document.getElementById('voiceBtn').addEventListener('click', () => {
   await loadPatients();
   applyNavTranslation();
   renderActiveTab();
+  openTabFromHash();
 })();

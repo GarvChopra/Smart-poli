@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0F8A70">
+<meta name="description" content="Talk to SmartPoli about your medicines and how you feel.">
+<title>SmartPoli Voice</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="icon" href="/static/voice-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/voice-icon-192.png">
+<link rel="stylesheet" href="/static/voice.css">
+</head>
+<body>
+<div class="vx-app">
+  <header class="vx-top">
+    <div class="vx-brand"><span class="vx-mark">+</span>SmartPoli</div>
+    <div class="vx-controls">
+      <div class="vx-lang" role="group" aria-label="Language">
+        <button type="button" data-lang="hi" aria-pressed="false">हिं</button>
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      </div>
+      <button type="button" class="vx-icon-btn" id="muteBtn" aria-pressed="false" aria-label="Mute spoken replies" title="Mute spoken replies"></button>
+      <a class="vx-icon-btn" id="openAppLink" href="/static/index.html" aria-label="Open the full SmartPoli app" title="Open the full SmartPoli app"></a>
+    </div>
+  </header>
+
+  <main class="vx-main">
+    <section class="vx-hero" id="hero">
+      <h1 id="greeting">How can I help you today?</h1>
+      <p id="subline">Speak in Hindi, English or Hinglish.</p>
+    </section>
+
+    <div class="vx-mic-wrap">
+      <button type="button" class="vx-mic" id="micBtn" aria-label="Tap to speak">
+        <span class="vx-mic-halo" aria-hidden="true"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>
+      </button>
+      <div class="vx-status" id="status" aria-live="polite">Tap to speak</div>
+      <div class="vx-interim" id="interim" aria-live="polite"></div>
+    </div>
+
+    <div class="vx-note" id="note" hidden></div>
+    <ol class="vx-log" id="log" aria-live="polite" aria-label="Conversation"></ol>
+  </main>
+
+  <footer class="vx-bottom">
+    <div class="vx-chips" id="chips"></div>
+    <form class="vx-type" id="typeForm" autocomplete="off">
+      <input id="typeInput" maxlength="1000" placeholder="Or type here…" aria-label="Type your message">
+      <button type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>
+      </button>
+    </form>
+  </footer>
+</div>
+
+<div class="vx-emergency" id="emergency" hidden role="alertdialog" aria-modal="true" aria-labelledby="emTitle">
+  <div class="vx-em-inner">
+    <h2 id="emTitle">Get help now</h2>
+    <p id="emText">This could be an emergency. Call 112 now, or ask someone near you to call.</p>
+    <ul id="emReasons"></ul>
+    <a class="vx-em-call" href="tel:112">Call 112</a>
+    <a class="vx-em-btn" id="emContact" hidden>Call my emergency contact</a>
+    <a class="vx-em-btn" id="emCard" href="/static/index.html#tab=emergency">Show my emergency card</a>
+    <button type="button" class="vx-em-close" id="emClose">I'm safe — close</button>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="/static/voice.js"></script>
+</body>
+</html>

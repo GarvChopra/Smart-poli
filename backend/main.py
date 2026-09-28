@@ -30,7 +30,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -625,6 +625,12 @@ def _local_now(client_time: Optional[str]) -> datetime:
         return datetime.fromisoformat(client_time).replace(tzinfo=None) if client_time else datetime.now()
     except ValueError:
         return datetime.now()
+
+
+@app.get("/voice", include_in_schema=False)
+def voice_page():
+    """Short link citizens can open on a phone: straight to the voice page."""
+    return RedirectResponse("/static/voice.html")
 
 
 @app.get("/voice/available")
