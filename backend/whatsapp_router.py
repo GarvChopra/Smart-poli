@@ -20,6 +20,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse
 from typing import Optional
 
@@ -84,7 +85,15 @@ async def whatsapp_webhook(request: Request):
 
     db = SessionLocal()
     try:
-        reply = whatsapp_bot.handle_incoming_message(db, from_phone, body, media_url, media_content_type)
+        # run_in_threadpool: a prescription photo goes through synchronous,
+        # CPU-bound OCR (OpenCV + Tesseract) — inline on this async def's
+        # event loop, a real phone photo blocks every other request on this
+        # single-worker instance long enough to fail Render's health check
+        # and get the instance killed mid-request (502). Text-only messages
+        # are effectively free to move to a thread too, so the whole handler
+        # goes, not just the photo path.
+        reply = await run_in_threadpool(whatsapp_bot.handle_incoming_message,
+                                        db, from_phone, body, media_url, media_content_type)
     finally:
         db.close()
 

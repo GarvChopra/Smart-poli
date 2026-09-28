@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -275,7 +276,14 @@ async def create_prescription_from_image(
         raise HTTPException(400, "Empty file upload.")
 
     try:
-        ocr_lines = read_prescription_image(image_bytes)
+        # run_in_threadpool: OCR is synchronous, CPU-bound work (OpenCV +
+        # Tesseract) — running it inline on this async def's event loop
+        # would block every other request on this single-worker instance,
+        # including Render's own health check, for the whole duration.
+        # A real phone photo (megapixels) did exactly that in production:
+        # the health check timed out and Render killed the instance mid
+        # request, returning 502 to the caller.
+        ocr_lines = await run_in_threadpool(read_prescription_image, image_bytes)
     except OCRUnavailable as e:
         raise HTTPException(
             503,
