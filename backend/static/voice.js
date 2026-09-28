@@ -1,21 +1,22 @@
-// SmartPoli Voice — the voice-first page.
+// SmartPoli Voice — a continuous voice interface to SmartPoli, not a chatbot.
 //
-// Mic → browser speech-to-text → POST /patients/{id}/voice/turn → reply text
-// (spoken with speechSynthesis) + actions (popups, result cards, emergency
-// panel, links into the app). Groq holds the conversation on the server;
+// One tap to begin (browsers require it for the mic and speech), then the
+// conversation runs by itself: listening → thinking → speaking → listening,
+// with barge-in (voice-engine.js). Groq holds the conversation on the server;
 // SmartPoli's own services do every action and the triage rules decide every
-// severity — this page only renders what comes back.
+// severity — this page only shows what matters right now: the live words, the
+// latest reply, and the one or two cards that need the patient's eyes.
 
 const VX = {
   patientId: null,
   lang: 'en',
   muted: false,
-  history: [],       // [{role, content}] — last turns, sent back for context
-  convState: {},     // server-owned state (symptom check in progress etc.)
-  busy: false,
-  listening: false,
-  recognition: null,
+  history: [],       // [{role, content}] — recent turns, sent back for context
+  convState: {},     // server-owned state (symptom check in progress, recheck…)
   contactPhone: null,
+  engine: null,
+  pendingNav: null,
+  recheckTimer: null,
 };
 
 const STORE = { lang: 'smartpoli_voice_lang', muted: 'smartpoli_voice_muted', noted: 'smartpoli_voice_privacy_seen' };
@@ -26,13 +27,16 @@ const store = {
 
 const TEXT = {
   en: {
-    greeting: 'How can I help you today?', subline: 'Speak in Hindi, English or Hinglish.',
-    tap: 'Tap to speak', listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking… tap to stop',
-    typeHere: 'Or type here…', noSpeech: "This browser can't listen. Type your message below — or open SmartPoli in Chrome.",
-    basic: 'Basic mode: I can mark medicines and tell you your next dose. Full conversation needs the AI service switched on.',
+    greeting: 'Talk to SmartPoli', subline: 'Speak naturally — Hindi, English or Hinglish.',
+    start: 'Start talking', startHint: 'Tap once to turn on your microphone.',
+    idle: 'Tap to start', listening: 'Listening…', thinking: 'Understanding…', speaking: 'Speaking — just talk to interrupt',
+    paused: 'Paused — tap to continue',
+    noSpeech: "This browser can't listen. Open SmartPoli in Chrome to talk to it.",
+    micBlocked: 'Microphone is blocked. Allow it in your browser settings, then tap to start.',
+    basic: 'Basic mode: I can help with your medicines. Full conversation needs the AI service switched on.',
     privacy: 'To understand you, your words are sent to our AI service (Groq). Only your own SmartPoli data is used.',
-    ok: 'Got it', error: "I couldn't reach SmartPoli. Check your connection and try again.", slow: 'Too many requests — wait a moment.',
-    chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
+    ok: 'Got it', error: "I couldn't reach SmartPoli. Check your connection — I'm still listening.",
+    slow: 'Too many requests — give me a moment.',
     taken: 'Taken', undo: 'Undo', undone: 'Undone — the dose is back to pending.', which: 'Which one did you take?',
     open: 'Open', openCard: 'Open my emergency card', resultFrom: "Result from SmartPoli's clinical rules",
     sev: { LOW: 'Self-care & monitor', MODERATE: 'Try first, then a doctor', EMERGENCY: 'Get medical help now', NOT_ASSESSED: 'Keep an eye on it' },
@@ -40,7 +44,6 @@ const TEXT = {
       MODERATE: "Try the steps below first. If it isn't better when I check back, please see a doctor — within a day or two either way." },
     fromPrescription: 'From your prescription', mayHelp: 'What may help',
     prescriptionNote: 'Only if your doctor gave this for this problem — take it the way they told you.',
-
     recheckAt: "I'll check with you at {time}", recheckHow: 'Or tell me any time how it feels:',
     better: 'Better', same: 'Same', worse: 'Worse', howNow: 'How are you feeling now?',
     notAssessed: "SmartPoli's rules don't cover this symptom. If it is severe, getting worse, or worrying you, contact your doctor.",
@@ -48,16 +51,19 @@ const TEXT = {
     noPatient: 'Create your patient profile in the SmartPoli app first.', openApp: 'Open SmartPoli',
     screens: { dashboard: 'Dashboard', prescriptions: 'Prescriptions', safety: 'Safety center', triage: 'Symptom check', report: 'Care report', timeline: 'Timeline', emergency: 'Emergency card', settings: 'Settings' },
     emTitle: 'Please get medical help now', emText: "Stay calm. Call 112, or ask someone near you to call — the button below does it for you.",
-    emCall: 'Call 112', emContact: 'Call my emergency contact', emCard: 'Show my emergency card',
+    emCall: 'Call 112', emContact: 'Call my emergency contact', emCard: 'Show my emergency card', emResume: "I'm okay — keep talking",
   },
   hi: {
-    greeting: 'Aaj main aapki kya madad karoon?', subline: 'Hindi, English ya Hinglish mein boliye.',
-    tap: 'Bolne ke liye dabaiye', listening: 'Sun raha hoon…', thinking: 'Soch raha hoon…', speaking: 'Bol raha hoon… rokne ke liye dabaiye',
-    typeHere: 'Ya yahan likhiye…', noSpeech: 'Yeh browser sun nahi sakta. Neeche likhiye — ya SmartPoli ko Chrome mein kholiye.',
-    basic: 'Basic mode: main dawai mark kar sakta hoon aur agli dawai bata sakta hoon. Poori baatcheet ke liye AI service chahiye.',
+    greeting: 'SmartPoli se baat kijiye', subline: 'Aaram se boliye — Hindi, English ya Hinglish.',
+    start: 'Baat shuru karein', startHint: 'Microphone chalu karne ke liye ek baar dabaiye.',
+    idle: 'Shuru karne ke liye dabaiye', listening: 'Sun raha hoon…', thinking: 'Samajh raha hoon…', speaking: 'Bol raha hoon — beech mein bol sakte hain',
+    paused: 'Ruka hua — jaari rakhne ke liye dabaiye',
+    noSpeech: 'Yeh browser sun nahi sakta. Baat karne ke liye SmartPoli ko Chrome mein kholiye.',
+    micBlocked: 'Microphone band hai. Browser settings mein allow kijiye, phir dabaiye.',
+    basic: 'Basic mode: main dawaiyon mein madad kar sakta hoon. Poori baatcheet ke liye AI service chahiye.',
     privacy: 'Aapki baat samajhne ke liye aapke shabd hamari AI service (Groq) ko bheje jaate hain. Sirf aapka SmartPoli data use hota hai.',
-    ok: 'Theek hai', error: 'SmartPoli tak nahi pahunch paaye. Internet check karke dobara koshish kijiye.', slow: 'Bahut saari requests — thoda rukiye.',
-    chips: ['Aaj kaun si medicine hai?', 'Maine dawai le li', 'Meri agli medicine kab hai?', 'Mujhe theek nahi lag raha'],
+    ok: 'Theek hai', error: 'SmartPoli tak nahi pahunch paaye. Internet check kijiye — main sun raha hoon.',
+    slow: 'Bahut saari requests — thoda rukiye.',
     taken: 'Le li', undo: 'Wapas lein', undone: 'Wapas le liya — dawai phir se pending hai.', which: 'Aapne kaun si li?',
     open: 'Kholiye', openCard: 'Mera emergency card kholiye', resultFrom: 'SmartPoli ke clinical rules ka nateeja',
     sev: { LOW: 'Ghar par dhyan rakhiye', MODERATE: 'Pehle upay, phir doctor', EMERGENCY: 'Abhi doctor ki madad lijiye', NOT_ASSESSED: 'Nazar rakhiye' },
@@ -65,7 +71,6 @@ const TEXT = {
       MODERATE: 'Pehle neeche diye upay try kijiye. Agar main dobara poochun tab tak farak na pade, to doctor ko dikhaiye — waise bhi ek-do din mein dikha lijiye.' },
     fromPrescription: 'Aapke prescription se', mayHelp: 'Isse madad mil sakti hai',
     prescriptionNote: 'Sirf tab, jab doctor ne ise isi problem ke liye diya ho — unke bataye tareeke se lijiye.',
-
     recheckAt: 'Main {time} baje aapse poochunga', recheckHow: 'Ya kabhi bhi batayein kaisa lag raha hai:',
     better: 'Behtar', same: 'Waisa hi', worse: 'Zyada kharab', howNow: 'Ab kaisa lag raha hai?',
     notAssessed: 'SmartPoli ke rules is lakshan ko cover nahi karte. Agar yeh tez hai, badh raha hai ya chinta ho rahi hai, to doctor se sampark kijiye.',
@@ -73,7 +78,7 @@ const TEXT = {
     noPatient: 'Pehle SmartPoli app mein apni patient profile banaiye.', openApp: 'SmartPoli kholiye',
     screens: { dashboard: 'Dashboard', prescriptions: 'Prescription', safety: 'Safety center', triage: 'Lakshan jaanch', report: 'Care report', timeline: 'Timeline', emergency: 'Emergency card', settings: 'Settings' },
     emTitle: 'Abhi doctor ki madad lijiye', emText: 'Ghabraiye nahi. 112 par call kijiye, ya paas kisi se call karwaiye — neeche ka button call kar dega.',
-    emCall: '112 par call karein', emContact: 'Emergency contact ko call karein', emCard: 'Mera emergency card dikhaiye',
+    emCall: '112 par call karein', emContact: 'Emergency contact ko call karein', emCard: 'Mera emergency card dikhaiye', emResume: 'Main theek hoon — baat jaari rakhein',
   },
 };
 const tx = (k) => (TEXT[VX.lang] || TEXT.en)[k];
@@ -90,22 +95,19 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const fmtTime = (iso) => new Date(iso + (iso.endsWith('Z') || /[+-]\d\d:\d\d$/.test(iso) ? '' : 'Z'))
   .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// ---------------------------------------------------------------- UI text + controls
+// ---------------------------------------------------------------- language / controls
 
 function applyLanguage() {
   document.documentElement.lang = VX.lang === 'hi' ? 'hi' : 'en';
   $('greeting').textContent = tx('greeting');
   $('subline').textContent = tx('subline');
-  $('typeInput').placeholder = tx('typeHere');
+  $('startBtn').textContent = tx('start');
+  $('startHint').textContent = tx('startHint');
   document.querySelectorAll('.vx-lang button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === VX.lang)));
-  $('chips').innerHTML = tx('chips').map(c => `<button type="button">${esc(c)}</button>`).join('');
-  setStatus(VX.listening ? 'listening' : VX.busy ? 'thinking' : 'tap');
-  if (VX.recognition) VX.recognition.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
-}
-
-function setStatus(key) {
-  $('status').textContent = tx(key);
-  $('micBtn').setAttribute('aria-label', tx(key));
+  if (VX.engine) {
+    VX.engine.rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
+    showState(VX.engine.state);
+  }
 }
 
 function applyMute() {
@@ -114,112 +116,65 @@ function applyMute() {
   if (VX.muted) window.speechSynthesis?.cancel();
 }
 
+function showState(state) {
+  document.querySelector('.vx-app').dataset.state = state;
+  $('status').textContent = tx(state === 'idle' ? 'idle' : state);
+  $('orb').setAttribute('aria-label', tx(state === 'idle' ? 'idle' : state));
+}
+
 function showNote(html) {
   const note = $('note');
   note.innerHTML = html;
   note.hidden = false;
 }
 
-// ---------------------------------------------------------------- conversation log
+// ---------------------------------------------------------------- words on screen (not a chat log)
 
-function addEntry(html, cls) {
-  const li = document.createElement('li');
-  li.className = cls;
-  li.innerHTML = html;
-  $('log').appendChild(li);
-  document.querySelector('.vx-app').classList.add('is-talking');
-  li.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  return li;
+function showHeard(text) { $('heard').textContent = text; }
+
+function showReply(text) {
+  $('reply').textContent = text || '';
+  $('reply').hidden = !text;
 }
 
-const addUser = (text) => addEntry(esc(text), 'vx-msg is-user');
-const addBot = (text) => addEntry(esc(text), 'vx-msg is-bot');
-
-// ---------------------------------------------------------------- speech out
-
-function speak(text, onDone, lang) {
-  const synth = window.speechSynthesis;
-  if (VX.muted || !synth || !text) { onDone?.(); return; }
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  // Devanagari replies need a Hindi voice even when the toggle says EN.
-  u.lang = (lang || VX.lang) === 'hi' || /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN';
-  const voice = synth.getVoices().find(v => v.lang === u.lang) || synth.getVoices().find(v => v.lang.startsWith(u.lang.slice(0, 2)));
-  if (voice) u.voice = voice;
-  u.onstart = () => { setStatus('speaking'); $('micBtn').classList.add('is-speaking'); };
-  u.onend = u.onerror = () => { $('micBtn').classList.remove('is-speaking'); setStatus('tap'); onDone?.(); };
-  synth.speak(u);
-}
-
-// ---------------------------------------------------------------- speech in
-
-function setupRecognition() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return null;
-  const r = new Recognition();
-  r.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
-  r.interimResults = true;
-  r.continuous = false;
-  let finalText = '';
-  r.onstart = () => { VX.listening = true; finalText = ''; $('micBtn').classList.add('is-listening'); setStatus('listening'); };
-  r.onresult = (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
-      else interim += e.results[i][0].transcript;
-    }
-    $('interim').textContent = (finalText + ' ' + interim).trim();
-  };
-  r.onerror = () => {};
-  r.onend = () => {
-    VX.listening = false;
-    $('micBtn').classList.remove('is-listening');
-    $('interim').textContent = '';
-    setStatus('tap');
-    if (finalText.trim()) send(finalText.trim());
-  };
-  return r;
-}
-
-function onMic() {
-  if (VX.busy) return;
-  const synth = window.speechSynthesis;
-  if (synth && synth.speaking) { synth.cancel(); $('micBtn').classList.remove('is-speaking'); setStatus('tap'); return; }  // tap to stop talking
-  if (!VX.recognition) { $('typeInput').focus(); return; }
-  if (VX.listening) { VX.recognition.stop(); return; }
-  try { VX.recognition.start(); } catch { /* already starting */ }
+/** Only the latest one or two cards stay on screen — this isn't a chat history. */
+function addCard(html, cls) {
+  const box = $('cards');
+  const card = document.createElement('div');
+  card.className = `vx-card ${cls || ''}`;
+  card.innerHTML = html;
+  box.prepend(card);
+  while (box.children.length > 2) box.lastElementChild.remove();
+  return card;
 }
 
 // ---------------------------------------------------------------- server turn
 
-async function send(text, extra = {}) {
-  if (VX.busy || !text || !VX.patientId) return;
-  VX.busy = true;
-  $('micBtn').classList.add('is-busy');
-  setStatus('thinking');
-  addUser(text);
-  const typing = addEntry('<span class="vx-typing"><i></i><i></i><i></i></span><span class="vx-sr">' + esc(tx('thinking')) + '</span>', 'vx-msg is-bot is-typing');
+async function sendTurn(text, extra = {}) {
+  showHeard(text);
+  let res;
   try {
-    const res = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
+    res = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
       text, lang: VX.lang, client_time: localIsoNow(), history: VX.history.slice(-20), state: VX.convState, ...extra,
     });
-    VX.history.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply });
-    VX.convState = res.state || {};
-    saveConvState();
-    const emergency = (res.actions || []).find(a => a.type === 'emergency');
-    typing.remove();
-    addBot(res.reply);
-    const afterSpeech = renderActions(res.actions || []);
-    if (emergency) showEmergency(emergency);
-    speak(res.reply, afterSpeech, res.lang);
   } catch (err) {
-    typing.remove();
-    addEntry(esc(/429|Too many/.test(err.message) ? tx('slow') : tx('error')), 'vx-msg is-error');
-  } finally {
-    VX.busy = false;
-    $('micBtn').classList.remove('is-busy');
-    if (!window.speechSynthesis?.speaking) setStatus('tap');
+    const msg = /429|Too many/.test(err.message) ? tx('slow') : tx('error');
+    return { reply: msg, lang: VX.lang, actions: [] };
   }
+  VX.history.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply });
+  VX.convState = res.state || {};
+  saveConvState();
+  return res;
+}
+
+function onReply(res) {
+  showReply(res.reply);
+  renderActions(res.actions || []);
+}
+
+function onDoneSpeaking(res) {
+  const nav = (res.actions || []).find(a => a.type === 'navigate');
+  if (nav) window.location.href = `/static/index.html#tab=${encodeURIComponent(nav.screen)}`;
 }
 
 // A symptom check or a pending recheck survives a reload of the page.
@@ -242,67 +197,60 @@ function localIsoNow() {
 
 // ---------------------------------------------------------------- actions → cards
 
-/** Renders each action; returns a callback to run after the reply is spoken
- * (navigation waits so the patient hears the answer first). */
 function renderActions(actions) {
-  let after = null;
   for (const a of actions) {
     if (a.type === 'dose_taken') doseTakenCard(a);
-    if (a.type === 'prn_logged') addEntry(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${esc(a.medicine)}</h3><p>${tx('taken')}</p></div></div>`, 'vx-card');
+    if (a.type === 'prn_logged') addCard(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${esc(a.medicine)}</h3><p>${tx('taken')}</p></div></div>`);
     if (a.type === 'choose_dose') chooseDoseCard(a);
     if (a.type === 'triage_result') triageCard(a);
+    if (a.type === 'emergency') helpCard(a);
     if (a.type === 'recheck') recheckCard(a);
     if (a.type === 'open_card') linkCard(tx('openCard'), '/static/index.html#tab=emergency');
     if (a.type === 'prescription_draft') {
-      addEntry(`<h3>${tx('draft')}</h3><ul>${a.medicines.map(m => `<li>${esc([m.name || m.line, m.dose, m.schedule].filter(Boolean).join(' · '))}</li>`).join('')}</ul>`, 'vx-card');
+      addCard(`<h3>${tx('draft')}</h3><ul>${a.medicines.map(m => `<li>${esc([m.name || m.line, m.dose, m.schedule].filter(Boolean).join(' · '))}</li>`).join('')}</ul>`);
     }
-    if (a.type === 'prescription_confirmed') addEntry(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${tx('scheduled')}</h3></div></div>`, 'vx-card');
-    if (a.type === 'navigate') {
-      const url = `/static/index.html#tab=${encodeURIComponent(a.screen)}`;
-      linkCard(`${tx('open')}: ${(tx('screens') || {})[a.screen] || a.screen}`, url);
-      after = () => { window.location.href = url; };
-    }
+    if (a.type === 'prescription_confirmed') addCard(`<div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span><div><h3>${tx('scheduled')}</h3></div></div>`);
+    if (a.type === 'navigate') linkCard(`${tx('open')}: ${(tx('screens') || {})[a.screen] || a.screen}`, `/static/index.html#tab=${encodeURIComponent(a.screen)}`);
   }
-  return after;
 }
 
 function doseTakenCard(a) {
-  const li = addEntry(`
+  const card = addCard(`
     <div class="vx-card-row"><span class="vx-tick">${ICON.tick}</span>
       <div><h3>${esc(a.medicine)}</h3><p>${tx('taken')} ${esc(fmtTime(a.taken_at))}</p></div>
-      <button type="button" class="vx-btn">${tx('undo')}</button></div>`, 'vx-card');
-  const btn = li.querySelector('button');
+      <button type="button" class="vx-btn">${tx('undo')}</button></div>`);
+  const btn = card.querySelector('button');
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
       await apiFetch('POST', `/doses/${a.dose_id}/undo`);
-      li.querySelector('p').textContent = tx('undone');
+      card.querySelector('p').textContent = tx('undone');
       btn.remove();
     } catch (err) {
       btn.disabled = false;
-      li.querySelector('p').textContent = err.message;
+      card.querySelector('p').textContent = err.message;
     }
   });
 }
 
 function chooseDoseCard(a) {
-  const li = addEntry(`<h3>${tx('which')}</h3><div class="vx-card-actions">${a.options.map(o =>
-    `<button type="button" class="vx-btn" data-dose="${o.dose_id}">${esc(o.medicine)} · ${esc(o.time)}</button>`).join('')}</div>`, 'vx-card');
-  li.querySelectorAll('[data-dose]').forEach(btn => btn.addEventListener('click', async () => {
-    li.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  const card = addCard(`<h3>${tx('which')}</h3><div class="vx-card-actions">${a.options.map(o =>
+    `<button type="button" class="vx-btn" data-dose="${o.dose_id}">${esc(o.medicine)} · ${esc(o.time)}</button>`).join('')}</div>`);
+  card.querySelectorAll('[data-dose]').forEach(btn => btn.addEventListener('click', async () => {
+    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
     try {
       const dose = await apiFetch('POST', `/doses/${btn.dataset.dose}/take`);
       const opt = a.options.find(o => String(o.dose_id) === btn.dataset.dose);
-      li.remove();
+      card.remove();
       doseTakenCard({ dose_id: dose.id, medicine: opt.medicine, taken_at: dose.acted_at });
     } catch (err) {
-      li.querySelectorAll('button').forEach(b => { b.disabled = false; });
+      card.querySelectorAll('button').forEach(b => { b.disabled = false; });
     }
   }));
 }
 
-/** Self-care / see a doctor / not rated — with the guidance SmartPoli is
- * allowed to give: the patient's own prescription first, then sourced steps. */
+/** Self-care / try-first / not rated — guidance only from the patient's own
+ * prescription and the sourced list the server returns. */
 function triageCard(a) {
   const sev = a.severity || 'NOT_ASSESSED';
   const body = sev === 'NOT_ASSESSED' ? tx('notAssessed') : (tx('sevText')[sev] || a.action);
@@ -314,55 +262,111 @@ function triageCard(a) {
   const general = (g.general || []).length ? `
     <div class="vx-guide"><h4>${tx('mayHelp')}</h4><ul>${g.general.map(i =>
       `<li>${esc(i.text)} <a class="vx-src" href="${esc(i.source_url)}" target="_blank" rel="noopener noreferrer">${esc(i.source_title.split(' - ')[0])}</a></li>`).join('')}</ul></div>` : '';
-  addEntry(`<span class="vx-sev ${esc(sev)}">${esc(tx('sev')[sev] || sev)}</span><p>${esc(body)}</p>
+  addCard(`<span class="vx-sev ${esc(sev)}">${esc(tx('sev')[sev] || sev)}</span><p>${esc(body)}</p>
     ${prescribed}${general}
-    ${sev !== 'NOT_ASSESSED' ? `<div class="vx-source">${tx('resultFrom')}</div>` : ''}`, `vx-card vx-level-${esc(sev)}`);
+    ${sev !== 'NOT_ASSESSED' ? `<div class="vx-source">${tx('resultFrom')}</div>` : ''}`, `vx-level-${esc(sev)}`);
 }
 
-
-/** "I'll check back at 10:45" — Better / Same / Worse, and a gentle ask when it's time. */
+/** "I'll check back at 10:45" — Better / Same / Worse (or just say it), and a gentle ask when it's time. */
 function recheckCard(a) {
   const due = new Date(a.due_at);
   const time = due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const li = addEntry(`<h3>${esc(tx('recheckAt').replace('{time}', time))}</h3><p>${tx('recheckHow')}</p>
+  const card = addCard(`<h3>${esc(tx('recheckAt').replace('{time}', time))}</h3><p>${tx('recheckHow')}</p>
     <div class="vx-card-actions">
       <button type="button" class="vx-btn" data-recheck="better">${tx('better')}</button>
       <button type="button" class="vx-btn" data-recheck="same">${tx('same')}</button>
       <button type="button" class="vx-btn" data-recheck="worse">${tx('worse')}</button>
-    </div>`, 'vx-card vx-recheck');
-  li.querySelectorAll('[data-recheck]').forEach(btn => btn.addEventListener('click', () => {
-    li.querySelectorAll('button').forEach(b => { b.disabled = true; });
-    send(btn.textContent, { recheck: btn.dataset.recheck });
+    </div>`, 'vx-recheck');
+  card.querySelectorAll('[data-recheck]').forEach(btn => btn.addEventListener('click', () => {
+    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    VX.engine?.say(btn.textContent, { recheck: btn.dataset.recheck });
   }));
-  scheduleRecheckPrompt(due);
-}
-
-function scheduleRecheckPrompt(due) {
   clearTimeout(VX.recheckTimer);
-  const wait = due.getTime() - Date.now();
   VX.recheckTimer = setTimeout(() => {
     if (!VX.convState.recheck) return;
-    addBot(tx('howNow'));
-    speak(tx('howNow'));
-    document.querySelector('.vx-recheck:last-of-type')?.classList.add('is-due');
-  }, Math.max(wait, 0));
+    card.classList.add('is-due');
+    showReply(tx('howNow'));
+    VX.engine?.announce(tx('howNow'), VX.lang);
+  }, Math.max(due.getTime() - Date.now(), 0));
 }
 
 function linkCard(label, url) {
-  addEntry(`<a class="vx-btn is-primary" href="${esc(url)}">${esc(label)}</a>`, 'vx-card');
+  addCard(`<a class="vx-btn is-primary" href="${esc(url)}">${esc(label)}</a>`);
 }
 
-/** Calm, in-conversation help — no full-screen alarm, no flashing. */
-function showEmergency(a) {
-  VX.recognition?.abort?.();
+/** Calm, in-place help — no full-screen alarm. Listening pauses until the patient is ready. */
+function helpCard(a) {
   const contact = VX.contactPhone ? `<a class="vx-btn" href="tel:${esc(VX.contactPhone)}">${tx('emContact')}</a>` : '';
-  const li = addEntry(`
+  const card = addCard(`
     <h3>${tx('emTitle')}</h3>
     <p>${tx('emText')}</p>
     <a class="vx-help-call" href="tel:112">${tx('emCall')}</a>
     <div class="vx-card-actions">${contact}<a class="vx-btn" href="/static/index.html#tab=emergency">${tx('emCard')}</a></div>
-    ${(a.reasons || []).length ? `<p class="vx-small">${a.reasons.map(esc).join(' · ')}</p>` : ''}`, 'vx-card vx-help');
-  li.querySelector('.vx-help-call').focus({ preventScroll: true });
+    ${(a.reasons || []).length ? `<p class="vx-small">${a.reasons.map(esc).join(' · ')}</p>` : ''}
+    <button type="button" class="vx-link" data-resume>${tx('emResume')}</button>`, 'vx-help');
+  card.querySelector('[data-resume]').addEventListener('click', () => VX.engine?.resume());
+  card.querySelector('.vx-help-call').focus({ preventScroll: true });
+}
+
+// ---------------------------------------------------------------- engine
+
+function pickVoice(lang, text) {
+  const want = lang === 'hi' || /[\u0900-\u097F]/.test(text) ? 'hi-IN' : 'en-IN';
+  const voices = window.speechSynthesis?.getVoices() || [];
+  return { lang: want, voice: voices.find(v => v.lang === want) || voices.find(v => v.lang.startsWith(want.slice(0, 2))) || null };
+}
+
+function createEngine() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return null;
+  const rec = new Recognition();
+  rec.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
+  rec.continuous = true;
+  rec.interimResults = true;
+  // Muted: the engine still runs the loop, the synth just stays silent.
+  const synth = VX.muted ? silentSynth() : window.speechSynthesis;
+  const engine = new VoiceEngine({
+    recognition: rec, synth, Utterance: window.SpeechSynthesisUtterance,
+    send: sendTurn, onReply, onDoneSpeaking,
+    onState: showState,
+    onHeard: (text) => showHeard(text),
+    voiceFor: pickVoice,
+    endOfSpeechMs: 1100,
+  });
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      engine.stop();
+      showNote(esc(tx('micBlocked')));
+      $('startScreen').hidden = false;
+    }
+  };
+  return engine;
+}
+
+/** A synth that "speaks" instantly — used when muted so the loop keeps flowing. */
+function silentSynth() {
+  return {
+    speaking: false,
+    speak(u) { setTimeout(() => u.onend && u.onend(), 0); },
+    cancel() {},
+  };
+}
+
+function startConversation() {
+  $('startScreen').hidden = true;
+  if (!VX.engine) VX.engine = createEngine();
+  if (!VX.engine) { showNote(esc(tx('noSpeech'))); return; }
+  // speaking once inside the tap unlocks speech on mobile browsers
+  try { window.speechSynthesis?.speak(new SpeechSynthesisUtterance('')); } catch { /* ignore */ }
+  VX.engine.start();
+}
+
+function onOrbTap() {
+  const e = VX.engine;
+  if (!e || e.state === 'idle') return startConversation();
+  if (e.state === 'paused') return e.resume();
+  if (e.state === 'speaking') { e._bargeIn(); return; }  // tap = "stop talking, I'll speak"
+  e.pause();
 }
 
 // ---------------------------------------------------------------- boot
@@ -380,9 +384,7 @@ async function boot() {
   $('openAppLink').innerHTML = ICON.grid;
   applyLanguage();
   applyMute();
-
-  VX.recognition = setupRecognition();
-  if (!VX.recognition) showNote(esc(tx('noSpeech')));
+  showState('idle');
 
   document.querySelector('.vx-lang').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lang]');
@@ -391,22 +393,25 @@ async function boot() {
     store.set(STORE.lang, VX.lang);
     applyLanguage();
   });
-  $('muteBtn').addEventListener('click', () => { VX.muted = !VX.muted; store.set(STORE.muted, VX.muted ? '1' : '0'); applyMute(); });
-  $('micBtn').addEventListener('click', onMic);
-  $('chips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) send(b.textContent); });
-  $('typeForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = $('typeInput').value.trim();
-    if (!text) return;
-    $('typeInput').value = '';
-    send(text);
+  $('muteBtn').addEventListener('click', () => {
+    VX.muted = !VX.muted;
+    store.set(STORE.muted, VX.muted ? '1' : '0');
+    applyMute();
+    if (VX.engine) VX.engine.synth = VX.muted ? silentSynth() : window.speechSynthesis;
   });
+  $('orb').addEventListener('click', onOrbTap);
+  $('startBtn').addEventListener('click', startConversation);
+
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    $('startScreen').hidden = true;
+    showNote(esc(tx('noSpeech')));
+  }
 
   try {
     const patients = await apiFetch('GET', '/patients');
     if (!patients.length) {
       showNote(`${esc(tx('noPatient'))} <a class="vx-btn" href="/static/index.html">${esc(tx('openApp'))}</a>`);
-      $('micBtn').disabled = true;
+      $('startScreen').hidden = true;
       return;
     }
     VX.patientId = patients[0].id;
