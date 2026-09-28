@@ -34,6 +34,17 @@ function landingPageFor(role) {
   return '/static/index.html';
 }
 
+/** `?next=` after login (e.g. the voice page) — only same-site /static/
+ * pages, never another origin, so the login page can't be an open redirect. */
+function safeNextPath(raw) {
+  return typeof raw === 'string' && /^\/static\/[A-Za-z0-9_-]+\.html(?:[?#][^\s]*)?$/.test(raw) ? raw : null;
+}
+
+function landingAfterLogin(role, search) {
+  const next = safeNextPath(new URLSearchParams(search || '').get('next'));
+  return (role === 'patient' && next) || landingPageFor(role);
+}
+
 /**
  * WhatsApp magic link support (whatsapp_bot.py's web_dashboard_link()): a
  * WhatsApp-only patient never sets a password, so instead of a login form

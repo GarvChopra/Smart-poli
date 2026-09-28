@@ -2,7 +2,7 @@
 
 (function redirectIfAlreadyLoggedIn() {
   const auth = getAuth();
-  if (auth && auth.token && auth.user) window.location.href = landingPageFor(auth.user.role);
+  if (auth && auth.token && auth.user) window.location.href = landingAfterLogin(auth.user.role, window.location.search);
 })();
 
 let mode = 'login';
@@ -48,7 +48,7 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
       if (!res.ok) throw new Error(body.detail || 'Incorrect email or password.');
     }
     setAuth(body.token, body.user);
-    window.location.href = landingPageFor(body.user.role);
+    window.location.href = landingAfterLogin(body.user.role, window.location.search);
   } catch (err) {
     errorEl.textContent = err.message || 'Something went wrong. Try again.';
   } finally {
