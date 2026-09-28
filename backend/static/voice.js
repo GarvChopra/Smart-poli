@@ -11,7 +11,6 @@ const VX = {
   patientId: null,
   lang: 'en',
   muted: false,
-  history: [],       // [{role, content}] — recent turns, sent back for context
   convState: {},     // server-owned state (symptom check in progress, recheck…)
   contactPhone: null,
   engine: null,
@@ -155,13 +154,12 @@ async function sendTurn(text, extra = {}) {
   let res;
   try {
     res = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
-      text, lang: VX.lang, client_time: localIsoNow(), history: VX.history.slice(-20), state: VX.convState, ...extra,
+      text, lang: VX.lang, client_time: localIsoNow(), state: VX.convState, ...extra,  // history is kept server-side
     });
   } catch (err) {
     const msg = /429|Too many/.test(err.message) ? tx('slow') : tx('error');
     return { reply: msg, lang: VX.lang, actions: [] };
   }
-  VX.history.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply });
   VX.convState = res.state || {};
   saveConvState();
   return res;

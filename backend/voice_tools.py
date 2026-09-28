@@ -16,13 +16,16 @@ Symptoms the rules don't cover come back NOT_ASSESSED — never a guess.
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
-from db import AuditLog, Dose, Medicine, Prescription, SymptomCheck, User, log_audit
+from db import AuditLog, Dose, Medicine, Prescription, SymptomCheck, User, VoiceMessage, log_audit
+from interactions import load_ruleset as load_interaction_ruleset, check_interactions
+from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses
 from scheduler import mark_taken, compute_adherence
 from serializers import emergency_card_data
@@ -32,6 +35,8 @@ from care_guidance import guidance_for
 import clinical_knowledge
 
 RULESET = load_ruleset()
+INTERACTION_RULESET = load_interaction_ruleset()
+FOOD_RULESET = load_food_ruleset()
 
 SCREENS = ("dashboard", "prescriptions", "safety", "triage", "report", "timeline", "emergency", "settings")
 TAKE_WINDOW_BEFORE = timedelta(hours=12)
@@ -200,11 +205,72 @@ def get_patient_context(ctx: ToolContext) -> dict:
         "ok": True,
         "conditions": profile["profile"]["conditions"],
         "allergies": profile["patient"]["allergies"],
+        "blood_group": profile["patient"]["blood_group"],
+        "emergency_contact": profile["patient"]["emergency_contact"],
+        "care_team": profile["care_team"],
         "current_medicines": [m["name"] for m in get_medicines(ctx)["medicines"] if not m["as_needed"]],
         "as_needed_medicines": prescribed_as_needed(ctx),
+        "adherence": get_adherence(ctx)["overall"],
         "doctor_notes": [{"date": n.at.date().isoformat(), "note": n.detail} for n in notes],
         "recent_symptom_checks": [{"date": c.created_at.date().isoformat(), "symptoms": json.loads(c.symptoms),
                                    "severity": c.severity} for c in checks],
+    }
+
+
+def get_doctor_notes(ctx: ToolContext, limit=5) -> dict:
+    n = max(1, min(_as_int(limit) or 5, 20))
+    notes = (ctx.db.query(AuditLog).filter(AuditLog.patient_id == ctx.patient_id, AuditLog.action == "clinical_note")
+             .order_by(AuditLog.at.desc()).limit(n).all())
+    return {"ok": True, "notes": [{"date": x.at.date().isoformat(), "note": x.detail} for x in notes],
+            "use": "Their doctor's own words — surface them as written; they take priority over general guidance."}
+
+
+def get_prn_history(ctx: ToolContext, days=30) -> dict:
+    since = datetime.utcnow() - timedelta(days=max(1, min(_as_int(days) or 30, 365)))
+    uses = (ctx.db.query(AuditLog).filter(AuditLog.patient_id == ctx.patient_id, AuditLog.action == "prn_taken",
+                                          AuditLog.at >= since).order_by(AuditLog.at.desc()).limit(20).all())
+    return {"ok": True, "uses": [{"date": u.at.isoformat(timespec="minutes"), "detail": u.detail} for u in uses]}
+
+
+def get_safety_warnings(ctx: ToolContext) -> dict:
+    """Drug–drug interactions and food warnings for their current medicines —
+    the same checks the Safety center screen runs."""
+    names = [m["name"] for m in get_medicines(ctx)["medicines"] if m["name"]]
+    return {"ok": True, "interactions": check_interactions(INTERACTION_RULESET, names),
+            "food_warnings": check_food_warnings(FOOD_RULESET, names),
+            "use": "Tell them what to avoid exactly as listed; never tell them to stop or change a medicine."}
+
+
+# ---------------------------------------------------------------- memory (earlier days)
+
+_MEMORY_STOP = {"hai", "hain", "mujhe", "mera", "meri", "mere", "ho", "raha", "rahi", "tha", "thi", "aaj", "kal",
+                "phir", "wahi", "same", "problem", "the", "and", "is", "my", "i", "a", "to", "me", "se", "ki", "ka", "ke"}
+
+
+def recall_previous(ctx: ToolContext, query=None, days=14) -> dict:
+    """What this patient said on earlier days and their past symptom checks
+    (with outcome), for "wahi problem jo kal thi". Only stored data, only this
+    patient — and it is context, never a diagnosis of today's cause."""
+    span = max(1, min(_as_int(days) or 14, 90))
+    since = datetime.utcnow() - timedelta(days=span)
+    today_start = datetime.utcnow() - timedelta(hours=6)
+    words = {w for w in re.findall(r"\w+", str(query or "").lower()) if w not in _MEMORY_STOP and len(w) > 2}
+    msgs = (ctx.db.query(VoiceMessage).filter(VoiceMessage.patient_id == ctx.patient_id, VoiceMessage.role == "user",
+                                              VoiceMessage.created_at >= since, VoiceMessage.created_at < today_start)
+            .order_by(VoiceMessage.created_at.desc()).limit(200).all())
+    matched = [m for m in msgs if not words or words & set(re.findall(r"\w+", m.content.lower()))][:8]
+    checks = (ctx.db.query(SymptomCheck).filter(SymptomCheck.patient_id == ctx.patient_id,
+                                                SymptomCheck.created_at >= since)
+              .order_by(SymptomCheck.created_at.desc()).limit(10).all())
+    how_often = Counter(s for c in checks for s in json.loads(c.symptoms))
+    return {
+        "ok": True,
+        "earlier_conversations": [{"date": m.created_at.date().isoformat(), "text": m.content} for m in matched],
+        "earlier_symptom_checks": [{"date": c.created_at.date().isoformat(), "symptoms": json.loads(c.symptoms),
+                                    "severity": c.severity, "outcome": json.loads(c.reasons)} for c in checks],
+        "how_often": dict(how_often),
+        "use": "This is context, not a diagnosis: say what happened before (\"kal bhi aapko … hua tha\") and ask "
+               "whether today feels the same — do not assume it has the same cause. Run today's check as usual.",
     }
 
 
@@ -479,7 +545,9 @@ HANDLERS: dict[str, Callable[..., dict]] = {
     "mark_dose_taken": mark_dose_taken, "log_prn_taken": log_prn_taken,
     "get_medicines": get_medicines, "get_adherence": get_adherence,
     "get_emergency_card": get_emergency_card, "get_treatment_history": get_treatment_history,
-    "get_patient_context": get_patient_context,
+    "get_patient_context": get_patient_context, "get_doctor_notes": get_doctor_notes,
+    "get_prn_history": get_prn_history, "get_safety_warnings": get_safety_warnings,
+    "recall_previous": recall_previous,
     "open_screen": open_screen, "decode_prescription": decode_prescription,
     "confirm_prescription": confirm_prescription, "update_symptom_check": update_symptom_check,
     "finish_symptom_check": finish_symptom_check,
@@ -529,6 +597,15 @@ TOOLS = [
         "not a symptom that still needs checking). Shows the patient how to get help immediately.",
         {"category": {"type": "string", "enum": list(IMMEDIATE_RISK_CATEGORIES)},
          "patient_words": {"type": "string"}}, ["category", "patient_words"]),
+    _fn("get_doctor_notes", "The patient's doctor's notes and instructions, newest first.",
+        {"limit": {"type": "integer"}}),
+    _fn("get_prn_history", "When the patient used their as-needed (SOS) medicines recently.",
+        {"days": {"type": "integer"}}),
+    _fn("get_safety_warnings", "Medicine interactions and foods to avoid with their current medicines."),
+    _fn("recall_previous",
+        "What the patient said on earlier days and their past symptom checks with outcomes — use when they refer "
+        "to before (\"wahi problem\", \"phir se\", \"kal wala\") or a symptom may be recurring. Context only, "
+        "never a diagnosis.", {"query": {"type": "string"}, "days": {"type": "integer"}}),
     _fn("search_clinical_guidance",
         "Trusted clinical information (MoHFW India treatment guidelines, MedlinePlus, sourced self-care). "
         "Call this BEFORE explaining anything medical — what a symptom can relate to, prevention, self-care, "

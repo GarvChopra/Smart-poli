@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from db import init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog, User
+from db import init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog, User, VoiceMessage
 from parser import parse_medicine_line, compute_status
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses
 from scheduler import (
@@ -631,6 +631,16 @@ def _local_now(client_time: Optional[str]) -> datetime:
 def voice_page():
     """Short link citizens can open on a phone: straight to the voice page."""
     return RedirectResponse("/static/voice.html")
+
+
+@app.delete("/patients/{patient_id}/voice/history")
+def delete_voice_history(patient_id: int, user: User = Depends(require_patient_write_access),
+                         db: Session = Depends(get_db_session)):
+    """The patient can wipe what the voice assistant remembers of their conversations."""
+    deleted = db.query(VoiceMessage).filter(VoiceMessage.patient_id == patient_id).delete()
+    db.commit()
+    log_audit(db, patient_id, f"patient:{user.id}", "voice_history_deleted", f"{deleted} messages")
+    return {"deleted": deleted}
 
 
 @app.get("/voice/available")

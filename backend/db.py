@@ -237,6 +237,20 @@ class EmergencyCardToken(Base):
     revoked_at = Column(DateTime, nullable=True)
 
 
+class VoiceMessage(Base):
+    """One line of a voice conversation, stored server-side per patient so the
+    assistant can recall earlier days ("wahi problem jo kal thi"). The patient
+    can delete their history. A new table (not columns) for the Postgres reason
+    noted on EmergencyCardToken."""
+    __tablename__ = "voice_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    role = Column(String, nullable=False)       # 'user' | 'assistant'
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class EmergencyCardProfile(Base):
     """The extra, patient-chosen content of the 3D health card that the
     core record doesn't have — photo, conditions, instructions — plus which

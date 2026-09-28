@@ -29,7 +29,9 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from db import User
+from datetime import timedelta
+
+from db import User, VoiceMessage
 from serializers import get_patient_or_404
 from triage_service import record_symptom_check
 from triage import ACTIONS
@@ -126,8 +128,9 @@ def _result(ctx: ToolContext, reply: str, mode: str) -> dict:
 # ---------------------------------------------------------------- prompt
 
 def _record_context(ctx: ToolContext) -> str:
-    """The patient's existing record, every turn, so no one is treated as a
-    blank new patient. Context only — never proof of a cause."""
+    """A compact profile every turn — enough that no one is treated as a blank
+    new patient, without dumping the record. Everything else (doctor notes,
+    SOS history, safety warnings, earlier days) comes through tools when relevant."""
     try:
         c = get_patient_context(ctx)
     except Exception:
@@ -135,17 +138,22 @@ def _record_context(ctx: ToolContext) -> str:
         return ""
     meds = ", ".join(c["current_medicines"]) or "none"
     prn = "; ".join(f'{m["name"]} — "{m["instruction"]}"' for m in c["as_needed_medicines"]) or "none"
-    notes = "; ".join(f'{n["date"]}: {n["note"]}' for n in c["doctor_notes"][:3]) or "none"
-    checks = "; ".join(f'{x["date"]}: {", ".join(x["symptoms"]) or "unrated symptom"} ({x["severity"]})'
-                       for x in c["recent_symptom_checks"][:3]) or "none"
+    latest_note = (f'{c["doctor_notes"][0]["date"]} (more via get_doctor_notes)' if c["doctor_notes"] else "none")
+    recent = [x for x in c["recent_symptom_checks"]
+              if x["date"] >= (datetime.now() - timedelta(days=14)).date().isoformat()][:3]
+    episodes = "; ".join(f'{x["date"]}: {", ".join(x["symptoms"]) or "unrated symptom"} ({x["severity"]})'
+                         for x in recent) or "none in the last 14 days"
     return f"""
-PATIENT RECORD (from SmartPoli):
+PATIENT RECORD (from SmartPoli — compact; use tools for more):
 - Known conditions: {c["conditions"] or "none recorded"}
 - Allergies: {c["allergies"] or "none recorded"}
 - Current medicines: {meds}
-- As-needed medicines prescribed by their doctor (with the instruction as written): {prn}
-- Doctor's notes: {notes}
-- Recent symptom checks: {checks}
+- As-needed medicines prescribed by their doctor (instruction as written): {prn}
+- Latest doctor's note: {latest_note}
+- Recent symptom episodes: {episodes}
+MEMORY RULE: anything from before is context, not a diagnosis. "Aapko kal bhi … hua tha" is fine; "so it's the same
+cause" is not. If they say "wahi problem" / "phir se", call recall_previous, say what happened before, ask whether
+today feels the same, and run today's check as usual.
 """
 
 
@@ -223,6 +231,25 @@ Safety rules — never break these:
 - Don't use alarming words like "emergency" or "danger" yourself — the app shows help when the rules call for it.
 - Every fact about their medicines, doses or history must come from the record or a tool result.
 """ + _record_context(ctx) + _symptom_context(ctx)
+
+
+def _stored_history(ctx: ToolContext) -> list[dict]:
+    """This conversation's recent turns, from the server — never trusted from the client."""
+    since = datetime.utcnow() - timedelta(hours=6)
+    rows = (ctx.db.query(VoiceMessage).filter(VoiceMessage.patient_id == ctx.patient_id,
+                                              VoiceMessage.created_at >= since)
+            .order_by(VoiceMessage.created_at.desc(), VoiceMessage.id.desc()).limit(MAX_HISTORY).all())
+    return [{"role": r.role, "content": r.content} for r in reversed(rows)]
+
+
+def _remember(db: Session, patient_id: int, text: str, reply: str) -> None:
+    try:
+        db.add_all([VoiceMessage(patient_id=patient_id, role="user", content=text[:1000]),
+                    VoiceMessage(patient_id=patient_id, role="assistant", content=(reply or "")[:2000])])
+        db.commit()
+    except Exception:
+        logger.exception("Could not store voice turn")
+        db.rollback()
 
 
 def _history_messages(history) -> list[dict]:
@@ -322,7 +349,7 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     model = os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-120b")
 
     messages = [{"role": "system", "content": _system_prompt(ctx, first_name)}]
-    messages += _history_messages(history)
+    messages += _history_messages(_stored_history(ctx))
     messages.append({"role": "user", "content": text})
 
     def complete(tool_choice: str):
@@ -373,6 +400,7 @@ def run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
     lang = spoken_language(text, lang)
     out = _run_turn(db, patient_id, user, text, lang, now_local, history, state, recheck)
     out.setdefault("lang", lang)  # the page picks the speaking voice from this
+    _remember(db, patient_id, text, out.get("reply", ""))
     return out
 
 
