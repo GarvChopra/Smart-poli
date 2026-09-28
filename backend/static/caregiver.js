@@ -162,7 +162,7 @@ async function renderOverview() {
   `).join('') || '<div class="empty">No symptom checks recorded.</div>';
 
   const ec = o.emergency_card;
-  const emergencyUrl = `${window.location.origin}/emergency/${state.patientId}`;
+  const emergencyUrl = `${window.location.origin}${ec.card_path}`;
 
   view.innerHTML = `
     <h2 style="margin-top:26px;">${o.patient.name}'s overview</h2>

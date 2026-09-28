@@ -111,7 +111,10 @@ def test_emergency_reply_includes_allergies_and_link():
 
         reply = whatsapp_bot.handle_incoming_message(db, phone, "emergency")
         assert "Penicillin" in reply
-        assert f"/emergency/{patient.id}" in reply
+        from serializers import emergency_card_data
+        card_path = emergency_card_data(db, patient.id)["card_path"]
+        assert card_path != f"/emergency/{patient.id}"
+        assert card_path in reply
     finally:
         db.close()
 

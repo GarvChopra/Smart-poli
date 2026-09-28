@@ -1078,7 +1078,8 @@ async function renderEmergencyCard() {
 
   const patient = state.patients.find(p => p.id === state.patientId);
   const data = await api('GET', `/patients/${state.patientId}/emergency-card`);
-  const cardUrl = `${window.location.origin}/emergency/${state.patientId}`;
+  const cardUrl = `${window.location.origin}${data.card_path}`;
+  const lastUpdated = new Date(data.last_updated + 'Z').toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const scheduledRows = data.scheduled_medicines.map(m => `
     <li><strong>${m.name}</strong>${m.dose_amount ? ' ' + m.dose_amount + (m.dose_unit || '') : ''}${m.schedule_code ? ' — ' + m.schedule_code : ''}</li>
@@ -1104,7 +1105,11 @@ async function renderEmergencyCard() {
           <strong>Emergency contact:</strong> ${data.patient.emergency_contact || '<span class="empty" style="padding:0;">none recorded</span>'}
           <button class="ghost small" id="editContactBtn" style="margin-left:8px;">Edit</button>
         </div>
-        <div style="margin-top:14px;"><a href="${cardUrl}" target="_blank">${cardUrl}</a></div>
+        <div style="margin-top:14px;"><a href="${cardUrl}" target="_blank" rel="noreferrer">${cardUrl}</a></div>
+        <div class="card-updated">Last updated ${lastUpdated}</div>
+        <div id="revokeArea" style="margin-top:12px;">
+          <button class="ghost small" id="revokeCardBtn">Revoke &amp; make new QR</button>
+        </div>
       </div>
     </div>
 
@@ -1144,6 +1149,22 @@ async function renderEmergencyCard() {
     if (value === null) return;
     await api('PATCH', `/patients/${state.patientId}`, { emergency_contact: value });
     renderEmergencyCard();
+  });
+
+  document.getElementById('revokeCardBtn').addEventListener('click', () => {
+    document.getElementById('revokeArea').innerHTML = `
+      <div class="revoke-confirm">
+        The old QR code and any printed card will stop working. Continue?
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <button class="small" id="revokeYesBtn">Yes, revoke</button>
+          <button class="ghost small" id="revokeNoBtn">Cancel</button>
+        </div>
+      </div>`;
+    document.getElementById('revokeNoBtn').addEventListener('click', () => renderEmergencyCard());
+    document.getElementById('revokeYesBtn').addEventListener('click', async () => {
+      await api('POST', `/patients/${state.patientId}/emergency-card/revoke`);
+      renderEmergencyCard();
+    });
   });
 
   document.getElementById('genCaregiverCodeBtn').addEventListener('click', () => generateLinkCode('caregiver'));

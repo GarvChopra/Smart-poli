@@ -277,7 +277,7 @@ def _handle_confirm(db: Session, session: WhatsAppSession, patient_id: int) -> s
 def _handle_emergency(db: Session, patient_id: int) -> str:
     data = emergency_card_data(db, patient_id)
     p = data["patient"]
-    url = f"{PUBLIC_BASE_URL}/emergency/{patient_id}"
+    url = f"{PUBLIC_BASE_URL}{data['card_path']}"
     lines = [
         "🚨 *Emergency card*",
         f"{p['name']}" + (f", {p['age']}" if p["age"] else "") + (f", {p['sex']}" if p["sex"] else ""),
