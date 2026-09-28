@@ -135,3 +135,56 @@ def test_revoke_requires_write_access():
     with TestClient(app) as other:
         register_and_login(other)
         assert other.post(f"/patients/{pid}/emergency-card/revoke").status_code == 403
+
+
+def test_rotate_revokes_every_active_token():
+    """A double-clicked revoke (or two first-ever requests racing) can leave
+    two active rows; revoke must kill all of them, not just .first()."""
+    from db import EmergencyCardToken
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = _make_patient(client, "Race")
+    db = SessionLocal()
+    try:
+        db.add_all([EmergencyCardToken(patient_id=pid, token="race-token-a"),
+                    EmergencyCardToken(patient_id=pid, token="race-token-b")])
+        db.commit()
+        new = emergency_tokens.rotate_token(db, pid)
+        assert emergency_tokens.patient_id_for_token(db, "race-token-a") is None
+        assert emergency_tokens.patient_id_for_token(db, "race-token-b") is None
+        assert emergency_tokens.patient_id_for_token(db, new) == pid
+    finally:
+        db.close()
+
+
+def test_public_page_escapes_patient_text():
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = client.post("/patients", json={
+            "name": "<img src=x onerror=alert(1)>",
+            "allergies": "<script>alert(2)</script>",
+            "emergency_contact": "<b onmouseover=x>Son</b>",
+        }).json()["id"]
+        text = client.get(client.get(f"/patients/{pid}/emergency-card").json()["card_path"]).text
+        assert "<img src=x" not in text
+        assert "<script>alert(2)</script>" not in text
+        assert "<b onmouseover" not in text
+        assert "&lt;script&gt;alert(2)&lt;/script&gt;" in text
+
+
+def test_last_updated_ignores_dose_activity():
+    """'Last updated' tells a responder whether the card's content is
+    current — taking a dose or an auto-missed sweep doesn't change it."""
+    from db import log_audit
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = _make_patient(client, "Fresh")
+        before = client.get(f"/patients/{pid}/emergency-card").json()["last_updated"]
+        time.sleep(0.01)
+        db = SessionLocal()
+        try:
+            for action in ("dose_taken", "dose_missed", "prn_taken", "dose_skipped"):
+                log_audit(db, pid, "system", action, "x")
+        finally:
+            db.close()
+        assert client.get(f"/patients/{pid}/emergency-card").json()["last_updated"] == before

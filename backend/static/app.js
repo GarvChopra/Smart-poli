@@ -1161,9 +1161,16 @@ async function renderEmergencyCard() {
         </div>
       </div>`;
     document.getElementById('revokeNoBtn').addEventListener('click', () => renderEmergencyCard());
-    document.getElementById('revokeYesBtn').addEventListener('click', async () => {
-      await api('POST', `/patients/${state.patientId}/emergency-card/revoke`);
-      renderEmergencyCard();
+    document.getElementById('revokeYesBtn').addEventListener('click', async (e) => {
+      e.target.disabled = true;  // a double-click must not fire two revokes
+      try {
+        await api('POST', `/patients/${state.patientId}/emergency-card/revoke`);
+        renderEmergencyCard();
+      } catch (err) {
+        e.target.disabled = false;
+        document.querySelector('.revoke-confirm').insertAdjacentHTML('beforeend',
+          '<div class="revoke-error">Could not revoke — the old QR still works. Check your connection and try again.</div>');
+      }
     });
   });
 

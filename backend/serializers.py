@@ -211,7 +211,17 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
     }
 
 
+CARD_AUDIT_ACTIONS = (
+    "patient_created", "patient_updated", "prescription_confirmed", "medicine_confirmed",
+    "medicine_corrected", "triage_check", "caregiver_link_accepted", "caregiver_link_revoked",
+    "doctor_link_accepted", "doctor_link_revoked",
+)
+
+
 def emergency_card_data(db: Session, patient_id: int) -> dict:
+    """Note: the first call for a patient creates (and commits) their
+    emergency-card token, even from read-only callers like the caregiver
+    overview."""
     patient = get_patient_or_404(db, patient_id)
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
 
@@ -230,7 +240,12 @@ def emergency_card_data(db: Session, patient_id: int) -> dict:
         SymptomCheck.patient_id == patient_id, SymptomCheck.severity == "EMERGENCY"
     ).count() > 0
 
-    latest_audit = db.query(func.max(AuditLog.at)).filter(AuditLog.patient_id == patient_id).scalar()
+    # Only actions that change what the card shows — dose activity (incl.
+    # the timed auto-miss sweep) would otherwise make a year-old card look
+    # "updated minutes ago" to a responder.
+    latest_audit = db.query(func.max(AuditLog.at)).filter(
+        AuditLog.patient_id == patient_id, AuditLog.action.in_(CARD_AUDIT_ACTIONS)
+    ).scalar()
     candidates = [patient.created_at, latest_audit] + [pres.created_at for pres in prescriptions]
     last_updated = max(c for c in candidates if c is not None)
 

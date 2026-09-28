@@ -17,6 +17,7 @@ entry" rather than breaking anything else (CLAUDE.md section 5).
 
 import io
 import json
+from html import escape as html_escape
 import logging
 import os
 from datetime import datetime
@@ -802,11 +803,16 @@ def emergency_card_page(token: str, db: Session = Depends(get_db_session)):
         return HTMLResponse(content=_INACTIVE_CARD_HTML, status_code=404,
                             headers={"Referrer-Policy": "no-referrer"})
     data = _emergency_card_data(db, patient_id)
-    p = data["patient"]
+    # Every patient-entered value is HTML-escaped: this page is served from
+    # the app's own origin (where the SPA keeps its login token), so an
+    # unescaped name/allergy would be stored XSS against anyone opening it.
+    esc = lambda v: html_escape(str(v)) if v is not None else None  # noqa: E731
+    p = {k: esc(v) for k, v in data["patient"].items()}
 
     def rows(items, empty_text):
         if not items:
             return f'<p class="muted">{empty_text}</p>'
+        items = [{k: esc(v) for k, v in i.items()} for i in items]
         lis = "".join(
             f'<li><strong>{i["name"]}</strong>'
             f'{" " + i["dose_amount"] + (i.get("dose_unit") or "") if i.get("dose_amount") else ""}'

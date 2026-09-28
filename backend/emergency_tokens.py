@@ -20,6 +20,7 @@ def _active(db: Session, patient_id: int) -> Optional[EmergencyCardToken]:
     return (db.query(EmergencyCardToken)
             .filter(EmergencyCardToken.patient_id == patient_id,
                     EmergencyCardToken.revoked_at.is_(None))
+            .order_by(EmergencyCardToken.id.desc())
             .first())
 
 
@@ -34,10 +35,14 @@ def get_or_create_active_token(db: Session, patient_id: int) -> str:
 
 
 def rotate_token(db: Session, patient_id: int) -> str:
-    row = _active(db, patient_id)
-    if row:
-        row.revoked_at = datetime.utcnow()
-        db.commit()
+    # Revoke EVERY active row, not just one: two racing first requests or a
+    # double-clicked revoke can leave more than one active, and a revoke
+    # that misses one would leave a lost card working.
+    (db.query(EmergencyCardToken)
+     .filter(EmergencyCardToken.patient_id == patient_id,
+             EmergencyCardToken.revoked_at.is_(None))
+     .update({"revoked_at": datetime.utcnow()}, synchronize_session=False))
+    db.commit()
     return get_or_create_active_token(db, patient_id)
 
 
