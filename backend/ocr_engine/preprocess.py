@@ -206,7 +206,22 @@ def preprocess_prescription_image(image_bytes: bytes) -> Tuple[Image.Image, Dict
             gray = image.copy()
         
         metadata['grayscale_time_ms'] = int((time.time() - step_start) * 1000)
-        
+
+        # Step 2b: Downscale very large photos before the expensive steps
+        # below — denoise/threshold cost scales with pixel count, and OCR
+        # accuracy doesn't improve past ~1600px on the long side. Measured
+        # in production: a real 2105x1489 phone photo took 24-28s through
+        # this pipeline on Render's free-tier CPU before this; the whole
+        # request needs to finish before the caller's own timeout.
+        step_start = time.time()
+        h_full, w_full = gray.shape
+        max_dim = 1600
+        if max(h_full, w_full) > max_dim:
+            scale = max_dim / max(h_full, w_full)
+            gray = cv2.resize(gray, (int(w_full * scale), int(h_full * scale)), interpolation=cv2.INTER_AREA)
+            logger.info(f"Downscaled from {w_full}x{h_full} to {gray.shape[1]}x{gray.shape[0]} before processing")
+        metadata['downscale_time_ms'] = int((time.time() - step_start) * 1000)
+
         # Step 3: Deskew
         step_start = time.time()
         skew_angle = detect_skew_angle(gray)
