@@ -230,7 +230,7 @@ def clean_symptom_state(raw: Any) -> dict:
     ids = list(dict.fromkeys(ids))
     valid_q = {q["id"] for sid in ids for q in RULESET["symptoms"][sid]["questions"]}
     answers = {k: v for k, v in (raw.get("answers") or {}).items() if k in valid_q and isinstance(v, bool)}
-    labels = [str(s)[:60] for s in raw.get("labels", []) if s][:5]
+    labels = list(dict.fromkeys(str(s)[:60] for s in raw.get("labels", []) if s))[:5]
     return {"ids": ids, "labels": labels, "answers": answers}
 
 

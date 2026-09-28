@@ -131,8 +131,9 @@ function speak(text, onDone) {
   if (VX.muted || !synth || !text) { onDone?.(); return; }
   synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = VX.lang === 'hi' ? 'hi-IN' : 'en-IN';
-  const voice = synth.getVoices().find(v => v.lang === u.lang) || synth.getVoices().find(v => v.lang.startsWith(VX.lang));
+  // Devanagari replies need a Hindi voice even when the toggle says EN.
+  u.lang = VX.lang === 'hi' || /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN';
+  const voice = synth.getVoices().find(v => v.lang === u.lang) || synth.getVoices().find(v => v.lang.startsWith(u.lang.slice(0, 2)));
   if (voice) u.voice = voice;
   u.onstart = () => setStatus('speaking');
   u.onend = u.onerror = () => { setStatus('tap'); onDone?.(); };

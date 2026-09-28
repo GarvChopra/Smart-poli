@@ -79,6 +79,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 .vx-interim { color: var(--faint); font-style: italic; text-align: center; min-height: 24px; max-width: 34ch; }
 
 .vx-note { margin: 10px 0 0; font-size: 13.5px; color: var(--soft); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; display: flex; gap: 10px; align-items: flex-start; }
+.vx-note[hidden] { display: none; }
 .vx-note button { margin-left: auto; border: 0; background: none; color: var(--teal-dark); font-weight: 600; cursor: pointer; padding: 0; }
 
 /* conversation */

@@ -123,7 +123,7 @@ audit logged).
   turns; `state` carries the in-progress symptom check and a pending
   prescription confirmation. `GET /voice/available`.
 - Per-user rate limit 30 turns/minute; text capped at 1,000 characters.
-- Model: env `GROQ_VOICE_MODEL`, default `llama-3.3-70b-versatile`.
+- Model: env `GROQ_VOICE_MODEL`, default `openai/gpt-oss-120b` (tool calling; the older Llama models are retired on Groq).
 
 ## The voice PWA page
 

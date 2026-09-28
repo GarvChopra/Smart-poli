@@ -70,9 +70,9 @@ def check_rate_limit(user_id: int) -> bool:
 
 
 def _system_prompt(ctx: ToolContext, first_name: str) -> str:
-    language = ("Hindi or Hinglish — mirror the patient: if they write Hindi in Latin letters, "
-                "reply in Latin-letter Hinglish; if in Devanagari, reply in Devanagari"
-                if ctx.lang == "hi" else "the language the patient used (English unless they switch)")
+    language = ("the patient's own language and script: Hindi written in Latin letters (Hinglish) gets a "
+                "Hinglish reply in Latin letters; Devanagari gets Devanagari; English gets English. "
+                "Never mix scripts in one reply")
     return f"""You are SmartPoli, a friendly voice assistant inside a medication and care app.
 You are talking with {first_name}. Their local time is {ctx.now.strftime('%A %d %B %Y, %H:%M')}.
 Reply in {language}. Replies are spoken aloud: keep them short (1-3 sentences), warm, plain words, no markdown or lists.
@@ -124,16 +124,21 @@ def _red_flag_turn(ctx: ToolContext, reasons: list[str]) -> dict:
 def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     from groq import Groq
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    model = os.getenv("GROQ_VOICE_MODEL", "llama-3.3-70b-versatile")
+    model = os.getenv("GROQ_VOICE_MODEL", "openai/gpt-oss-120b")
 
     messages = [{"role": "system", "content": _system_prompt(ctx, first_name)}]
     messages += _history_messages(history)
     messages.append({"role": "user", "content": text})
 
+    def complete(tool_choice: str):
+        # max_tokens is generous because reasoning models spend part of it
+        # thinking before they write; too low and the reply comes back empty.
+        return client.chat.completions.create(model=model, messages=messages, tools=TOOLS,
+                                              tool_choice=tool_choice, temperature=0.3, max_tokens=1500)
+
     reply: Optional[str] = None
     for _ in range(MAX_TOOL_ROUNDS):
-        response = client.chat.completions.create(model=model, messages=messages, tools=TOOLS,
-                                                  tool_choice="auto", temperature=0.3, max_tokens=400)
+        response = complete("auto")
         msg = response.choices[0].message
         calls = getattr(msg, "tool_calls", None) or []
         if not calls:
@@ -156,6 +161,9 @@ def _groq_turn(ctx: ToolContext, text: str, history, first_name: str) -> dict:
     if any(a["type"] == "emergency" for a in ctx.actions):
         # The rule engine said EMERGENCY: the spoken words are fixed, not model text.
         reply = EMERGENCY_REPLY.get(ctx.lang, EMERGENCY_REPLY["en"])
+    if not reply:
+        # The model sometimes ends without any words; ask once more for text only.
+        reply = (complete("none").choices[0].message.content or "").strip()
     if not reply:
         reply = TOOL_LOOP_REPLY.get(ctx.lang, TOOL_LOOP_REPLY["en"])
     return {"reply": reply, "actions": ctx.actions, "state": ctx.state, "mode": "assistant"}

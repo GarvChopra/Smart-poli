@@ -235,3 +235,28 @@ def test_short_voice_link_redirects():
         assert r.headers["location"] == "/static/voice.html"
         assert client.get("/static/voice.html").status_code == 200
         assert client.get("/static/manifest.webmanifest").status_code == 200
+
+
+def test_empty_model_reply_gets_one_forced_text_answer(monkeypatch):
+    calls = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("get_next_dose", {})]),
+            _msg(content=""),
+            _msg(content="Aapki agli dawai 8:30 baje hai."),
+        ], calls)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert body["reply"] == "Aapki agli dawai 8:30 baje hai."
+    assert calls[-1]["tool_choice"] == "none"
+
+
+def test_symptom_labels_are_not_duplicated(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [
+            _msg(tool_calls=[_call("update_symptom_check", {"symptom_ids": ["headache"], "symptom_labels": ["sir dard"]})]),
+            _msg(content="Kab se?"),
+        ])
+        body = _turn(client, pid, "sir dard", state={"symptom": {"ids": ["headache"], "labels": ["sir dard"], "answers": {}}}).json()
+    assert body["state"]["symptom"]["labels"] == ["sir dard"]
