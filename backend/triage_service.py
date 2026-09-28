@@ -13,19 +13,22 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from db import SymptomCheck, log_audit
-from triage import evaluate_check, ACTIONS
+from triage import evaluate_check, escalate, ACTIONS
 
 
 def record_symptom_check(db: Session, patient_id: int, actor: str, ruleset: dict,
                          symptom_ids: list[str], answers: dict,
                          extra_reasons: Optional[list[str]] = None,
-                         force_emergency: bool = False, source: str = "") -> tuple[dict, SymptomCheck]:
-    """`force_emergency` is only for the deterministic red-flag check
-    (voice_safety.py) — it can raise the rule result, never lower it."""
+                         force_emergency: bool = False, min_severity: Optional[str] = None,
+                         source: str = "") -> tuple[dict, SymptomCheck]:
+    """`force_emergency` (deterministic immediate-risk words, voice_safety.py)
+    and `min_severity` (e.g. MODERATE when a symptom isn't improving on
+    recheck) can only RAISE the rule engine's result, never lower it."""
     result = evaluate_check(ruleset, symptom_ids, answers)
-    if force_emergency:
-        result = {**result, "severity": "EMERGENCY",
-                  "action": ACTIONS["EMERGENCY"]["action"], "route": ACTIONS["EMERGENCY"]["route"]}
+    floor = "EMERGENCY" if force_emergency else min_severity
+    if floor and escalate(result["severity"], floor) != result["severity"]:
+        result = {**result, "severity": floor,
+                  "action": ACTIONS[floor]["action"], "route": ACTIONS[floor]["route"]}
     if extra_reasons:
         result = {**result, "reasons": list(result["reasons"]) + list(extra_reasons)}
 

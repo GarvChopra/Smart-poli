@@ -94,7 +94,7 @@ def test_red_flag_is_emergency_without_calling_groq(monkeypatch):
     install_fake_groq(monkeypatch, [], calls)
     with TestClient(app) as client:
         pid, _ = _setup(client)
-        r = _turn(client, pid, "mujhe saans nahi aa rahi")
+        r = _turn(client, pid, "papa behosh ho gaye")
         assert r.status_code == 200, r.text
         body = r.json()
     assert calls == []
@@ -130,7 +130,7 @@ def test_model_cannot_downgrade_rule_engine_emergency(monkeypatch):
                                    {"symptom_ids": ["chest_pain"], "answers": {"difficulty_breathing": True}})]),
             _msg(content="This is nothing serious, just rest."),
         ])
-        body = _turn(client, pid, "seene mein dard hai, thoda saans lene mein dikkat").json()
+        body = _turn(client, pid, "thoda theek nahi lag raha").json()
     assert body["actions"][-1]["type"] == "emergency"
     assert "nothing serious" not in body["reply"]
     assert "112" in body["reply"]
@@ -332,7 +332,7 @@ def test_tool_crash_after_emergency_still_speaks_emergency_reply(monkeypatch):
                 _call("mark_dose_taken", {"dose_id": 1e30}, "c2"),
             ]),
         ])
-        r = _turn(client, pid, "seene mein dard")
+        r = _turn(client, pid, "theek nahi lag raha")
     assert r.status_code == 200
     assert "112" in r.json()["reply"]
     assert r.json()["actions"][-1]["type"] == "emergency"

@@ -162,3 +162,4 @@ class VoiceTurnRequest(BaseModel):
     client_time: Optional[str] = None   # browser's local time, ISO 8601 with offset
     history: list[VoiceMessage] = Field(default_factory=list, max_length=40)
     state: dict = Field(default_factory=dict)
+    recheck: Optional[Literal["better", "same", "worse"]] = None   # a tapped recheck button

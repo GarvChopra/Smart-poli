@@ -211,8 +211,8 @@ def test_symptom_check_asks_rule_questions_then_rule_engine_decides():
         res = run_tool(ctx, "finish_symptom_check", {})
         expected = evaluate_check(RULESET, ["headache"], answers)
         assert res["severity"] == expected["severity"]
-        assert ctx.actions[-1]["type"] == "triage_result"
-        assert ctx.actions[-1]["severity"] == expected["severity"]
+        result_action = next(a for a in ctx.actions if a["type"] == "triage_result")
+        assert result_action["severity"] == expected["severity"]
         check = db.query(SymptomCheck).filter(SymptomCheck.patient_id == pid).one()
         assert json.loads(check.symptoms) == ["headache"]
         assert check.severity == expected["severity"]
@@ -246,7 +246,7 @@ def test_unmapped_symptom_is_not_assessed_and_not_saved():
         run_tool(ctx, "update_symptom_check", {"symptom_ids": ["cough", "made_up"], "symptom_labels": ["khansi"]})
         res = run_tool(ctx, "finish_symptom_check", {})
         assert res["severity"] == "NOT_ASSESSED"
-        assert ctx.actions[-1]["severity"] == "NOT_ASSESSED"
+        assert next(a for a in ctx.actions if a["type"] == "triage_result")["severity"] == "NOT_ASSESSED"
         assert db.query(SymptomCheck).filter(SymptomCheck.patient_id == pid).count() == 0
     finally:
         db.close()

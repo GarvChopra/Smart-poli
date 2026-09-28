@@ -648,7 +648,7 @@ def voice_turn(patient_id: int, body: VoiceTurnRequest, user: User = Depends(req
         raise HTTPException(429, "Too many voice requests. Wait a moment and try again.")
     return voice_assistant.run_turn(db, patient_id, user, text, body.lang,
                                     _local_now(body.client_time),
-                                    [m.model_dump() for m in body.history], body.state)
+                                    [m.model_dump() for m in body.history], body.state, body.recheck)
 
 
 # ---------------------------------------------------------------- clinical notes (doctor view)

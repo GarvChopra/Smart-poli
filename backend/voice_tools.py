@@ -22,12 +22,13 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
-from db import Dose, Medicine, Prescription, SymptomCheck, User, log_audit
+from db import AuditLog, Dose, Medicine, Prescription, SymptomCheck, User, log_audit
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses
 from scheduler import mark_taken, compute_adherence
 from serializers import emergency_card_data
 from triage import load_ruleset, evaluate_check
 from triage_service import record_symptom_check
+from care_guidance import guidance_for
 
 RULESET = load_ruleset()
 
@@ -174,6 +175,38 @@ def get_emergency_card(ctx: ToolContext) -> dict:
             "emergency_contact": p["emergency_contact"], "conditions": data["profile"]["conditions"]}
 
 
+def prescribed_as_needed(ctx: ToolContext) -> list[dict]:
+    """As-needed (SOS) medicines the patient's own doctor prescribed, with the
+    instruction exactly as recorded — the only medicines guidance may mention."""
+    meds = (ctx.db.query(Medicine).join(Prescription)
+            .filter(Prescription.patient_id == ctx.patient_id, Medicine.is_prn.is_(True),
+                    Medicine.status != "needs_confirmation").all())
+    return [{"name": _med_label(m), "instruction": m.raw_text,
+             "prescribed_by": m.prescription.doctor_name} for m in meds]
+
+
+def get_patient_context(ctx: ToolContext) -> dict:
+    """The patient's existing record, so a symptom is never handled as if they
+    were a new patient: conditions, allergies, current and as-needed
+    medicines, doctor notes and recent symptom checks. Context only — never
+    proof of what is causing the current symptom."""
+    profile = emergency_card_data(ctx.db, ctx.patient_id)
+    notes = (ctx.db.query(AuditLog).filter(AuditLog.patient_id == ctx.patient_id, AuditLog.action == "clinical_note")
+             .order_by(AuditLog.at.desc()).limit(5).all())
+    checks = (ctx.db.query(SymptomCheck).filter(SymptomCheck.patient_id == ctx.patient_id)
+              .order_by(SymptomCheck.created_at.desc()).limit(5).all())
+    return {
+        "ok": True,
+        "conditions": profile["profile"]["conditions"],
+        "allergies": profile["patient"]["allergies"],
+        "current_medicines": [m["name"] for m in get_medicines(ctx)["medicines"] if not m["as_needed"]],
+        "as_needed_medicines": prescribed_as_needed(ctx),
+        "doctor_notes": [{"date": n.at.date().isoformat(), "note": n.detail} for n in notes],
+        "recent_symptom_checks": [{"date": c.created_at.date().isoformat(), "symptoms": json.loads(c.symptoms),
+                                   "severity": c.severity} for c in checks],
+    }
+
+
 def get_treatment_history(ctx: ToolContext) -> dict:
     prescriptions = (ctx.db.query(Prescription).filter(Prescription.patient_id == ctx.patient_id)
                      .order_by(Prescription.created_at.desc()).limit(10).all())
@@ -249,7 +282,14 @@ def clean_symptom_state(raw: Any) -> dict:
     answers = {k: v for k, v in raw_answers.items() if k in valid_q and isinstance(v, bool)}
     labels = list(dict.fromkeys(s.strip()[:60] for s in _as_list(raw.get("labels")) if isinstance(s, str) and s.strip()))[:5]
     asked = [q for q in dict.fromkeys(_as_list(raw.get("asked"))) if q in valid_q]
-    return {"ids": ids, "labels": labels, "answers": answers, "asked": asked}
+    out = {"ids": ids, "labels": labels, "answers": answers, "asked": asked}
+    # floor: "MODERATE" when re-assessing a symptom that got worse on recheck
+    if raw.get("floor") == "MODERATE":
+        out["floor"] = "MODERATE"
+    # verify: the calm first question asked from voice_safety, awaiting an answer
+    if isinstance(raw.get("verify"), str) and raw["verify"] in valid_q and raw["verify"] not in answers:
+        out["verify"] = raw["verify"]
+    return out
 
 
 def mark_asked(sym: dict, questions: list[dict]) -> None:
@@ -267,22 +307,40 @@ def open_questions(sym: dict) -> list[dict]:
             if q["id"] not in sym["answers"]]
 
 
+def _schedule_recheck(ctx: ToolContext, sym: dict, minutes: int | None) -> None:
+    if not minutes:
+        return
+    due = ctx.now + timedelta(minutes=minutes)
+    ctx.state["recheck"] = {"symptom_ids": sym["ids"], "labels": sym["labels"], "due_at": due.isoformat()}
+    ctx.actions.append({"type": "recheck", "minutes": minutes, "due_at": due.isoformat()})
+
+
 def _finish(ctx: ToolContext, sym: dict) -> dict:
     ctx.state.pop("symptom", None)
+    prescribed = prescribed_as_needed(ctx)
     if not sym["ids"]:
-        ctx.actions.append({"type": "triage_result", "severity": "NOT_ASSESSED", "labels": sym["labels"]})
-        return {"ok": True, "severity": "NOT_ASSESSED",
-                "explain": "SmartPoli's rules can't rate this symptom automatically. Tell the patient that, "
-                           "and to contact their doctor if it is severe, getting worse, or worrying them."}
-    result, check = record_symptom_check(ctx.db, ctx.patient_id, ctx.actor, RULESET,
-                                         sym["ids"], sym["answers"], source="voice")
+        guidance = guidance_for([], "NOT_ASSESSED", ctx.lang, prescribed)
+        ctx.actions.append({"type": "triage_result", "severity": "NOT_ASSESSED", "labels": sym["labels"],
+                            "guidance": guidance})
+        _schedule_recheck(ctx, sym, guidance["recheck_minutes"])
+        return {"ok": True, "severity": "NOT_ASSESSED", "guidance": guidance,
+                "explain": "SmartPoli's rules can't rate this symptom automatically. Say so calmly; if their doctor "
+                           "prescribed something for it, remind them to follow that instruction; say you'll check back, "
+                           "and to see their doctor if it persists or gets worse."}
+    result, check = record_symptom_check(ctx.db, ctx.patient_id, ctx.actor, RULESET, sym["ids"], sym["answers"],
+                                         min_severity=sym.get("floor"), source="voice")
+    guidance = guidance_for(sym["ids"], result["severity"], ctx.lang, prescribed)
     action = {"type": "emergency" if result["severity"] == "EMERGENCY" else "triage_result",
               "severity": result["severity"], "reasons": result["reasons"], "action": result["action"],
-              "route": result["route"], "check_id": check.id}
+              "route": result["route"], "check_id": check.id, "guidance": guidance}
     ctx.actions.append(action)
+    _schedule_recheck(ctx, sym, guidance["recheck_minutes"])
     return {"ok": True, "severity": result["severity"], "reasons": result["reasons"],
-            "next_action": result["action"],
-            "explain": "This result comes from SmartPoli's clinical rules. Explain it simply; do not change it."}
+            "next_action": result["action"], "guidance": guidance,
+            "explain": "This result comes from SmartPoli's clinical rules — explain it simply and calmly; never change it. "
+                       "Guidance: first any 'prescribed' instruction (their own doctor's, as written — only suggest it "
+                       "'if your doctor gave this for this problem'), then the 'general' steps exactly as listed. "
+                       "Add nothing else. If recheck_minutes is set, say you'll ask how they feel in that many minutes."}
 
 
 def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None, answers=None) -> dict:
@@ -298,6 +356,8 @@ def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None
         "labels": current["labels"] + _as_list(symptom_labels),
         "answers": {**current["answers"], **new_answers},
         "asked": current["asked"],
+        "floor": current.get("floor"),
+        "verify": current.get("verify"),
     })
     ctx.state["symptom"] = sym
     if sym["ids"] and evaluate_check(RULESET, sym["ids"], sym["answers"])["severity"] == "EMERGENCY":
@@ -332,6 +392,7 @@ HANDLERS: dict[str, Callable[..., dict]] = {
     "mark_dose_taken": mark_dose_taken, "log_prn_taken": log_prn_taken,
     "get_medicines": get_medicines, "get_adherence": get_adherence,
     "get_emergency_card": get_emergency_card, "get_treatment_history": get_treatment_history,
+    "get_patient_context": get_patient_context,
     "open_screen": open_screen, "decode_prescription": decode_prescription,
     "confirm_prescription": confirm_prescription, "update_symptom_check": update_symptom_check,
     "finish_symptom_check": finish_symptom_check,
@@ -356,6 +417,9 @@ TOOLS = [
     _fn("get_adherence", "Taken / missed / skipped counts today and overall, and doses missed today."),
     _fn("get_emergency_card", "The patient's emergency card details; also opens the card on screen."),
     _fn("get_treatment_history", "Past prescriptions and recent symptom checks."),
+    _fn("get_patient_context", "The patient's existing record: conditions, allergies, current and as-needed "
+        "medicines (with the doctor's instruction), doctor notes and recent symptom checks. Use it as context "
+        "before responding to a symptom; never assume a past condition causes the current symptom."),
     _fn("open_screen", "Open a screen of the full SmartPoli app.",
         {"screen": {"type": "string", "enum": list(SCREENS)}}, ["screen"]),
     _fn("decode_prescription", "Read prescription text (one medicine per line) into a draft to review.",

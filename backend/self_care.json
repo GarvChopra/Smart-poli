@@ -1,0 +1,62 @@
+{
+  "version": "2026-09-28",
+  "note": "General self-care only, each item traceable to its source. No medicines here: the patient's own prescription is surfaced separately and always comes first. Symptoms with an empty list get no home-care advice at all (NHS gives none / says see a doctor).",
+  "sources": {
+    "nhs_headaches": {"title": "NHS - Headaches", "url": "https://www.nhs.uk/symptoms/headaches/"},
+    "nhs_fever_adults": {"title": "NHS - High temperature (fever) in adults", "url": "https://www.nhs.uk/conditions/fever-in-adults/"},
+    "nhs_vomiting_adults": {"title": "NHS - Feeling sick (nausea) and vomiting", "url": "https://www.nhs.uk/conditions/vomiting-adults/"},
+    "nhs_dizziness": {"title": "NHS - Dizziness", "url": "https://www.nhs.uk/symptoms/dizziness/"},
+    "nhs_first_aid": {"title": "NHS - First aid", "url": "https://www.nhs.uk/tests-and-treatments/first-aid/"}
+  },
+  "symptoms": {
+    "headache": {
+      "recheck_minutes": 15,
+      "items": [
+        {"en": "Drink plenty of water.", "hi": "Paani piyiye.", "source": "nhs_headaches", "levels": ["LOW", "MODERATE"]},
+        {"en": "Rest and try to relax — stress can make headaches worse.", "hi": "Thoda aaram kijiye aur relax karne ki koshish kijiye — tension se sir dard badh sakta hai.", "source": "nhs_headaches", "levels": ["LOW", "MODERATE"]},
+        {"en": "Take a break from screens.", "hi": "Kuch der phone aur screen se aankhon ko aaram dijiye.", "source": "nhs_headaches", "levels": ["LOW", "MODERATE"]},
+        {"en": "Don't skip meals.", "hi": "Khana skip mat kijiye.", "source": "nhs_headaches", "levels": ["LOW"]}
+      ]
+    },
+    "fever": {
+      "recheck_minutes": 30,
+      "items": [
+        {"en": "Get lots of rest.", "hi": "Achhe se aaram kijiye.", "source": "nhs_fever_adults", "levels": ["LOW", "MODERATE"]},
+        {"en": "Drink plenty of fluids — water is best.", "hi": "Khoob paani aur taral cheezein lijiye — paani sabse achha hai.", "source": "nhs_fever_adults", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "nausea": {
+      "recheck_minutes": 20,
+      "items": [
+        {"en": "Get some fresh air.", "hi": "Thodi taaza hawa mein baithiye.", "source": "nhs_vomiting_adults", "levels": ["LOW", "MODERATE"]},
+        {"en": "Take small, regular sips of a cold drink.", "hi": "Thanda paani thoda-thoda karke ghoont mein piyiye.", "source": "nhs_vomiting_adults", "levels": ["LOW", "MODERATE"]},
+        {"en": "Avoid strong-smelling, fried or greasy food.", "hi": "Tez khushboo wala, tala hua ya bahut tel wala khana mat khaiye.", "source": "nhs_vomiting_adults", "levels": ["LOW"]}
+      ]
+    },
+    "vomiting": {
+      "recheck_minutes": 20,
+      "items": [
+        {"en": "Take small, regular sips of water to avoid dehydration.", "hi": "Paani ki kami na ho, isliye thoda-thoda paani ghoont mein piyiye.", "source": "nhs_vomiting_adults", "levels": ["LOW", "MODERATE"]},
+        {"en": "Rest.", "hi": "Aaram kijiye.", "source": "nhs_vomiting_adults", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "dizziness": {
+      "recheck_minutes": 15,
+      "items": [
+        {"en": "Lie down until the dizziness passes, then get up slowly.", "hi": "Chakkar jaane tak let jaiye, phir dheere se uthiye.", "source": "nhs_dizziness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Drink plenty of fluids, especially water.", "hi": "Paani piyiye.", "source": "nhs_dizziness", "levels": ["LOW", "MODERATE"]},
+        {"en": "Don't drive or use machinery while dizzy.", "hi": "Chakkar ke dauraan gaadi mat chalaiye aur machine ka kaam mat kijiye.", "source": "nhs_dizziness", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "bleeding": {
+      "recheck_minutes": 10,
+      "items": [
+        {"en": "Press firmly on the wound with a clean cloth or pad.", "hi": "Saaf kapde ya pad se ghaav par zor se dabaiye.", "source": "nhs_first_aid", "levels": ["LOW", "MODERATE"]}
+      ]
+    },
+    "breathlessness": {"recheck_minutes": 10, "items": []},
+    "chest_pain": {"recheck_minutes": null, "items": []},
+    "abdominal_pain": {"recheck_minutes": 30, "items": []},
+    "rash": {"recheck_minutes": 60, "items": []}
+  }
+}
