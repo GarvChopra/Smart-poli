@@ -234,7 +234,7 @@ def clean_symptom_state(raw: Any) -> dict:
     return {"ids": ids, "labels": labels, "answers": answers}
 
 
-def _open_questions(sym: dict) -> list[dict]:
+def open_questions(sym: dict) -> list[dict]:
     # Same rule as triage.next_question: once EMERGENCY, stop asking.
     if evaluate_check(RULESET, sym["ids"], sym["answers"])["severity"] == "EMERGENCY":
         return []
@@ -273,7 +273,7 @@ def update_symptom_check(ctx: ToolContext, symptom_ids=None, symptom_labels=None
     if sym["ids"] and evaluate_check(RULESET, sym["ids"], sym["answers"])["severity"] == "EMERGENCY":
         return _finish(ctx, sym)
     return {"ok": True, "tracked_symptoms": sym["ids"], "unrated_symptoms": sym["labels"] if not sym["ids"] else [],
-            "questions_to_ask": _open_questions(sym),
+            "questions_to_ask": open_questions(sym),
             "next_step": "Ask the listed questions one at a time, in the patient's language, then call "
                          "finish_symptom_check." if sym["ids"] else
                          "No SmartPoli rule covers this symptom; call finish_symptom_check when you've understood it."}
@@ -283,7 +283,7 @@ def finish_symptom_check(ctx: ToolContext) -> dict:
     if "symptom" not in ctx.state:
         return _err("No symptom check in progress. Call update_symptom_check first.")
     sym = clean_symptom_state(ctx.state["symptom"])
-    remaining = _open_questions(sym)
+    remaining = open_questions(sym)
     if remaining:
         return {**_err("These questions still need an answer before SmartPoli can decide."),
                 "questions_to_ask": remaining}

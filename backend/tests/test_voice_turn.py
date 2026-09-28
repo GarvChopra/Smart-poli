@@ -260,3 +260,18 @@ def test_symptom_labels_are_not_duplicated(monkeypatch):
         ])
         body = _turn(client, pid, "sir dard", state={"symptom": {"ids": ["headache"], "labels": ["sir dard"], "answers": {}}}).json()
     assert body["state"]["symptom"]["labels"] == ["sir dard"]
+
+
+def test_open_symptom_questions_are_in_every_turns_prompt(monkeypatch):
+    """Question ids only arrive in a tool result, which the next turn doesn't
+    see — so each turn's system prompt must carry the check in progress, or
+    the model can't record the patient's answers."""
+    calls = []
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        install_fake_groq(monkeypatch, [_msg(content="Kya aapko confusion ho raha hai?")], calls)
+        _turn(client, pid, "nahi, dheere dheere shuru hua",
+              state={"symptom": {"ids": ["headache"], "labels": ["sir dard"], "answers": {"vision_changes": False}}})
+    system = calls[0]["messages"][0]["content"]
+    assert "worst_ever_sudden" in system and "confusion" in system
+    assert "vision_changes" in system and "false" in system.lower()

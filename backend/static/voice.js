@@ -135,8 +135,8 @@ function speak(text, onDone) {
   u.lang = VX.lang === 'hi' || /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN';
   const voice = synth.getVoices().find(v => v.lang === u.lang) || synth.getVoices().find(v => v.lang.startsWith(u.lang.slice(0, 2)));
   if (voice) u.voice = voice;
-  u.onstart = () => setStatus('speaking');
-  u.onend = u.onerror = () => { setStatus('tap'); onDone?.(); };
+  u.onstart = () => { setStatus('speaking'); $('micBtn').classList.add('is-speaking'); };
+  u.onend = u.onerror = () => { $('micBtn').classList.remove('is-speaking'); setStatus('tap'); onDone?.(); };
   synth.speak(u);
 }
 
@@ -173,7 +173,7 @@ function setupRecognition() {
 function onMic() {
   if (VX.busy) return;
   const synth = window.speechSynthesis;
-  if (synth && synth.speaking) { synth.cancel(); setStatus('tap'); return; }  // tap to stop talking
+  if (synth && synth.speaking) { synth.cancel(); $('micBtn').classList.remove('is-speaking'); setStatus('tap'); return; }  // tap to stop talking
   if (!VX.recognition) { $('typeInput').focus(); return; }
   if (VX.listening) { VX.recognition.stop(); return; }
   try { VX.recognition.start(); } catch { /* already starting */ }
@@ -187,6 +187,7 @@ async function send(text) {
   $('micBtn').classList.add('is-busy');
   setStatus('thinking');
   addUser(text);
+  const typing = addEntry('<span class="vx-typing"><i></i><i></i><i></i></span><span class="vx-sr">' + esc(tx('thinking')) + '</span>', 'vx-msg is-bot is-typing');
   try {
     const res = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
       text, lang: VX.lang, client_time: localIsoNow(), history: VX.history.slice(-20), state: VX.convState,
@@ -194,11 +195,13 @@ async function send(text) {
     VX.history.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply });
     VX.convState = res.state || {};
     const emergency = (res.actions || []).find(a => a.type === 'emergency');
+    typing.remove();
     addBot(res.reply);
     const afterSpeech = renderActions(res.actions || []);
     if (emergency) showEmergency(emergency);
     speak(res.reply, afterSpeech);
   } catch (err) {
+    typing.remove();
     addEntry(esc(/429|Too many/.test(err.message) ? tx('slow') : tx('error')), 'vx-msg is-error');
   } finally {
     VX.busy = false;

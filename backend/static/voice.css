@@ -74,7 +74,33 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 }
 .vx-mic.is-listening::after { animation-delay: 0.8s; }
 @keyframes vx-ring { from { transform: scale(1); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
-.vx-mic.is-busy { opacity: 0.75; cursor: progress; }
+/* thinking: a ring spins around the mic while SmartPoli works on a reply */
+.vx-mic.is-busy { cursor: progress; }
+.vx-mic.is-busy::before {
+  content: ""; position: absolute; inset: -8px; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 55%, rgba(15, 138, 112, 0.15) 70%, var(--teal) 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  animation: vx-spin 0.9s linear infinite;
+}
+@keyframes vx-spin { to { transform: rotate(360deg); } }
+
+/* answering: soft sound bars replace the mic icon while the reply is spoken */
+.vx-bars { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 6px; z-index: 1; }
+.vx-bars i { width: 7px; height: 34%; border-radius: 4px; background: #fff; animation: vx-bar 0.9s ease-in-out infinite; }
+.vx-bars i:nth-child(2) { animation-delay: 0.15s; }
+.vx-bars i:nth-child(3) { animation-delay: 0.3s; }
+.vx-bars i:nth-child(4) { animation-delay: 0.45s; }
+@keyframes vx-bar { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.vx-mic.is-speaking .vx-bars { display: flex; }
+.vx-mic.is-speaking > svg { visibility: hidden; }
+
+/* typing bubble in the chat while a reply is on its way */
+.vx-typing { display: inline-flex; gap: 5px; align-items: center; padding: 14px 16px; }
+.vx-typing i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); animation: vx-dot 1.2s ease-in-out infinite; }
+.vx-typing i:nth-child(2) { animation-delay: 0.18s; }
+.vx-typing i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes vx-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-6px); opacity: 1; } }
 .vx-status { font-weight: 600; color: var(--soft); min-height: 24px; }
 .vx-interim { color: var(--faint); font-style: italic; text-align: center; min-height: 24px; max-width: 34ch; }
 
@@ -87,6 +113,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 .vx-msg { max-width: 86%; padding: 10px 14px; border-radius: 18px; font-size: 16px; }
 .vx-msg.is-user { align-self: flex-end; background: var(--teal); color: #fff; border-bottom-right-radius: 6px; }
 .vx-msg.is-bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.vx-msg.is-typing { padding: 0; }
 .vx-msg.is-error { align-self: flex-start; background: var(--red-tint); color: var(--red); }
 
 .vx-card { align-self: stretch; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
@@ -135,5 +162,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round
 
 @media (prefers-reduced-motion: reduce) {
   .vx-mic.is-listening::before, .vx-mic.is-listening::after { animation: none; opacity: 0.6; transform: scale(1.15); }
+  .vx-mic.is-busy::before { animation-duration: 3s; }
+  .vx-bars i, .vx-typing i { animation: none; }
   .vx-hero, .vx-mic { transition: none; }
 }

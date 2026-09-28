@@ -28,7 +28,7 @@ from serializers import get_patient_or_404
 from triage_service import record_symptom_check
 from voice_fallback import fallback_turn
 from voice_safety import scan_red_flags
-from voice_tools import RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state
+from voice_tools import RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state, open_questions
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,27 @@ Safety rules — never break these:
 - Never diagnose. Never tell the patient to start, stop, skip or change any medicine or dose.
 - Every fact about their medicines, doses or history must come from a tool result in this conversation.
 - If they mention something life-threatening, tell them to call 112 immediately.
+""" + _symptom_context(ctx)
+
+
+def _symptom_context(ctx: ToolContext) -> str:
+    """The check in progress, restated every turn: tool results from earlier
+    turns aren't in the history, so without this the model can't see which
+    question ids are still open and can't record the patient's answers."""
+    if "symptom" not in ctx.state:
+        return ""
+    sym = clean_symptom_state(ctx.state["symptom"])
+    ctx.state["symptom"] = sym
+    answered = ", ".join(f"{k}={'true' if v else 'false'}" for k, v in sym["answers"].items()) or "none yet"
+    open_q = "\n".join(f'  - {q["id"]}: "{q["text"]}" / "{q["text_hi"]}"' for q in open_questions(sym)) or "  (none)"
+    return f"""
+SYMPTOM CHECK IN PROGRESS — symptoms: {', '.join(sym['ids']) or 'none covered by the rules'} (patient's words: {', '.join(sym['labels']) or '-'})
+Answers recorded so far: {answered}
+Questions still open (id: English / Hindi):
+{open_q}
+First, if the patient's latest message answers any open question — even indirectly ("dheere dheere shuru hua" means
+not sudden; "nazar theek hai" means no vision change) — call update_symptom_check with those answers.
+Then ask the next open question, or call finish_symptom_check when none are left.
 """
 
 
