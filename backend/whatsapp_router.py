@@ -19,7 +19,7 @@ import hmac
 import logging
 import os
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Request, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse
 from typing import Optional
@@ -62,8 +62,20 @@ def whatsapp_available():
     return {"available": whatsapp_bot.is_configured(), "link": whatsapp_bot.whatsapp_join_link()}
 
 
+PHOTO_ACK_MESSAGE = "📸 Got your photo — reading it now, I'll message you the result in a moment."
+
+
+def _process_photo_and_reply(from_phone: str, body: str, media_url: str, media_content_type: Optional[str]) -> None:
+    db = SessionLocal()
+    try:
+        reply = whatsapp_bot.handle_incoming_message(db, from_phone, body, media_url, media_content_type)
+    finally:
+        db.close()
+    whatsapp_bot.send_whatsapp_message(from_phone, reply)
+
+
 @router.post("/webhook")
-async def whatsapp_webhook(request: Request):
+async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Twilio POSTs application/x-www-form-urlencoded here on every inbound
     WhatsApp message. Returns TwiML telling Twilio what to reply with —
@@ -91,15 +103,24 @@ async def whatsapp_webhook(request: Request):
     media_url = form.get("MediaUrl0") if num_media > 0 else None
     media_content_type = form.get("MediaContentType0") if num_media > 0 else None
 
+    if media_url:
+        # Twilio gives a messaging webhook a hard 15-second ceiling and
+        # retries silently on timeout -- confirmed in production logs, OCR
+        # preprocessing alone measured 12+ seconds on Render's free-tier
+        # CPU, so a synchronous reply here routinely lost the race and the
+        # patient saw nothing at all, with no error either. Acknowledge
+        # instantly instead, and send the real read as a separate outbound
+        # message (send_whatsapp_message, the same path the reminder sweep
+        # already uses) once it's actually ready.
+        background_tasks.add_task(_process_photo_and_reply, from_phone, body, media_url, media_content_type)
+        return PlainTextResponse(content=_twiml(PHOTO_ACK_MESSAGE), media_type="application/xml")
+
     db = SessionLocal()
     try:
-        # run_in_threadpool: a prescription photo goes through synchronous,
-        # CPU-bound OCR (OpenCV + Tesseract) — inline on this async def's
-        # event loop, a real phone photo blocks every other request on this
-        # single-worker instance long enough to fail Render's health check
-        # and get the instance killed mid-request (502). Text-only messages
-        # are effectively free to move to a thread too, so the whole handler
-        # goes, not just the photo path.
+        # run_in_threadpool: even a text-only reply can touch the DB and
+        # tool logic enough to be worth keeping off the event loop, the same
+        # reasoning as the photo path above, just never slow enough to risk
+        # Twilio's own timeout.
         reply = await run_in_threadpool(whatsapp_bot.handle_incoming_message,
                                         db, from_phone, body, media_url, media_content_type)
     finally:

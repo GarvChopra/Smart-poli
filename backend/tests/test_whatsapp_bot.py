@@ -193,3 +193,39 @@ def test_download_media_follows_twilios_redirect_to_its_cdn(monkeypatch):
 
     result = whatsapp_bot._download_media("https://api.twilio.com/fake/Media/XYZ")
     assert result == b"real-image-bytes"
+
+
+def test_photo_gets_an_instant_ack_and_the_real_reply_arrives_as_a_follow_up(monkeypatch):
+    """Twilio's messaging webhook gives a hard 15s response ceiling and
+    retries (silently, to the patient) on timeout -- confirmed in production
+    that real OCR (12s+ preprocessing alone on Render's free tier) lost that
+    race. The webhook must ack instantly and deliver the real read via a
+    separate outbound message instead of the synchronous TwiML reply."""
+    import whatsapp_router
+    from fastapi.testclient import TestClient
+    from main import app
+
+    monkeypatch.setattr(whatsapp_router, "_SKIP_SIGNATURE", True)
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+    sent = []
+    monkeypatch.setattr(whatsapp_bot, "send_whatsapp_message",
+                        lambda to_phone, body: sent.append((to_phone, body)) or True)
+
+    with TestClient(app) as client:
+        r = client.post("/whatsapp/webhook", data={
+            "From": "whatsapp:+15550006666", "Body": "",
+            "NumMedia": "1", "MediaUrl0": "https://api.twilio.com/fake.jpg",
+            "MediaContentType0": "image/jpeg",
+        })
+    assert r.status_code == 200
+    assert "reading it now" in r.text.lower()
+    assert "Dolo" not in r.text  # the real read never blocks the webhook response
+
+    assert len(sent) == 1
+    to_phone, reply = sent[0]
+    assert to_phone == "+15550006666"
+    assert "Dolo" in reply
+    assert "CONFIRM" in reply
