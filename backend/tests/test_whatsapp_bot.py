@@ -173,6 +173,36 @@ def test_groq_restyles_the_summary_when_it_preserves_every_medicine(monkeypatch)
         db.close()
 
 
+def test_groq_restyles_the_whole_transcription_medicines_and_unclear_lines_together(monkeypatch):
+    """Requested: the whole photo transcription should read as one clean,
+    user-friendly message -- not a clean medicines section followed by a
+    raw, ungrouped dump of unclear lines. Both parts are combined into one
+    block before being handed to Groq, so it can restyle everything as a
+    single readable message; the safety check (every real medicine's name
+    and dose must survive) still guards the structured part."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+        {"text": "PARACETAMOL 500mg TABLET twice daily after food", "confidence": 0.9},
+    ])
+    _fake_groq(monkeypatch,
+               "✅ *Dolo* 650mg — twice daily, after food\n\n"
+               "📝 Needs your confirmation:\n"
+               "- PARACETAMOL 500mg TABLET twice daily after food")
+
+    db = SessionLocal()
+    try:
+        phone = "+15550004321"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Dolo" in reply
+        assert "PARACETAMOL 500mg TABLET twice daily after food" in reply
+        assert "Needs your confirmation" in reply  # Groq's single unified layout was used
+    finally:
+        db.close()
+
+
 def test_groq_output_is_discarded_if_a_medicine_is_missing_or_changed(monkeypatch):
     """Safety net: if Groq's rewrite drops a medicine or changes its dose
     (a hallucination, a truncated response, anything), fall back to the

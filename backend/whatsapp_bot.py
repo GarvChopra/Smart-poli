@@ -146,10 +146,13 @@ def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str
         from groq import Groq
         client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
         prompt = (
-            "Reformat this WhatsApp message about a patient's medicines so it's easier "
-            "to read on a phone screen: short lines, clear spacing, keep the emoji. Do "
-            "not add, remove, reword, or change any medicine name, dose, or instruction "
-            "-- copy those exactly as given, only improve the layout.\n\n" + summary
+            "Reformat this WhatsApp message transcribed from a patient's prescription "
+            "photo so it's easy to read on a phone screen: short lines, clear grouping, "
+            "keep the emoji. It may include a structured medicines section and a list of "
+            "lines that couldn't be confidently structured. Do not add, remove, reword, "
+            "summarize away, or change any medicine name, dose, instruction, or raw line "
+            "-- copy all of that content exactly as given, only improve the layout and "
+            "grouping.\n\n" + summary
         )
         response = client.chat.completions.create(
             model=os.getenv("GROQ_WHATSAPP_MODEL", "openai/gpt-oss-20b"),
@@ -323,18 +326,24 @@ def _handle_prescription_photo(
     summary = _format_medicine_summary(medicines)
     unclear = [medicine.raw_text for medicine, parsed in medicines if parsed["status"] == "needs_confirmation"]
 
-    if summary:
-        styled = _groq_reformat_summary(summary, medicines)
-        reply = f"📋 Here's what I read:\n\n{styled or summary}\n\nReply *CONFIRM* to schedule these and start reminders."
-    else:
-        reply = "📋 I couldn't confidently structure any medicines from that photo."
+    # Full raw text for every unclear line, always -- nothing the
+    # prescription actually says gets hidden behind a bare count. This is
+    # combined with the structured medicines into ONE block so Groq can
+    # restyle the whole transcription together into one readable message,
+    # instead of a clean section followed by a raw, ungrouped text dump.
+    full_text = summary
     if unclear:
-        # Full raw text for every line, always -- nothing the prescription
-        # actually says gets hidden behind a bare count. What's cut is only
-        # the repeated "please confirm on the web app" sentence per line,
-        # which is what actually made the old message unreadable.
         lines_block = "\n".join(f"• {text}" for text in unclear)
-        reply += f"\n\n⚠️ These need manual confirmation on the web app:\n{lines_block}"
+        needs_confirmation_block = f"⚠️ These need manual confirmation on the web app:\n{lines_block}"
+        full_text = f"{full_text}\n\n{needs_confirmation_block}" if full_text else needs_confirmation_block
+
+    if not full_text:
+        return "📋 I couldn't confidently read any text from that photo."
+
+    styled = _groq_reformat_summary(full_text, medicines)
+    reply = f"📋 Here's what I read:\n\n{styled or full_text}"
+    if summary:
+        reply += "\n\nReply *CONFIRM* to schedule these and start reminders."
     return reply
 
 
