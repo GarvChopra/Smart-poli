@@ -244,7 +244,7 @@ function renderActiveTab() {
   if (state.activeTab === 'report') renderReport();
   if (state.activeTab === 'timeline') renderTimeline();
   if (state.activeTab === 'emergency') renderEmergencyCard();
-  if (state.activeTab === 'settings') renderSettingsCareTeam();
+  if (state.activeTab === 'settings') { renderSettingsCareTeam(); renderSettingsWhatsApp(); }
   renderGlance();
 }
 
@@ -1143,6 +1143,23 @@ async function renderSettingsCareTeam() {
   document.getElementById('genCaregiverCodeBtn').addEventListener('click', () => generateLinkCode('caregiver'));
   document.getElementById('genDoctorCodeBtn').addEventListener('click', () => generateLinkCode('doctor'));
   await renderCareTeamLists();
+}
+
+async function renderSettingsWhatsApp() {
+  const mount = document.getElementById('settingsWhatsApp');
+  const { available, link } = await api('GET', '/whatsapp/available');
+  if (!available || !link) { mount.innerHTML = ''; return; }
+  mount.innerHTML = `
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'messageCircle')}<h3>Chat on WhatsApp</h3></div>
+      <p style="color:var(--ink-soft);font-size:13px;">Send a prescription photo, mark doses taken, or get your
+        emergency card link — all from WhatsApp, no app needed.</p>
+      <button class="primary small" id="openWhatsAppBtn">Open WhatsApp</button>
+      <p style="color:var(--ink-faint);font-size:12px;margin-top:8px;">This opens WhatsApp with a one-time
+        "join" message pre-filled — just tap send once to connect.</p>
+    </div>
+  `;
+  document.getElementById('openWhatsAppBtn').addEventListener('click', () => window.open(link, '_blank', 'noopener'));
 }
 
 async function generateLinkCode(kind) {

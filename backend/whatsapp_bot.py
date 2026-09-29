@@ -20,6 +20,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy.orm import Session
@@ -46,6 +47,27 @@ PUBLIC_BASE_URL = os.getenv("SMARTPOLI_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
 
 def is_configured() -> bool:
     return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_NUMBER)
+
+
+# While this Twilio WhatsApp number is a shared sandbox (not a dedicated
+# WhatsApp Business number), it silently drops every message from a phone
+# that hasn't first sent this exact "join <code>" phrase — including a
+# first-time prescription photo. That one missing step is invisible from
+# our side (Twilio never forwards the message to /whatsapp/webhook at all,
+# so it looks identical to "the bot doesn't work"), so the app links
+# straight to a pre-filled join message instead of explaining it in words.
+WHATSAPP_JOIN_CODE = os.getenv("SMARTPOLI_WHATSAPP_JOIN_CODE", "feet-cheese")
+
+
+def whatsapp_join_link() -> Optional[str]:
+    """wa.me link that opens WhatsApp with "join <code>" pre-filled, ready
+    to send with one tap. None if no WhatsApp number is configured at all."""
+    if not TWILIO_WHATSAPP_NUMBER:
+        return None
+    digits = TWILIO_WHATSAPP_NUMBER.replace("whatsapp:", "").replace("+", "").strip()
+    if not digits:
+        return None
+    return f"https://wa.me/{digits}?text={quote('join ' + WHATSAPP_JOIN_CODE)}"
 
 
 WELCOME_MESSAGE = (
@@ -81,6 +103,20 @@ def _get_or_create_session(db: Session, phone: str) -> WhatsAppSession:
     db.add(session)
     db.commit()
     return session
+
+
+DEFAULT_WHATSAPP_NAME = "WhatsApp Patient"
+
+
+def _create_account(db: Session, phone: str, name: str) -> tuple[User, Patient]:
+    user = User(name=name, phone=phone, role="patient", password_hash=None, email=None)
+    db.add(user)
+    db.commit()
+    patient = Patient(user_id=user.id, name=name)
+    db.add(patient)
+    db.commit()
+    log_audit(db, patient.id, f"whatsapp:{phone}", "patient_created", f"{name} (via WhatsApp)")
+    return user, patient
 
 
 def _slot_label(scheduled_at: datetime) -> str:
@@ -137,24 +173,34 @@ def handle_incoming_message(
     session = _get_or_create_session(db, from_phone)
 
     # ---------------------------------------------------------- onboarding
-    if session.state == "new":
-        session.state = "awaiting_name"
-        db.commit()
-        return WELCOME_MESSAGE
+    if session.state in ("new", "awaiting_name"):
+        if media_url:
+            # A prescription photo arriving before (or instead of) a name —
+            # Twilio never resends media, so this can't wait for onboarding
+            # to finish. Create the account with a placeholder name right
+            # now and read the photo immediately; the patient can rename
+            # themselves any time from the web app.
+            user, patient = _create_account(db, from_phone, DEFAULT_WHATSAPP_NAME)
+            session.user_id = user.id
+            session.patient_id = patient.id
+            session.state = "ready"
+            db.commit()
+            photo_reply = _handle_prescription_photo(db, session, patient.id, media_url, media_content_type)
+            return (
+                "👋 Welcome to SmartPoli! I've set up your account so I could read this right away "
+                "(reply with your name any time to update it).\n\n" + photo_reply
+            )
 
-    if session.state == "awaiting_name":
+        if session.state == "new":
+            session.state = "awaiting_name"
+            db.commit()
+            return WELCOME_MESSAGE
+
         name = body[:120] if body else None
         if not name:
             return "I didn't catch a name there — what should I call you?"
 
-        user = User(name=name, phone=from_phone, role="patient", password_hash=None, email=None)
-        db.add(user)
-        db.commit()
-        patient = Patient(user_id=user.id, name=name)
-        db.add(patient)
-        db.commit()
-        log_audit(db, patient.id, f"whatsapp:{from_phone}", "patient_created", f"{name} (via WhatsApp)")
-
+        user, patient = _create_account(db, from_phone, name)
         session.user_id = user.id
         session.patient_id = patient.id
         session.state = "ready"

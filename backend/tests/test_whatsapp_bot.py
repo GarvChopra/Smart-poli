@@ -126,3 +126,49 @@ def test_webhook_rejects_bad_signature():
     with TestClient(app) as client:
         r = client.post("/whatsapp/webhook", data={"From": "whatsapp:+15550005555", "Body": "hi"})
         assert r.status_code in (403, 503)  # 503 if TWILIO_* env vars aren't set at all in this test env
+
+
+def test_a_brand_new_users_first_message_being_a_photo_is_not_lost(monkeypatch):
+    """Twilio never resends media: if onboarding silently drops the photo
+    while it asks 'what's your name?', that prescription is gone for good."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+
+    db = SessionLocal()
+    try:
+        phone = "+15550004444"
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Dolo" in reply
+        assert "CONFIRM" in reply
+
+        session = db.query(WhatsAppSession).filter(WhatsAppSession.phone == phone).first()
+        assert session.state == "ready"
+        assert session.patient_id is not None
+    finally:
+        db.close()
+
+
+def test_whatsapp_join_link_prefills_the_sandbox_join_message(monkeypatch):
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+    monkeypatch.setattr(whatsapp_bot, "WHATSAPP_JOIN_CODE", "feet-cheese")
+    link = whatsapp_bot.whatsapp_join_link()
+    assert link == "https://wa.me/14155238886?text=join%20feet-cheese"
+
+
+def test_whatsapp_join_link_is_none_without_a_configured_number(monkeypatch):
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", None)
+    assert whatsapp_bot.whatsapp_join_link() is None
+
+
+def test_whatsapp_available_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_AUTH_TOKEN", "test_token")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+    monkeypatch.setattr(whatsapp_bot, "WHATSAPP_JOIN_CODE", "feet-cheese")
+    with TestClient(app) as client:
+        body = client.get("/whatsapp/available").json()
+    assert body == {"available": True, "link": "https://wa.me/14155238886?text=join%20feet-cheese"}

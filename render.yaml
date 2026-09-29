@@ -38,6 +38,12 @@ services:
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
         value: "whatsapp:+14155238886"
+      # This is a shared Twilio sandbox number, not a dedicated WhatsApp
+      # Business number: it silently drops every message from a phone that
+      # hasn't first sent this exact "join <code>" phrase. Not a secret —
+      # it's meant to be handed to anyone who wants to message the bot.
+      - key: SMARTPOLI_WHATSAPP_JOIN_CODE
+        value: "feet-cheese"
       - key: SMARTPOLI_PUBLIC_BASE_URL
         sync: false
       - key: SMARTPOLI_SKIP_TWILIO_SIGNATURE

@@ -54,6 +54,14 @@ def _twiml(message: str) -> str:
     return f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escaped}</Message></Response>'
 
 
+@router.get("/available")
+def whatsapp_available():
+    """So the app can show (or hide) a "Chat on WhatsApp" entry point, with
+    a link that pre-fills the sandbox's required join message — no auth
+    needed, this is static config, not patient data."""
+    return {"available": whatsapp_bot.is_configured(), "link": whatsapp_bot.whatsapp_join_link()}
+
+
 @router.post("/webhook")
 async def whatsapp_webhook(request: Request):
     """
