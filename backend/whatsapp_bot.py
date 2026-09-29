@@ -360,6 +360,14 @@ def _handle_today(db: Session, patient_id: int) -> str:
     return "\n".join(lines)
 
 
+# Twilio rejects an outbound WhatsApp body over 1600 chars with error 21617
+# -- confirmed in production, where a real prescription photo's OCR summary
+# (one of many possible lines per medicine) routinely runs past this after
+# the ack already told the patient a result was coming.
+WHATSAPP_BODY_LIMIT = 1600
+_TRUNCATION_NOTE = " (truncated — see the app for full details)"
+
+
 def send_whatsapp_message(to_phone: str, body: str) -> bool:
     """Outbound send via Twilio's REST API directly (httpx, no SDK) — used
     for reminders, which aren't a reply to an inbound webhook so there's no
@@ -367,6 +375,8 @@ def send_whatsapp_message(to_phone: str, body: str) -> bool:
     must never let a failed send block or crash the reminder sweep."""
     if not is_configured():
         return False
+    if len(body) > WHATSAPP_BODY_LIMIT:
+        body = body[: WHATSAPP_BODY_LIMIT - len(_TRUNCATION_NOTE)] + _TRUNCATION_NOTE
     url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
     try:
         with httpx.Client(timeout=10.0) as client:
@@ -377,6 +387,12 @@ def send_whatsapp_message(to_phone: str, body: str) -> bool:
             )
             r.raise_for_status()
         return True
+    except httpx.HTTPStatusError as e:
+        # e itself only has the status line -- the response body carries
+        # Twilio's actual error code/message, which is what's needed to
+        # diagnose a failure straight from logs instead of a local repro.
+        logger.warning(f"WhatsApp outbound send failed to {to_phone}: {e}. Response: {e.response.text}")
+        return False
     except Exception as e:
         logger.warning(f"WhatsApp outbound send failed to {to_phone}: {e}")
         return False

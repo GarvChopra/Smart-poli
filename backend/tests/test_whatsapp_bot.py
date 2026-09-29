@@ -229,3 +229,58 @@ def test_photo_gets_an_instant_ack_and_the_real_reply_arrives_as_a_follow_up(mon
     assert to_phone == "+15550006666"
     assert "Dolo" in reply
     assert "CONFIRM" in reply
+
+
+def test_send_whatsapp_message_truncates_body_over_twilios_length_limit(monkeypatch):
+    """Confirmed in production: a real prescription photo with many lines
+    produces a summary long enough that Twilio's outbound API rejects it
+    with a 400 (the WhatsApp body length limit is 1600 chars) -- the ack
+    already arrived, so the patient was left with no result at all and no
+    error either. Truncate before sending rather than let Twilio reject it."""
+    import httpx as httpx_module
+
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_AUTH_TOKEN", "test_token")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+
+    posted = {}
+
+    def handler(request):
+        posted["body"] = dict(x.split("=") for x in request.content.decode().split("&"))
+        return httpx_module.Response(201, json={"sid": "SM123"})
+
+    real_client = httpx_module.Client
+    monkeypatch.setattr(httpx_module, "Client",
+                        lambda **kw: real_client(transport=httpx_module.MockTransport(handler), **kw))
+
+    ok = whatsapp_bot.send_whatsapp_message("+15550006666", "A" * 3000)
+    assert ok is True
+    from urllib.parse import unquote_plus
+    sent_body = unquote_plus(posted["body"]["Body"])
+    assert len(sent_body) <= 1600
+    assert sent_body.endswith("(truncated — see the app for full details)")
+
+
+def test_send_whatsapp_message_logs_twilios_error_body_on_failure(monkeypatch, caplog):
+    """The old failure log only had httpx's generic 'Client error 400' with
+    no Twilio error code or message, which is exactly why the earlier
+    corrupted-number bug (error 21212) took a local repro script to
+    diagnose instead of being readable straight from the logs."""
+    import httpx as httpx_module
+
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_AUTH_TOKEN", "test_token")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+
+    def handler(request):
+        return httpx_module.Response(400, json={"code": 21617, "message": "Message body exceeds limit"})
+
+    real_client = httpx_module.Client
+    monkeypatch.setattr(httpx_module, "Client",
+                        lambda **kw: real_client(transport=httpx_module.MockTransport(handler), **kw))
+
+    with caplog.at_level("WARNING"):
+        ok = whatsapp_bot.send_whatsapp_message("+15550006666", "hi")
+    assert ok is False
+    assert "21617" in caplog.text
+    assert "Message body exceeds limit" in caplog.text
