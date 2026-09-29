@@ -226,6 +226,33 @@ def test_groq_output_is_discarded_if_a_medicine_is_missing_or_changed(monkeypatc
         db.close()
 
 
+def test_groq_output_is_discarded_if_it_edits_an_unclear_raw_line(monkeypatch):
+    """A garbled OCR line ('PARACETAMOL 500 mg Api eT') must reach the
+    patient byte-for-byte in the needs_confirmation section -- Groq is
+    allowed to restyle layout around it, but if it "corrects" the raw text
+    itself (e.g. fixing 'Api eT' into 'TABLET', or fixing the frequency
+    wording), that's the LLM guessing at medical content from a bad OCR
+    read, exactly what this app must never do. Discard and fall back to
+    the verbatim deterministic text instead."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "PARACETAMOL 500 mg Api eT", "confidence": 0.6},
+    ])
+    # Groq "helpfully" cleans up the garbled OCR text instead of leaving it verbatim.
+    _fake_groq(monkeypatch, "⚠️ Needs your confirmation:\n- PARACETAMOL 500mg TABLET")
+
+    db = SessionLocal()
+    try:
+        phone = "+15550003456"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "PARACETAMOL 500 mg Api eT" in reply  # verbatim garbled OCR text, not "corrected"
+        assert "PARACETAMOL 500mg TABLET" not in reply
+    finally:
+        db.close()
+
+
 def test_groq_failure_falls_back_to_the_plain_summary(monkeypatch):
     """A WhatsApp reply must never depend on an LLM call succeeding."""
     monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")

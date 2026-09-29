@@ -132,14 +132,17 @@ def _slot_label(scheduled_at: datetime) -> str:
 
 def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str]:
     """Ask Groq to restyle the already-decided summary for easier reading
-    on WhatsApp -- wording and layout only. Groq never sees the photo and
-    never decides a medicine name, dose, or schedule; those are already
-    fixed by the deterministic parser (CLAUDE.md section 5/6: nothing
-    generative ever invents prescription content). Its output is used only
-    when it still contains every medicine's name and dose exactly, and
-    discarded -- falling back to the plain deterministic text -- on any
-    mismatch, any API error, or when GROQ_API_KEY isn't configured. A
-    WhatsApp reply must never depend on an LLM call succeeding."""
+    on WhatsApp -- layout only. Groq never sees the photo and never decides
+    a medicine name, dose, or schedule; those are already fixed by the
+    deterministic parser (CLAUDE.md section 5/6: nothing generative ever
+    invents prescription content). Its output is used only when every
+    verified medicine's name+dose AND every needs_confirmation line's raw
+    OCR text survive byte-for-byte -- the latter matters because OCR text
+    can itself be garbled (e.g. "PARACETAMOL 500 mg Api eT"), and Groq
+    "correcting" that would be the LLM guessing at medical content from a
+    bad read, not restyling. Any mismatch, API error, or missing
+    GROQ_API_KEY falls back to the plain deterministic text -- a WhatsApp
+    reply must never depend on an LLM call succeeding."""
     if not summary or not os.getenv("GROQ_API_KEY"):
         return None
     try:
@@ -149,10 +152,11 @@ def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str
             "Reformat this WhatsApp message transcribed from a patient's prescription "
             "photo so it's easy to read on a phone screen: short lines, clear grouping, "
             "keep the emoji. It may include a structured medicines section and a list of "
-            "lines that couldn't be confidently structured. Do not add, remove, reword, "
-            "summarize away, or change any medicine name, dose, instruction, or raw line "
-            "-- copy all of that content exactly as given, only improve the layout and "
-            "grouping.\n\n" + summary
+            "raw OCR lines that couldn't be confidently read (some may contain OCR typos "
+            "or garbled words). Copy every medicine name, dose, instruction, and raw OCR "
+            "line EXACTLY as given, character for character -- do not add, remove, "
+            "reword, summarize, or 'fix'/correct any of it, even an obvious-looking typo. "
+            "Only change the layout and grouping around that content.\n\n" + summary
         )
         response = client.chat.completions.create(
             model=os.getenv("GROQ_WHATSAPP_MODEL", "openai/gpt-oss-20b"),
@@ -168,6 +172,12 @@ def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str
         return None
     for medicine, parsed in medicines:
         if parsed["status"] == "needs_confirmation":
+            # This raw OCR text is unverified and possibly garbled -- Groq
+            # may restyle the layout around it but must never "correct" or
+            # paraphrase it itself, which would be the LLM guessing at
+            # medical content from a bad read. It must survive verbatim.
+            if medicine.raw_text not in reformatted:
+                return None
             continue
         name = medicine.name or medicine.raw_text
         if name not in reformatted:
