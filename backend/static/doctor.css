@@ -1,0 +1,128 @@
+/*
+  Doctor dashboard only — layered on top of style.css and scoped to
+  body.doctor-page so the patient and caregiver pages are never affected.
+
+  Tiers:
+    phone   (≤760px)   drawer nav, single column (base rules in style.css
+                       plus the doctor-specific fixes at the bottom here)
+    tablet  (761–1023) drawer nav, single fluid column
+    laptop  (≥1024px)  drawer becomes a permanent left sidebar, content
+                       fills all of the remaining width
+    wide    (≥1180px)  overview cards fill two columns edge to edge
+*/
+
+body.doctor-page main.content {
+  width: 100%;
+  max-width: none; /* fill the whole laptop screen, no empty side gutters */
+  margin: 0;
+  padding: clamp(16px, 2.5vw, 32px);
+}
+
+/* the patient bar's name + "Switch patient" wrap instead of squeezing */
+body.doctor-page .current-patient-bar { flex-wrap: wrap; }
+
+/* long medicine names / raw OCR text never push the card wider than the screen */
+body.doctor-page .medicine-line strong,
+body.doctor-page .medicine-line .raw { overflow-wrap: anywhere; }
+body.doctor-page .change-row .value { text-align: right; overflow-wrap: anywhere; }
+
+/* correction form: field + value + reason in one row once there's room */
+@media (min-width: 761px) {
+  body.doctor-page .correction-form {
+    display: grid;
+    grid-template-columns: minmax(130px, 180px) 1fr 1.4fr auto;
+    gap: 8px;
+    align-items: start;
+  }
+  body.doctor-page .correction-form select,
+  body.doctor-page .correction-form input { margin-bottom: 0; }
+  body.doctor-page .correction-form > div { grid-column: 1 / -1; }
+}
+
+/* Patients-tab preview of the selected patient: laptop only */
+body.doctor-page .patient-preview { display: none; }
+
+/* ---------------------------------------------------------- laptop */
+@media (min-width: 1024px) {
+  body.doctor-page .patient-preview { display: block; border-top: 1px solid var(--line); margin-top: 8px; }
+  body.doctor-page .patient-preview > h2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  body.doctor-page .patient-preview > h2 button { font-size: 13px; }
+  body.doctor-page #app {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+  /* header stays pinned above the sidebar so the brand never scrolls under it */
+  body.doctor-page .topbar {
+    grid-column: 1 / -1;
+    position: sticky; top: 0; z-index: 20;
+    height: 64px;
+  }
+  body.doctor-page .topbar-row { height: 100%; padding-top: 0; padding-bottom: 0; }
+  body.doctor-page .hamburger-btn,
+  body.doctor-page .nav-drawer-overlay,
+  body.doctor-page .nav-drawer-head { display: none; }
+
+  body.doctor-page .nav-drawer {
+    position: sticky; top: 64px; z-index: auto;
+    grid-column: 1; grid-row: 2;
+    width: auto; height: calc(100vh - 64px);
+    transform: none; transition: none;
+    box-shadow: none;
+    border-right: 1px solid var(--line);
+    padding: 16px 12px;
+  }
+
+  body.doctor-page .body-row { grid-column: 2; grid-row: 2; min-width: 0; }
+
+  body.doctor-page .patient-picker-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); /* auto-fit: a few patients stretch to fill the row */
+  }
+
+  body.doctor-page .confidence-row .field-name { width: 110px; }
+}
+
+/* ---------------------------------------------------------- wide laptop */
+@media (min-width: 1180px) {
+  /* Overview (and the Patients-tab preview): heading full width, then the brief on the left and
+     "since last visit" + alerts stacked on the right. Both columns stretch
+     to the same height so no empty corner is left under the shorter side. */
+  body.doctor-page .overview-grid,
+  body.doctor-page .patient-preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
+    gap: 16px;
+  }
+  body.doctor-page .overview-grid > :not(.card) { grid-column: 1 / -1; margin-bottom: 0; }
+  body.doctor-page .overview-grid > h2 { margin-bottom: -12px; }
+  body.doctor-page .overview-grid > .card { margin-bottom: 0; }
+  body.doctor-page .overview-grid > .card:nth-child(3) { grid-column: 1; grid-row: 3 / span 2; }
+  body.doctor-page .overview-grid > .card:nth-child(4) { grid-column: 2; grid-row: 3; }
+  body.doctor-page .overview-grid > .card:nth-child(5) { grid-column: 2; grid-row: 4; }
+}
+
+/* ---------------------------------------------------------- phone */
+@media (max-width: 760px) {
+  body.doctor-page .current-patient-bar { padding: 10px 12px; }
+  body.doctor-page .current-patient-bar button { flex: 1 1 100%; }
+
+  /* brief rows: label above value instead of both fighting for one line */
+  body.doctor-page .change-row { flex-direction: column; gap: 2px; }
+  body.doctor-page .change-row .value { text-align: left; }
+
+  body.doctor-page .medicine-line.needs_confirmation { margin-left: 0; padding-left: 10px; }
+  body.doctor-page .confidence-row .field-name { width: 84px; }
+
+  /* action button rows go full width so they're easy to hit */
+  body.doctor-page #sendPrescriptionBtn,
+  body.doctor-page #saveTemplateBtn,
+  body.doctor-page #linkPatientBtn { flex: 1 1 100%; width: 100%; }
+  body.doctor-page .correction-form button { width: 100%; }
+
+  body.doctor-page .stat-row { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 400px) {
+  body.doctor-page .stat-row { grid-template-columns: 1fr 1fr; }
+}

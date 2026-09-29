@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartPoli — doctor</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/doctor.css">
 </head>
-<body>
+<body class="doctor-page">
 <div id="app">
 
   <header class="topbar no-print">
@@ -34,7 +35,7 @@
   </nav>
 
   <div class="body-row">
-    <main class="content" style="max-width:960px;">
+    <main class="content">
       <section id="view-patients">
         <h2>Linked patients</h2>
         <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
@@ -51,11 +52,14 @@
           </div>
           <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
         </div>
+        <!-- laptop only (doctor.css hides it on smaller screens): the selected
+             patient's overview right under the picker, so the tab isn't empty -->
+        <div id="patientPreview" class="overview-grid patient-preview"></div>
       </section>
 
       <div id="currentPatientBar" class="current-patient-bar" style="display:none;"></div>
 
-      <section id="view-overview" style="display:none;"></section>
+      <section id="view-overview" class="overview-grid" style="display:none;"></section>
       <section id="view-prescriptions" style="display:none;"></section>
       <section id="view-adherence" style="display:none;"></section>
       <section id="view-triage" style="display:none;"></section>

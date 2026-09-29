@@ -99,7 +99,7 @@ function setActiveNavAndSection(tabName) {
   document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
   state.activeTab = tabName;
   document.querySelectorAll('main.content > section').forEach(s => s.style.display = 'none');
-  document.getElementById(`view-${tabName}`).style.display = 'block';
+  document.getElementById(`view-${tabName}`).style.display = ''; // let doctor.css pick block/grid per breakpoint
   renderCurrentPatientBar();
 }
 
@@ -176,7 +176,10 @@ function renderPatientPicker(patients) {
     </button>
   `).join('') || '<div class="empty">No patients match that search.</div>';
   picker.querySelectorAll('[data-pid]').forEach(btn => {
-    btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid), { switchToOverview: true }));
+    // On a laptop the Patients tab already previews the selected patient
+    // below the picker, so a click just swaps that preview in place; on
+    // smaller screens there's no room for it, so jump to Overview as before.
+    btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid), { switchToOverview: !isLaptopWidth() }));
   });
 }
 
@@ -196,6 +199,8 @@ function selectPatient(id, { switchToOverview = false } = {}) {
   loadPatientDetail();
 }
 
+function isLaptopWidth() { return window.matchMedia('(min-width: 1024px)').matches; }
+
 const PATIENT_DRIVEN_TABS = ['overview', 'prescriptions', 'adherence', 'triage', 'notes'];
 
 async function loadPatientDetail() {
@@ -211,16 +216,27 @@ async function loadPatientDetail() {
 function renderActiveDoctorTab() {
   if (state.activeTab === 'settings') return; // static content, already in the page
   if (!state.patientId || !state.currentReport) return;
-  if (state.activeTab === 'overview') renderOverviewTab();
+  if (state.activeTab === 'patients') renderPatientPreview();
+  else if (state.activeTab === 'overview') renderOverviewTab();
   else if (state.activeTab === 'prescriptions') renderPrescriptionsTab();
   else if (state.activeTab === 'adherence') renderAdherenceTab();
   else if (state.activeTab === 'triage') renderTriageTab();
   else if (state.activeTab === 'notes') renderNotesTab();
 }
 
-function renderOverviewTab() {
+function renderPatientPreview() {
+  const preview = document.getElementById('patientPreview');
+  renderOverviewTab(preview);
+  preview.querySelector('h2').insertAdjacentHTML('beforeend',
+    '<button type="button" class="ghost small" id="openFullRecordBtn">Open full record</button>');
+  document.getElementById('openFullRecordBtn').addEventListener('click', () => {
+    setActiveNavAndSection('overview');
+    renderActiveDoctorTab();
+  });
+}
+
+function renderOverviewTab(view = document.getElementById('view-overview')) {
   const r = state.currentReport;
-  const view = document.getElementById('view-overview');
   const alertsHtml = r.alerts.map(a => `<div class="alert-item">${a}</div>`).join('') || '<div class="empty">No alerts.</div>';
 
   const b = r.brief;
