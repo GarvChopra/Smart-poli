@@ -129,6 +129,112 @@ def test_prescription_photo_summary_is_concise_not_a_wall_of_raw_text(monkeypatc
         db.close()
 
 
+def _fake_groq(monkeypatch, reply_text):
+    from types import SimpleNamespace
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply_text))])
+
+    class FakeClient:
+        def __init__(self, **_):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("groq.Groq", FakeClient)
+
+
+def test_groq_restyles_the_summary_when_it_preserves_every_medicine(monkeypatch):
+    """Groq only restyles wording/layout of the already-decided summary --
+    it never sees the photo and never decides a medicine name or dose. Its
+    output is used only when it still contains every medicine name and
+    dose exactly, proving nothing was dropped or changed."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+    _fake_groq(monkeypatch, "✅ Dolo 650mg\nTake 1 tablet twice a day, after food, for 5 days.")
+
+    db = SessionLocal()
+    try:
+        phone = "+15550008888"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Take 1 tablet twice a day, after food, for 5 days." in reply
+        assert "CONFIRM" in reply
+    finally:
+        db.close()
+
+
+def test_groq_output_is_discarded_if_a_medicine_is_missing_or_changed(monkeypatch):
+    """Safety net: if Groq's rewrite drops a medicine or changes its dose
+    (a hallucination, a truncated response, anything), fall back to the
+    plain deterministic summary rather than ever showing an unverified
+    rewrite of medical content."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+    _fake_groq(monkeypatch, "✅ Dolo 500mg — twice a day.")  # wrong dose: 500 instead of 650
+
+    db = SessionLocal()
+    try:
+        phone = "+15550007777"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "650" in reply
+        assert "500mg — twice a day." not in reply
+    finally:
+        db.close()
+
+
+def test_groq_failure_falls_back_to_the_plain_summary(monkeypatch):
+    """A WhatsApp reply must never depend on an LLM call succeeding."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+
+    class BoomClient:
+        def __init__(self, **_):
+            raise RuntimeError("groq down")
+
+    monkeypatch.setattr("groq.Groq", BoomClient)
+
+    db = SessionLocal()
+    try:
+        phone = "+15550006666"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Dolo" in reply
+        assert "CONFIRM" in reply
+    finally:
+        db.close()
+
+
+def test_without_groq_key_uses_the_plain_summary(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+    ])
+
+    db = SessionLocal()
+    try:
+        phone = "+15550005522"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Dolo" in reply
+        assert "CONFIRM" in reply
+    finally:
+        db.close()
+
+
 def test_emergency_reply_includes_allergies_and_link():
     db = SessionLocal()
     try:

@@ -130,6 +130,50 @@ def _slot_label(scheduled_at: datetime) -> str:
     return "night"
 
 
+def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str]:
+    """Ask Groq to restyle the already-decided summary for easier reading
+    on WhatsApp -- wording and layout only. Groq never sees the photo and
+    never decides a medicine name, dose, or schedule; those are already
+    fixed by the deterministic parser (CLAUDE.md section 5/6: nothing
+    generative ever invents prescription content). Its output is used only
+    when it still contains every medicine's name and dose exactly, and
+    discarded -- falling back to the plain deterministic text -- on any
+    mismatch, any API error, or when GROQ_API_KEY isn't configured. A
+    WhatsApp reply must never depend on an LLM call succeeding."""
+    if not summary or not os.getenv("GROQ_API_KEY"):
+        return None
+    try:
+        from groq import Groq
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
+        prompt = (
+            "Reformat this WhatsApp message about a patient's medicines so it's easier "
+            "to read on a phone screen: short lines, clear spacing, keep the emoji. Do "
+            "not add, remove, reword, or change any medicine name, dose, or instruction "
+            "-- copy those exactly as given, only improve the layout.\n\n" + summary
+        )
+        response = client.chat.completions.create(
+            model=os.getenv("GROQ_WHATSAPP_MODEL", "openai/gpt-oss-20b"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2, max_tokens=600,
+        )
+        reformatted = (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning(f"Groq WhatsApp reformat failed, using the plain summary instead: {e}")
+        return None
+
+    if not reformatted:
+        return None
+    for medicine, parsed in medicines:
+        if parsed["status"] == "needs_confirmation":
+            continue
+        name = medicine.name or medicine.raw_text
+        if name not in reformatted:
+            return None
+        if medicine.dose_amount and medicine.dose_amount not in reformatted:
+            return None
+    return reformatted
+
+
 def _format_medicine_summary(medicines: list[tuple]) -> str:
     """One line per readable medicine (name + dose + the first, most
     important plain-language line). Anything needs_confirmation is
@@ -280,7 +324,8 @@ def _handle_prescription_photo(
     blocked = [m for m, p in medicines if p["status"] == "needs_confirmation"]
 
     if summary:
-        reply = f"📋 Here's what I read:\n\n{summary}\n\nReply *CONFIRM* to schedule these and start reminders."
+        styled = _groq_reformat_summary(summary, medicines)
+        reply = f"📋 Here's what I read:\n\n{styled or summary}\n\nReply *CONFIRM* to schedule these and start reminders."
     else:
         reply = "📋 I couldn't confidently read any medicines from that photo."
     if blocked:
