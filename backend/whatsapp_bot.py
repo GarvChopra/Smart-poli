@@ -151,7 +151,12 @@ def _download_media(media_url: str) -> Optional[bytes]:
     if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN):
         return None
     try:
-        with httpx.Client(timeout=20.0) as client:
+        # follow_redirects: Twilio's media URL 307-redirects to its actual
+        # CDN host (mms.twiliocdn.com) -- httpx.Client doesn't follow
+        # redirects unless told to, so every real photo was failing here
+        # (confirmed in production logs) despite tests passing, since tests
+        # mock this function entirely rather than hitting real Twilio infra.
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
             r = client.get(media_url, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
             r.raise_for_status()
             return r.content

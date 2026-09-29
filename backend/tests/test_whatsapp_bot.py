@@ -172,3 +172,24 @@ def test_whatsapp_available_endpoint(monkeypatch):
     with TestClient(app) as client:
         body = client.get("/whatsapp/available").json()
     assert body == {"available": True, "link": "https://wa.me/14155238886?text=join%20feet-cheese"}
+
+
+def test_download_media_follows_twilios_redirect_to_its_cdn(monkeypatch):
+    """Confirmed via production logs: Twilio's media URL 307-redirects to
+    mms.twiliocdn.com, and httpx.Client doesn't follow redirects unless
+    told to -- every real WhatsApp photo was failing to download."""
+    import httpx as httpx_module
+
+    def handler(request):
+        if "twiliocdn" in str(request.url):
+            return httpx_module.Response(200, content=b"real-image-bytes")
+        return httpx_module.Response(307, headers={"Location": "https://mms.twiliocdn.com/fake-file"})
+
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_AUTH_TOKEN", "test_token")
+    real_client = httpx_module.Client
+    monkeypatch.setattr(httpx_module, "Client",
+                        lambda **kw: real_client(transport=httpx_module.MockTransport(handler), **kw))
+
+    result = whatsapp_bot._download_media("https://api.twilio.com/fake/Media/XYZ")
+    assert result == b"real-image-bytes"
