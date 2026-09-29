@@ -364,8 +364,31 @@ def _handle_today(db: Session, patient_id: int) -> str:
 # -- confirmed in production, where a real prescription photo's OCR summary
 # (one of many possible lines per medicine) routinely runs past this after
 # the ack already told the patient a result was coming.
+#
+# The 1600 is enforced in UTF-16 code units (Twilio's standard SMS/WhatsApp
+# convention), not Python's per-code-point len() -- also confirmed in
+# production: a char-count truncation still hit 21617, because the status
+# icons include an astral-plane emoji (one Python char, two UTF-16 units).
 WHATSAPP_BODY_LIMIT = 1600
 _TRUNCATION_NOTE = " (truncated — see the app for full details)"
+
+
+def _utf16_len(s: str) -> int:
+    return sum(2 if ord(c) > 0xFFFF else 1 for c in s)
+
+
+def _truncate_for_whatsapp(body: str) -> str:
+    if _utf16_len(body) <= WHATSAPP_BODY_LIMIT:
+        return body
+    budget = WHATSAPP_BODY_LIMIT - _utf16_len(_TRUNCATION_NOTE)
+    kept, used = [], 0
+    for c in body:
+        c_len = 2 if ord(c) > 0xFFFF else 1
+        if used + c_len > budget:
+            break
+        kept.append(c)
+        used += c_len
+    return "".join(kept) + _TRUNCATION_NOTE
 
 
 def send_whatsapp_message(to_phone: str, body: str) -> bool:
@@ -375,8 +398,7 @@ def send_whatsapp_message(to_phone: str, body: str) -> bool:
     must never let a failed send block or crash the reminder sweep."""
     if not is_configured():
         return False
-    if len(body) > WHATSAPP_BODY_LIMIT:
-        body = body[: WHATSAPP_BODY_LIMIT - len(_TRUNCATION_NOTE)] + _TRUNCATION_NOTE
+    body = _truncate_for_whatsapp(body)
     url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
     try:
         with httpx.Client(timeout=10.0) as client:

@@ -261,6 +261,44 @@ def test_send_whatsapp_message_truncates_body_over_twilios_length_limit(monkeypa
     assert sent_body.endswith("(truncated — see the app for full details)")
 
 
+def test_send_whatsapp_message_truncates_by_utf16_length_not_python_length(monkeypatch):
+    """Deployed the char-count truncation above, then production STILL hit
+    Twilio's 21617 on a real 17-line prescription summary. Root cause:
+    Twilio counts the 1600-char limit in UTF-16 code units (its standard
+    SMS/WhatsApp convention), not Python's per-code-point len() -- an
+    astral-plane emoji (used for the per-medicine status icons) is one
+    Python character but two UTF-16 units, so a message could pass a
+    char-count truncation at exactly 1600 Python chars while still being
+    well over Twilio's real count."""
+    import httpx as httpx_module
+
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_AUTH_TOKEN", "test_token")
+    monkeypatch.setattr(whatsapp_bot, "TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+
+    posted = {}
+
+    def handler(request):
+        from urllib.parse import parse_qs
+        posted["body"] = parse_qs(request.content.decode())["Body"][0]
+        return httpx_module.Response(201, json={"sid": "SM123"})
+
+    real_client = httpx_module.Client
+    monkeypatch.setattr(httpx_module, "Client",
+                        lambda **kw: real_client(transport=httpx_module.MockTransport(handler), **kw))
+
+    # 900 astral-plane emoji: 900 Python chars (under the old char-count
+    # truncation's 1600 threshold, so it wouldn't have truncated at all)
+    # but 1800 UTF-16 code units -- over Twilio's real limit.
+    body = "\U0001F4CB" * 900
+    ok = whatsapp_bot.send_whatsapp_message("+15550006666", body)
+    assert ok is True
+
+    sent = posted["body"]
+    utf16_len = sum(2 if ord(c) > 0xFFFF else 1 for c in sent)
+    assert utf16_len <= 1600
+
+
 def test_send_whatsapp_message_logs_twilios_error_body_on_failure(monkeypatch, caplog):
     """The old failure log only had httpx's generic 'Client error 400' with
     no Twilio error code or message, which is exactly why the earlier
