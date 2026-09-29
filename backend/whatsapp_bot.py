@@ -175,12 +175,12 @@ def _groq_reformat_summary(summary: str, medicines: list[tuple]) -> Optional[str
 
 
 def _format_medicine_summary(medicines: list[tuple]) -> str:
-    """One line per readable medicine (name + dose + the first, most
-    important plain-language line). Anything needs_confirmation is
-    deliberately left out here — repeating each unreadable line's raw OCR
-    text and a "please confirm" sentence per line was the actual
-    wall-of-text complaint; _handle_prescription_photo rolls those into a
-    single count instead."""
+    """One line per structured medicine (name + dose + the first, most
+    important plain-language line). needs_confirmation lines are handled
+    separately by _handle_prescription_photo -- shown in full (nothing the
+    patient's prescription actually says gets hidden), just without
+    repeating the same "please confirm" sentence after every single one,
+    which was the actual wall-of-text complaint."""
     lines = []
     for medicine, parsed in medicines:
         if parsed["status"] == "needs_confirmation":
@@ -321,15 +321,20 @@ def _handle_prescription_photo(
         actor=f"whatsapp:{session.phone}",
     )
     summary = _format_medicine_summary(medicines)
-    blocked = [m for m, p in medicines if p["status"] == "needs_confirmation"]
+    unclear = [medicine.raw_text for medicine, parsed in medicines if parsed["status"] == "needs_confirmation"]
 
     if summary:
         styled = _groq_reformat_summary(summary, medicines)
         reply = f"📋 Here's what I read:\n\n{styled or summary}\n\nReply *CONFIRM* to schedule these and start reminders."
     else:
-        reply = "📋 I couldn't confidently read any medicines from that photo."
-    if blocked:
-        reply += f"\n⚠️ {len(blocked)} line(s) need manual confirmation on the web app before they can be scheduled."
+        reply = "📋 I couldn't confidently structure any medicines from that photo."
+    if unclear:
+        # Full raw text for every line, always -- nothing the prescription
+        # actually says gets hidden behind a bare count. What's cut is only
+        # the repeated "please confirm on the web app" sentence per line,
+        # which is what actually made the old message unreadable.
+        lines_block = "\n".join(f"• {text}" for text in unclear)
+        reply += f"\n\n⚠️ These need manual confirmation on the web app:\n{lines_block}"
     return reply
 
 

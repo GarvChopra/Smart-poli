@@ -105,8 +105,13 @@ def test_prescription_photo_summary_is_concise_not_a_wall_of_raw_text(monkeypatc
     '❌ ... Could not read confidently: "..." — please confirm on the web
     app.' block, making the whole message unreadable. Header lines are
     filtered out at the OCR layer (parser.is_likely_header_line via
-    ocr_plugin.read_prescription_image); whatever's still unconfident after
-    that gets rolled into one count instead of one block per line."""
+    ocr_plugin.read_prescription_image).
+
+    The next report was the opposite over-correction: hiding unclear lines
+    behind a bare count buried real medicines that just couldn't be
+    structured (e.g. natural-language dosing the shorthand parser doesn't
+    recognize). The full raw text must still show for every unclear line --
+    only the repeated "please confirm" sentence after each one goes."""
     monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
     monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
         {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
@@ -122,8 +127,9 @@ def test_prescription_photo_summary_is_concise_not_a_wall_of_raw_text(monkeypatc
 
         reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
         assert "Dolo" in reply
-        assert "2 line(s) need manual confirmation" in reply
-        assert "Could not read confidently" not in reply  # no per-line block anymore
+        assert "Tab X 1-?-1" in reply  # full raw text, not hidden behind a count
+        assert "Cap Y 1-?-1" in reply
+        assert reply.count("Could not read confidently") == 0  # no per-line boilerplate anymore
         assert reply.count("❌") == 0
     finally:
         db.close()
