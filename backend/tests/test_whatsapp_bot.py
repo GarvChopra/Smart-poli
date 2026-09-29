@@ -98,6 +98,37 @@ def test_prescription_photo_then_confirm_schedules_doses(monkeypatch):
         db.close()
 
 
+def test_prescription_photo_summary_is_concise_not_a_wall_of_raw_text(monkeypatch):
+    """The real production complaint: a photo with header/complaint noise
+    above the medicines produced a reply where every single OCR line,
+    including 'SAMPLE PRESCRIPTION' and 'Chief Complaints', got its own
+    '❌ ... Could not read confidently: "..." — please confirm on the web
+    app.' block, making the whole message unreadable. Header lines are
+    filtered out at the OCR layer (parser.is_likely_header_line via
+    ocr_plugin.read_prescription_image); whatever's still unconfident after
+    that gets rolled into one count instead of one block per line."""
+    monkeypatch.setattr(whatsapp_bot, "_download_media", lambda url: b"fake-image-bytes")
+    monkeypatch.setattr(whatsapp_bot, "read_prescription_image", lambda image_bytes: [
+        {"text": "Tab Dolo 650mg 1-0-1 PC x5d", "confidence": 0.95},
+        {"text": "Tab X 1-?-1", "confidence": 0.9},
+        {"text": "Cap Y 1-?-1", "confidence": 0.9},
+    ])
+
+    db = SessionLocal()
+    try:
+        phone = "+15550009999"
+        whatsapp_bot.handle_incoming_message(db, phone, "hi")
+        whatsapp_bot.handle_incoming_message(db, phone, "Test Patient")
+
+        reply = whatsapp_bot.handle_incoming_message(db, phone, "", media_url="https://api.twilio.com/fake.jpg")
+        assert "Dolo" in reply
+        assert "2 line(s) need manual confirmation" in reply
+        assert "Could not read confidently" not in reply  # no per-line block anymore
+        assert reply.count("❌") == 0
+    finally:
+        db.close()
+
+
 def test_emergency_reply_includes_allergies_and_link():
     db = SessionLocal()
     try:

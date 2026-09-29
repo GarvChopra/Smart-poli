@@ -39,6 +39,8 @@ import logging
 import os
 from typing import Optional
 
+from parser import is_likely_header_line
+
 logger = logging.getLogger(__name__)
 
 _OCR_ENGINE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ocr_engine")
@@ -148,11 +150,19 @@ def read_prescription_image(image_bytes: bytes) -> list[dict]:
     """The one entrypoint callers (main.py, whatsapp_bot.py) should use:
     tries TrOCR first (best accuracy, where installed), then Tesseract
     (works everywhere, including Render's free tier). Only raises
-    OCRUnavailable when neither engine can run at all."""
+    OCRUnavailable when neither engine can run at all.
+
+    Drops lines that are almost certainly prescription boilerplate (doctor
+    info, patient demographics, "Chief Complaints") rather than a medicine
+    -- being the one shared entrypoint, this is the single place to do it
+    so main.py's image upload and whatsapp_bot's photo path both benefit.
+    See parser.is_likely_header_line for why this is safe: it only fires
+    on lines with none of a medicine's structural signals."""
     try:
-        return run_ocr_on_image(image_bytes)
+        lines = run_ocr_on_image(image_bytes)
     except OCRUnavailable as trocr_err:
         try:
-            return run_tesseract_ocr_on_image(image_bytes)
+            lines = run_tesseract_ocr_on_image(image_bytes)
         except OCRUnavailable as tesseract_err:
             raise OCRUnavailable(f"{trocr_err}; {tesseract_err}") from tesseract_err
+    return [line for line in lines if not is_likely_header_line(line["text"])]

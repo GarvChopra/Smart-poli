@@ -131,19 +131,23 @@ def _slot_label(scheduled_at: datetime) -> str:
 
 
 def _format_medicine_summary(medicines: list[tuple]) -> str:
+    """One line per readable medicine (name + dose + the first, most
+    important plain-language line). Anything needs_confirmation is
+    deliberately left out here — repeating each unreadable line's raw OCR
+    text and a "please confirm" sentence per line was the actual
+    wall-of-text complaint; _handle_prescription_photo rolls those into a
+    single count instead."""
     lines = []
     for medicine, parsed in medicines:
-        status = parsed["status"]
-        icon = {"verified": "✅", "review": "⚠️", "needs_confirmation": "❌"}.get(status, "❓")
+        if parsed["status"] == "needs_confirmation":
+            continue
+        icon = {"verified": "✅", "review": "⚠️"}.get(parsed["status"], "❓")
         name = medicine.name or medicine.raw_text
         lines.append(f"{icon} *{name}* {medicine.dose_amount or ''}{medicine.dose_unit or ''}")
-        if status == "needs_confirmation":
-            lines.append(f'   Could not read confidently: "{medicine.raw_text}" — please confirm on the web app.')
-        else:
-            plain = parsed.get("plain_language") or ""
-            for line in plain.splitlines():
-                if line.strip():
-                    lines.append(f"   {line.strip()}")
+        plain = parsed.get("plain_language") or ""
+        first_line = next((p.strip() for p in plain.splitlines() if p.strip()), "")
+        if first_line:
+            lines.append(f"   {first_line}")
     return "\n".join(lines)
 
 
@@ -274,11 +278,14 @@ def _handle_prescription_photo(
     )
     summary = _format_medicine_summary(medicines)
     blocked = [m for m, p in medicines if p["status"] == "needs_confirmation"]
-    footer = "\n\nReply *CONFIRM* to schedule these and start reminders."
-    if blocked:
-        footer += f"\n⚠️ {len(blocked)} line(s) need manual confirmation on the web app before they can be scheduled."
 
-    return f"📋 Here's what I read:\n\n{summary}{footer}"
+    if summary:
+        reply = f"📋 Here's what I read:\n\n{summary}\n\nReply *CONFIRM* to schedule these and start reminders."
+    else:
+        reply = "📋 I couldn't confidently read any medicines from that photo."
+    if blocked:
+        reply += f"\n⚠️ {len(blocked)} line(s) need manual confirmation on the web app before they can be scheduled."
+    return reply
 
 
 def _handle_confirm(db: Session, session: WhatsAppSession, patient_id: int) -> str:

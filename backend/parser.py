@@ -100,6 +100,41 @@ def match_drug_name(candidate: str) -> tuple[Optional[str], float]:
     return matched, round(score / 100, 4)
 
 
+# Prescription photos include doctor/patient/complaint boilerplate above
+# the actual medicines. Fuzzy-matching those lines against the drug list
+# correctly scores near zero -- that's not a confidence bug, it's parsing
+# a non-medicine line as a medicine in the first place. Deliberately
+# conservative: only used on lines with none of a medicine's structural
+# signals (checked by the caller below), so a real medicine already
+# scored by name/dose/schedule is never reclassified as a header.
+_HEADER_KEYWORDS = re.compile(
+    r'\b(prescription|patient|doctor|dr\.?|mbbs|md|chief\s*complaints?|diagnosis|'
+    r'history|address|signature|hospital|clinic|reg(?:istration)?\.?\s*no|date|'
+    r'age|sex|male|female|vitals?|temperature|blood\s*pressure|weight|'
+    r'follow[\s-]?up|advice|investigation|referred|sample)\b',
+    re.I,
+)
+
+
+def is_likely_header_line(raw_text: str) -> bool:
+    """True when a line is almost certainly prescription boilerplate rather
+    than a medicine -- used to drop OCR noise before it ever reaches the
+    parser/confidence gate. A line with a form word, a dose amount+unit, or
+    a schedule token always returns False regardless of wording, so a real
+    medicine is never silently dropped just for sharing a word with this
+    keyword list."""
+    tokens = [t for t in raw_text.split() if t]
+    if not tokens:
+        return True
+    if tokens[0].strip('.').lower() in FORM_WORDS:
+        return False
+    if any(_DOSE_RE.match(t) for t in tokens):
+        return False
+    if any(_looks_like_schedule_token(t) for t in tokens):
+        return False
+    return bool(_HEADER_KEYWORDS.search(raw_text))
+
+
 def compute_status(confidence: float) -> str:
     if confidence >= VERIFIED_THRESHOLD:
         return 'verified'
