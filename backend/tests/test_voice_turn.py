@@ -290,7 +290,7 @@ def test_empty_model_reply_gets_one_forced_text_answer(monkeypatch):
             _msg(content=""),
             _msg(content="Aapki agli dawai 8:30 baje hai."),
         ], calls)
-        body = _turn(client, pid, "agli dawai kab hai").json()
+        body = _turn(client, pid, "mera agla dose kya hai").json()
     assert body["reply"] == "Aapki agli dawai 8:30 baje hai."
     assert calls[-1]["tool_choice"] == "none"
 
@@ -415,7 +415,7 @@ def test_pure_medicine_schedule_turn_skips_the_check(monkeypatch):
             _msg(tool_calls=[_call("get_next_dose", {})]),
             _msg(content="Agli dawai 8 baje."),
         ], calls)
-        body = _turn(client, pid, "agli dawai kab hai").json()
+        body = _turn(client, pid, "mera agla dose kya hai").json()
     assert body["reply"] == "Agli dawai 8 baje."
     assert not any(_is_guard_call(c) for c in calls)
 
@@ -474,7 +474,7 @@ def test_a_rate_limited_model_falls_back_to_the_next_one(monkeypatch):
                     return inner(**kw)
                 self.chat.completions.create = create
         monkeypatch.setattr("groq.Groq", Spy)
-        body = _turn(client, pid, "agli dawai kab hai").json()
+        body = _turn(client, pid, "mera agla dose kya hai").json()
     assert body["reply"] == "Agli dawai 8 baje."
     assert models[:2] == ["big-model", "small-model"]
 
@@ -501,7 +501,7 @@ def test_gemini_is_used_when_only_a_gemini_key_is_configured(monkeypatch):
     with TestClient(app) as client:
         pid, _ = _setup(client)
         install_fake_gemini(monkeypatch, [_msg(content="Agli dawai 8 baje.")], calls)
-        body = _turn(client, pid, "agli dawai kab hai").json()
+        body = _turn(client, pid, "mera agla dose kya hai").json()
     assert body["reply"] == "Agli dawai 8 baje."
     assert calls[0]["model"] == "gemini-flash-latest"
 
@@ -531,7 +531,7 @@ def test_falls_back_to_gemini_when_every_groq_model_is_rate_limited(monkeypatch)
                     return inner(**kw)
                 self.chat.completions.create = create
         monkeypatch.setattr("openai.OpenAI", Spy)
-        body = _turn(client, pid, "agli dawai kab hai").json()
+        body = _turn(client, pid, "mera agla dose kya hai").json()
     assert body["reply"] == "Agli dawai 8 baje."
     assert models == ["gemini-flash-latest"]
 
@@ -542,3 +542,54 @@ def test_voice_available_is_true_with_only_a_gemini_key(monkeypatch):
     with TestClient(app) as client:
         register_and_login(client)
         assert client.get("/voice/available").json()["available"] is True
+
+
+# ---------------------------------------------------------------- pre-LLM known-action router
+
+def test_next_dose_question_never_calls_the_llm_at_all(monkeypatch):
+    def boom(messages):
+        raise AssertionError("the LLM should never be called for a mechanical next-dose question")
+    install_fake_groq(monkeypatch, [boom])
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        body = _turn(client, pid, "agli dawai kab hai").json()
+    assert "8" in body["reply"] or body["mode"] == "fallback"
+    assert body["mode"] == "fallback"
+
+
+def test_mark_dose_taken_never_calls_the_llm_at_all(monkeypatch):
+    def boom(messages):
+        raise AssertionError("the LLM should never be called for a mechanical dose-taken report")
+    install_fake_groq(monkeypatch, [boom])
+    with TestClient(app) as client:
+        pid, due = _setup(client)
+        body = _turn(client, pid, "maine dawai le li").json()
+    assert body["mode"] == "fallback"
+    assert body["actions"][0]["type"] == "choose_dose"
+
+
+def test_symptom_text_still_goes_to_the_llm_not_the_router(monkeypatch):
+    calls = []
+    install_fake_groq(monkeypatch, [
+        _msg(tool_calls=[_call("update_symptom_check", {"symptom_ids": ["cough"], "symptom_labels": ["khansi"]})]),
+        _msg(content="Kitne din se khansi hai?"),
+    ], calls)
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        body = _turn(client, pid, "mujhe khansi ho rahi hai").json()
+    assert len(calls) >= 1  # the router didn't intercept it; the LLM actually ran
+    assert body["mode"] == "assistant"
+
+
+def test_known_action_text_mid_symptom_check_still_goes_to_the_llm(monkeypatch):
+    """A phrase that would normally be a mechanical next-dose question must not
+    hijack an in-progress symptom conversation — that continuity matters more
+    than the shortcut."""
+    calls = []
+    install_fake_groq(monkeypatch, [_msg(content="Theek hai, kya aapko bukhar bhi hai?")], calls)
+    with TestClient(app) as client:
+        pid, _ = _setup(client)
+        state = {"symptom": {"ids": ["cough"], "labels": ["khansi"], "answers": {}, "asked": []}}
+        body = _turn(client, pid, "agli dawai kab hai", state=state).json()
+    assert len(calls) >= 1  # the LLM ran; the router was skipped
+    assert body["mode"] == "assistant"

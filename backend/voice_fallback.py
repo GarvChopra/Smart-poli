@@ -72,7 +72,23 @@ T = {
 }
 
 
-def fallback_turn(ctx: ToolContext, text: str) -> dict:
+def route_known_action(ctx: ToolContext, text: str):
+    """
+    Deterministic, zero-LLM handling for mechanical, predictable requests
+    (mark a dose taken, next dose, today's schedule, open a screen) — the
+    same matching this module has always used for the no-AI safety net,
+    now also tried BEFORE the LLM on every turn (voice_assistant.py) so
+    routine requests never pay for a model call at all.
+
+    Deliberately excludes symptom text: a symptom-sounding phrase still
+    needs the full CALM/HELP/RECHECK/ESCALATE conversation, not a blunt
+    "opening the symptom screen" reply, so it always goes to the LLM (or,
+    if no AI is available at all, to fallback_turn's own symptom handling
+    below).
+
+    Returns None if nothing here matches, so callers can decide what to
+    try next.
+    """
     t = T.get(ctx.lang, T["en"])
 
     def reply(message: str) -> dict:
@@ -88,10 +104,6 @@ def fallback_turn(ctx: ToolContext, text: str) -> dict:
         return reply(t["confirm_one"].format(medicine=due[0]["medicine"], time=due[0]["time"])
                      if len(due) == 1 else t["which"])
 
-    if _SYMPTOM.search(text):
-        run_tool(ctx, "open_screen", {"screen": "triage"})
-        return reply(t["symptom"])
-
     if _NEXT.search(text):
         nxt = run_tool(ctx, "get_next_dose", {})["next_dose"]
         return reply(t["next"].format(next=nxt["medicine"], time=nxt["time"]) if nxt else t["no_next"])
@@ -106,5 +118,25 @@ def fallback_turn(ctx: ToolContext, text: str) -> dict:
         if not doses:
             return reply(t["today_none"])
         return reply(t["today"].format(list=", ".join(f"{d['medicine']} {d['time']}" for d in doses)))
+
+    return None
+
+
+def fallback_turn(ctx: ToolContext, text: str) -> dict:
+    """True last resort: no AI available at all. Tries the same known
+    mechanical actions first, then symptom routing, then a generic help
+    message — nothing here needs an LLM."""
+    result = route_known_action(ctx, text)
+    if result is not None:
+        return result
+
+    t = T.get(ctx.lang, T["en"])
+
+    def reply(message: str) -> dict:
+        return {"reply": message, "actions": ctx.actions, "state": ctx.state, "mode": "fallback"}
+
+    if _SYMPTOM.search(text):
+        run_tool(ctx, "open_screen", {"screen": "triage"})
+        return reply(t["symptom"])
 
     return reply(t["unknown"])

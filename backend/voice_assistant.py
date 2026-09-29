@@ -35,7 +35,7 @@ from db import User, VoiceMessage
 from serializers import get_patient_or_404
 from triage_service import record_symptom_check
 from triage import ACTIONS
-from voice_fallback import fallback_turn
+from voice_fallback import fallback_turn, route_known_action
 from voice_safety import scan_red_flags, VERIFY_QUESTION
 from voice_tools import (RULESET, TOOLS, ToolContext, run_tool, clean_symptom_state, open_questions, mark_asked,
                          get_patient_context)
@@ -584,6 +584,17 @@ def _run_turn(db: Session, patient_id: int, user: User, text: str, lang: str,
     # A tapped Better / Same / Worse button is the patient's own choice, not an interpretation.
     if recheck in ("better", "same", "worse") and isinstance(ctx.state.get("recheck"), dict):
         return _offline_recheck_turn(ctx, recheck)
+
+    # Mechanical, predictable requests (mark a dose taken, next dose, today's
+    # schedule, open a screen) never need the LLM — handled by code first,
+    # on every turn, AI or not. Skipped while a symptom check or recheck is
+    # already in progress, so a mid-conversation answer never gets hijacked
+    # into an unrelated action; that continuity still goes through the AI
+    # (or the offline safety net) below.
+    if not ctx.state.get("symptom") and not ctx.state.get("recheck"):
+        known = route_known_action(ctx, text)
+        if known is not None:
+            return known
 
     if is_available():
         try:
