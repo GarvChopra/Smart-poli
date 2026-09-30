@@ -41,7 +41,7 @@ TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")  # e.g. "whatsapp:+
 # Public base URL this server is reachable at (for the emergency-card link
 # and web-dashboard magic link sent back over WhatsApp). Twilio's sandbox
 # itself needs its OWN separate public tunnel to reach US — see
-# WHATSAPP_SETUP.md — this is only for links WE send THEM.
+# this is only for links WE send THEM.
 PUBLIC_BASE_URL = os.getenv("SMARTPOLI_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
 
 
