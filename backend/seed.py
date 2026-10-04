@@ -111,7 +111,7 @@ def fix_demo_timeline(db, now=None, only_demo_accounts=True) -> dict:
         if not pending:
             continue
         gap_days = (pending[0].scheduled_at.date() - now.date()).days
-        if gap_days > 0:
+        if gap_days > 1:
             for d in pending:
                 d.scheduled_at = d.scheduled_at - timedelta(days=gap_days)
             shifted += len(pending)

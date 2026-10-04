@@ -107,7 +107,7 @@ tests `conftest.py`, `test_ocr_endpoint.py`, `test_whatsapp_bot.py`.
 Created: `backend/{clock,safety_engine,safety_service,safety_rules.json,reminders,webpush_service,regulatory,medicine_scan,verification}.*`,
 `backend/data/cdsco_prohibited_fdc.json`, `backend/tools/*` (4 scripts), `backend/static/{push.js,sw-push.js,app.webmanifest,app-icon*}`,
 `android/twa-manifest.json`, `docs/{ANDROID_TWA,QA_CHECKLIST,MEDICATION_RULES,LAUNCH_REPORT}.md`, `.env.example`,
-and 12 new test files (225 tests) plus a shared helper.
+and 13 new test files (229 tests) plus a shared helper.
 Untracked and unrelated: `docx` (planning notes) and the WhatsApp `.mp4` in the repo root — keep both out of commits.
 
 ## 5. Database migrations and environment variables
@@ -126,7 +126,7 @@ New dependencies: `pywebpush==2.5.0`, `tzdata==2026.2` (runtime); `pdfplumber` (
 
 ## 6. Tests actually run (2026-10-04)
 
-* **Python:** `pytest tests` → **564 passed, 0 failed** (339 before this work; +225 new).
+* **Python:** `pytest tests` → **568 passed, 0 failed** (339 before this work; +229 new).
 * **JavaScript:** `auth_next` 3, `voice_commands` 11, `voice_engine` 18, `shorthand` 26 — all pass.
 * **Rule sources:** `verify_rule_sources.py` → 25 sources, **0 failures** against the live FDA labels.
 * **TWA readiness:** local tree 21 pass / 2 warn / 0 fail. **Production as currently deployed: 4 fail**
