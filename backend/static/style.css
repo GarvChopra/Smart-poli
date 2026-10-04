@@ -1003,3 +1003,36 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .today-done.has-missed { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--line); font-weight: 500; }
 
 .is-early { opacity: 0.6; border-style: dashed; }
+
+/* ---------------------------------------------------------------- phone fixes
+   These sit at the END of the file on purpose: an earlier mobile rule for .hero-next-dose lost to the base rule that
+   appears later in the file (align-items: center beat stretch), which centred the card's contents and made the
+   "Next dose" block look off-centre on phones. */
+@media (max-width: 560px) {
+  /* Next dose: icon + name on top, countdown and button on one line underneath, hint below - all left-aligned */
+  .hero-next-dose { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 12px; padding: 16px; }
+  .hero-next-dose > div:first-child { width: 100%; }
+  .hero-next-dose > div:last-child { text-align: left !important; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; width: 100%; }
+  .hero-next-dose > div:last-child button { margin-top: 0 !important; }
+  .hero-next-dose > div:last-child .reg-meta { grid-column: 1 / -1; margin-top: 0 !important; }
+
+  /* Alert cards: the icon floats so the text can use the whole card width instead of a narrow column */
+  .alert-card { display: block; padding: 12px; }
+  .alert-card.tone-clear { display: flex; align-items: center; }
+  .alert-icon { float: left; width: 30px; height: 30px; margin: 0 10px 4px 0; }
+  .alert-card.tone-clear .alert-icon { float: none; flex: none; margin: 0 10px 0 0; }
+  .alert-icon svg { width: 16px; height: 16px; }
+  .alert-title { font-size: 14.5px; }
+  .alert-do { clear: both; }
+  .gap-time { font-size: 15px; white-space: nowrap; }
+  .gap-name { font-size: 12px; }
+  .gap-caption { flex-wrap: wrap; gap: 2px 10px; font-size: 12px; }
+
+  /* Routine card: label above a full-width time field (the native time input was clipping "AM/PM") */
+  .routine-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .routine-row input[type="time"] { width: 100%; min-width: 0; font-size: 16px; }
+
+  /* Card headings: icon and title stay on one line */
+  .card-head { flex-wrap: nowrap; }
+  .card-head h3 { min-width: 0; }
+}
