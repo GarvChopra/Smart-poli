@@ -1010,11 +1010,14 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
    "Next dose" block look off-centre on phones. */
 @media (max-width: 560px) {
   /* Next dose: icon + name on top, countdown and button on one line underneath, hint below - all left-aligned */
-  .hero-next-dose { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 12px; padding: 16px; }
-  .hero-next-dose > div:first-child { width: 100%; }
-  .hero-next-dose > div:last-child { text-align: left !important; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; width: 100%; }
-  .hero-next-dose > div:last-child button { margin-top: 0 !important; }
-  .hero-next-dose > div:last-child .reg-meta { grid-column: 1 / -1; margin-top: 0 !important; }
+  .hero-next-dose { flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding: 18px 16px; }
+  .hero-next-dose > div:first-child { flex-direction: column; justify-content: center; text-align: center; width: 100%; }
+  .hero-next-dose > div:first-child > div { text-align: center; }
+  .hero-next-dose .med-name { font-size: 26px; font-weight: 800; }
+  .hero-next-dose .countdown { font-size: 24px; font-weight: 800; }
+  .hero-next-dose > div:last-child { text-align: center !important; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+  .hero-next-dose > div:last-child button { margin-top: 0 !important; min-width: 180px; font-weight: 800; }
+  .hero-next-dose > div:last-child .reg-meta { margin-top: 0 !important; text-align: center; }
 
   /* Alert cards: the icon floats so the text can use the whole card width instead of a narrow column */
   .alert-card { display: block; padding: 12px; }
