@@ -197,6 +197,18 @@ async function renderPushPrompt(mount, patientId) {
     mount.innerHTML = `
       <div class="push-prompt"><div><strong>Get dose reminders</strong><div class="reg-meta">So you never miss a medicine.</div></div>
         <button class="primary small" id="pushPromptBtn">Turn on</button></div>`;
+    // Like any normal app: the first time the person taps anything, Android's own "Allow notifications?" dialog
+    // appears. Browsers only allow that dialog right after a tap, so we wait for one. Asked at most once a day, so
+    // someone who dismisses it is not nagged (the card above stays as a quiet way to turn it on later).
+    const askedKey = 'smartpoli_push_asked';
+    let last = 0;
+    try { last = Number(localStorage.getItem(askedKey) || 0); } catch (e) { /* ignore */ }
+    if (Notification.permission === 'default' && Date.now() - last > 24 * 3600 * 1000) {
+      document.addEventListener('pointerup', async () => {
+        try { localStorage.setItem(askedKey, String(Date.now())); } catch (e) { /* ignore */ }
+        try { await enablePushReminders(patientId); mount.innerHTML = ''; } catch (e) { /* card stays */ }
+      }, { once: true });
+    }
     mount.querySelector('#pushPromptBtn').addEventListener('click', async () => {
       try { await enablePushReminders(patientId); mount.innerHTML = ''; }
       catch (e) { mount.querySelector('.reg-meta').textContent = e.message; }
