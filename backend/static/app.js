@@ -283,9 +283,9 @@ async function renderSafetyCenter() {
       <div id="safetyConflicts" class="empty">Checking your schedule…</div>
     </div>
     <div class="card">
-      <div class="card-head">${iconBadge('teal', 'shield')}<h3>Official status of your medicines</h3></div>
-      <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">What can be checked in official sources (CDSCO, US FDA), and where. A missing record is not proof a medicine is unsafe or illegal.</p>
-      <div id="safetyRegulatory"><button class="primary small" id="regCheckBtn">Check official sources</button></div>
+      <div class="card-head">${iconBadge('teal', 'shield')}<h3>Check sources</h3></div>
+      <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">Checks your medicines against official lists (India CDSCO, US FDA).</p>
+      <div id="safetyRegulatory"><button class="primary small" id="regCheckBtn">Check now</button></div>
     </div>
     <div class="two-col">
       <div class="card">
@@ -302,7 +302,7 @@ async function renderSafetyCenter() {
   loadConflictsInto(document.getElementById('safetyConflicts'));
   document.getElementById('regCheckBtn').addEventListener('click', async () => {
     const mount = document.getElementById('safetyRegulatory');
-    mount.innerHTML = '<div class="empty">Checking official sources…</div>';
+    mount.innerHTML = '<div class="empty">Checking…</div>';
     let data = null;
     try { data = await api('GET', `/patients/${state.patientId}/regulatory`); } catch (e) { data = null; }
     mount.innerHTML = regulatoryHtml(data);
@@ -1178,27 +1178,43 @@ const REG_CHECK_LABEL = {
   us_fda_recalls: 'US FDA recalls',
 };
 
+// One calm verdict per medicine; the full official wording stays one tap away under "More".
+function regVerdict(m) {
+  const checks = Object.values(m.checks);
+  const flagged = checks.filter((c) => c.status === 'restricted_status_identified' || c.status === 'regulatory_alert_found');
+  if (flagged.length) return { tone: 'warn', label: 'Needs a look', note: flagged[0].message };
+  if (checks.every((c) => c.status === 'source_unavailable' || c.status === 'verification_pending')) {
+    return { tone: 'muted', label: "Couldn't check", note: 'Official lists were not reachable. Try again later.' };
+  }
+  return { tone: 'ok', label: 'No problem found', note: '' };
+}
+
 function regulatoryHtml(data) {
   if (!data) return '<div class="empty">Could not reach the lookup just now.</div>';
   if (!data.medicines.length) return '<div class="empty">No confirmed medicines to check.</div>';
-  const meds = data.medicines.map((m) => `
-    <div class="reg-med">
-      <strong>${escHtml(m.medicine)}</strong>${m.generic && m.generic.toLowerCase() !== String(m.medicine).toLowerCase() ? ` <span class="reg-meta">(ingredient: ${escHtml(m.generic)})</span>` : ''}
-      ${Object.values(m.checks).map((c) => `
-        <div class="reg-check">
-          <span class="reg-chip ${escHtml(c.jurisdiction)}">${escHtml(c.jurisdiction)}</span>
-          <span>${escHtml(REG_CHECK_LABEL[c.check] || c.check)}:</span>
-          <span class="reg-status ${escHtml(c.status)}">${escHtml(REG_STATUS_LABEL[c.status] || c.status)}</span>
-          <div>${escHtml(c.message)}</div>
-          ${(c.matches || []).map((x) => `<div class="reg-meta">${escHtml(x.combination)} — ${escHtml(x.notification)} (<a href="${escHtml(x.source_url)}" target="_blank" rel="noopener noreferrer">${escHtml(x.list_title)}</a>)</div>`).join('')}
-          ${(c.alerts || []).slice(0, 2).map((x) => `<div class="reg-meta">${escHtml(x.classification)} · ${escHtml(x.reason)} · ${escHtml(x.firm)} · ${escHtml(x.report_date)}</div>`).join('')}
-          <div class="reg-meta">${c.source ? `Source: <a href="${escHtml(c.source.url)}" target="_blank" rel="noopener noreferrer">${escHtml(c.source.title)}</a>` : ''}
-            ${c.checked_at ? ` · checked ${escHtml(new Date(c.checked_at + 'Z').toLocaleString())}` : ''}
-            ${c.source && c.source.data_as_of ? ` · list loaded ${escHtml(c.source.data_as_of)}` : ''}
-            ${c.from_stale_cache ? ' · showing an older saved result' : ''}</div>
-        </div>`).join('')}
-    </div>`).join('');
-  return meds + `<div class="reg-meta" style="margin-top:8px;">${escHtml(data.disclaimer)}</div>`;
+  const verdicts = data.medicines.map(regVerdict);
+  const flaggedCount = verdicts.filter((v) => v.tone === 'warn').length;
+  const summary = flaggedCount
+    ? `${flaggedCount} medicine${flaggedCount > 1 ? 's need' : ' needs'} a look — ask your pharmacist.`
+    : 'Nothing worrying found in the official lists.';
+  const rows = data.medicines.map((m, i) => {
+    const v = verdicts[i];
+    const more = Object.values(m.checks).map((c) => `
+      <div class="reg-check">
+        <div><strong>${escHtml(REG_CHECK_LABEL[c.check] || c.check)}</strong> — ${escHtml(REG_STATUS_LABEL[c.status] || c.status)}</div>
+        <div>${escHtml(c.message)}</div>
+        ${(c.matches || []).map((x) => `<div class="reg-meta">${escHtml(x.combination)} — ${escHtml(x.notification)}</div>`).join('')}
+        <div class="reg-meta">${c.source ? `Source: <a href="${escHtml(c.source.url)}" target="_blank" rel="noopener noreferrer">${escHtml(c.source.title)}</a>` : ''}${c.from_stale_cache ? ' · older saved result' : ''}</div>
+      </div>`).join('');
+    return `
+      <div class="reg-med">
+        <div class="reg-row"><strong>${escHtml(m.medicine)}</strong><span class="reg-verdict ${v.tone}">${v.label}</span></div>
+        ${v.note ? `<div class="reg-meta">${escHtml(v.note)}</div>` : ''}
+        <details class="reg-more"><summary>More</summary>${more}</details>
+      </div>`;
+  }).join('');
+  return `<div class="reg-summary ${flaggedCount ? 'warn' : 'ok'}">${summary}</div>${rows}
+    <div class="reg-meta" style="margin-top:10px;">Not medical advice. Missing from a list does not mean unsafe.</div>`;
 }
 
 async function renderDashboard() {
