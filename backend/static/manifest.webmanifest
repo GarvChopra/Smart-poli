@@ -1,6 +1,6 @@
 {
   "name": "SmartPoli Voice",
-  "short_name": "SmartPoli",
+  "short_name": "SP Voice",
   "description": "Talk to SmartPoli about your medicines and how you feel.",
   "id": "/voice",
   "start_url": "/voice",
