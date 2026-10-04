@@ -326,6 +326,21 @@ class PatientRoutine(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AIGapCache(Base):
+    """Graded dose-gap answers (gap_ai.py), cached so the LLM / label APIs are asked once per medicine or
+    pair, not on every tap. 'single' = one medicine's interval, 'pair' = two medicines (key 'a|b' sorted).
+    Negative answers ('no gap needed') are cached too."""
+    __tablename__ = "ai_gap_cache"
+    __table_args__ = (UniqueConstraint("kind", "key", name="uq_ai_gap_kind_key"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String, nullable=False, index=True)
+    key = Column(String, nullable=False, index=True)
+    payload = Column(Text, nullable=False)       # JSON, already graded
+    model = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class PushSubscription(Base):
     """A browser/TWA Web Push endpoint for one patient (RFC 8030 / VAPID).
     `endpoint` is unique: re-subscribing the same device updates the row."""

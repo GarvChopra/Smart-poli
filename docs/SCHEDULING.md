@@ -56,3 +56,28 @@ What the research and official sources support (read as general background, *not
   a safety reason. Separation is applied where a label gives a reason (and the pairs it covers are listed in
   `MEDICATION_RULES.md`). Pairs with no rule are *unverified*, not safe.
 * Nothing here has been reviewed by a pharmacist or doctor.
+
+
+## Gaps checked at the moment of "Mark taken" (AI-assisted, label-grounded)
+
+The tap is checked against what the patient has **actually taken**, not just the schedule.
+
+| Check | Where the number comes from | If it fails |
+|---|---|---|
+| **Window** | product rule: from 2 h before to 12 h after the dose time | popup, nothing recorded |
+| **Same medicine** (e.g. Metformin again too soon) | floor = half the shortest interval the prescription implies (BD → 6 h). An official label or an AI estimate can **raise** it, but never above 3/4 of that interval, so a dose that is properly due is never blocked | popup with the time it is OK; label/schedule gaps cannot be overridden, AI-estimated ones can ("I already took it") |
+| **Other medicines** (e.g. Ciprofloxacin after Calcium) | 1. curated FDA-label rules (`safety_rules.json`), which always win and are asymmetric; 2. otherwise an AI answer grounded in the labels' interaction text | popup with the time it is OK and "I already took it" (recorded as an override in the audit log) |
+
+**How the AI is used** (`gap_ai.py`): the label text comes from the government's **openFDA** API; a Groq LLM reads it and
+answers in JSON. Each answer is graded: **"label"** only if the quoted sentence really is in the label text *and* contains
+the number of hours; everything else is an **"AI estimate"** and is shown as such ("ask your pharmacist"). Out-of-range or
+malformed output is discarded. Only generic medicine names are sent to the LLM. Answers (including "no gap needed") are cached in
+the database because the free LLM tier rate-limits quickly; the cache is filled in the background after a prescription is
+confirmed and when the dashboard opens, and a tap is answered from the cache only. Any failure simply means no AI answer - the schedule
+floor and the curated rules still apply. `SMARTPOLI_AI_GAPS=0` switches the AI off.
+
+Observed on real data (2026-10-04, openFDA + Groq `qwen/qwen3.8-27b`): levothyroxine + calcium → 4 h graded *label*;
+metformin → 12 h graded *AI estimate* (its quote said "3 times a day", not 12 h); calcium + iron → 2 h *AI estimate*;
+metformin + telmisartan → no gap. In the first trial the AI said 2 h for ciprofloxacin + iron where the FDA label
+says "2 hours before **or 6 hours after**" - which is why a curated label rule is always consulted first and AI never loosens it.
+**Not reviewed by a pharmacist; the AI's general-knowledge answers can be wrong.**

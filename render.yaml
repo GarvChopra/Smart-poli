@@ -74,3 +74,6 @@ services:
       # Set to 1 to refuse to start with an insecure configuration.
       - key: SMARTPOLI_REQUIRE_SECURE_CONFIG
         value: "1"
+      # AI-assisted dose gaps (needs GROQ_API_KEY): "1" on, "0" off.
+      - key: SMARTPOLI_AI_GAPS
+        value: "1"

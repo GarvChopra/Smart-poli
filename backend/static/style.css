@@ -1001,3 +1001,5 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .check-row input[type="checkbox"] { width: 18px; height: 18px; flex: none; accent-color: var(--teal); }
 
 .today-done.has-missed { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--line); font-weight: 500; }
+
+.is-early { opacity: 0.6; border-style: dashed; }

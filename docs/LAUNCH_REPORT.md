@@ -70,6 +70,10 @@ the ≤5.5 h skew is immaterial there).
 * **"Take" cannot be pressed for a dose that is not due**: only from 2 h before to 12 h after its time; earlier shows a
   popup ("Too early … you can mark it taken from …") and the server refuses (409), so repeated taps can no longer
   "take" the whole course. The Next-dose card shows "Not due yet" instead of a button.
+* **Gap checks when "Mark taken" is tapped** (same medicine too soon; another medicine that must be kept apart, e.g. Ciprofloxacin
+  after Calcium): curated FDA-label rules first, then label-grounded AI answers (openFDA + Groq, graded "label" vs "AI estimate",
+  cached, never loosening a curated rule). Popup says why and when it is OK; "I already took it" is allowed only for soft warnings and is audited.
+  See `docs/SCHEDULING.md`.
 * **Patient's own routine** (Settings): morning/afternoon/evening/night/bedtime times, before-food = 30 min earlier,
   optional reminders (last heads-up, follow-up); new medicines follow it and "Save & move my current medicines"
   re-times only future untouched doses. See `docs/SCHEDULING.md` for the design, sources and limits.
@@ -103,7 +107,7 @@ tests `conftest.py`, `test_ocr_endpoint.py`, `test_whatsapp_bot.py`.
 Created: `backend/{clock,safety_engine,safety_service,safety_rules.json,reminders,webpush_service,regulatory,medicine_scan,verification}.*`,
 `backend/data/cdsco_prohibited_fdc.json`, `backend/tools/*` (4 scripts), `backend/static/{push.js,sw-push.js,app.webmanifest,app-icon*}`,
 `android/twa-manifest.json`, `docs/{ANDROID_TWA,QA_CHECKLIST,MEDICATION_RULES,LAUNCH_REPORT}.md`, `.env.example`,
-and 10 new test files (195 tests) plus a shared helper.
+and 11 new test files (222 tests) plus a shared helper.
 Untracked and unrelated: `docx` (planning notes) and the WhatsApp `.mp4` in the repo root — keep both out of commits.
 
 ## 5. Database migrations and environment variables
@@ -122,7 +126,7 @@ New dependencies: `pywebpush==2.5.0`, `tzdata==2026.2` (runtime); `pdfplumber` (
 
 ## 6. Tests actually run (2026-10-04)
 
-* **Python:** `pytest tests` → **534 passed, 0 failed** (339 before this work; +195 new).
+* **Python:** `pytest tests` → **561 passed, 0 failed** (339 before this work; +222 new).
 * **JavaScript:** `auth_next` 3, `voice_commands` 11, `voice_engine` 18, `shorthand` 26 — all pass.
 * **Rule sources:** `verify_rule_sources.py` → 25 sources, **0 failures** against the live FDA labels.
 * **TWA readiness:** local tree 21 pass / 2 warn / 0 fail. **Production as currently deployed: 4 fail**

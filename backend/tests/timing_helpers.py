@@ -20,7 +20,7 @@ def new_patient(client, name="Timing Test"):
 
 def add_medicine(patient_id: int, name: str, dose_times: list[datetime], states: Optional[list[str]] = None,
                  food: str = "any", acted: Optional[list] = None, duration_days: Optional[int] = None,
-                 is_prn: bool = False) -> tuple[int, list[int]]:
+                 is_prn: bool = False, times: Optional[list] = None, slots: Optional[list] = None) -> tuple[int, list[int]]:
     """A confirmed medicine with doses at exactly the given (patient-local) times."""
     init_db()
     db = SessionLocal()
@@ -29,7 +29,8 @@ def add_medicine(patient_id: int, name: str, dose_times: list[datetime], states:
         db.add(pres)
         db.commit()
         med = Medicine(prescription_id=pres.id, raw_text=name, name=name, normalized_name=name,
-                       dose_amount="500", dose_unit="mg", schedule_code="OD", times=json.dumps([]),
+                       dose_amount="500", dose_unit="mg", schedule_code="OD", times=json.dumps(times or []),
+                       slots=json.dumps(slots) if slots is not None else None,
                        food=food, status="verified", confidence=1.0, duration_days=duration_days, is_prn=is_prn)
         db.add(med)
         db.commit()

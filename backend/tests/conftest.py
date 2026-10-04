@@ -14,6 +14,8 @@ os.environ["SMARTPOLI_DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 # tested explicitly (tests/test_timezone_and_reminders.py) with named zones.
 os.environ["SMARTPOLI_DEFAULT_TZ"] = "UTC"
 os.environ["SMARTPOLI_DISABLE_SCHEDULER"] = "1"
+# AI dose-gap lookups call Groq / openFDA; tests inject fakes where they want them.
+os.environ["SMARTPOLI_AI_GAPS"] = "0"
 # No real outbound push/WhatsApp from tests.
 os.environ.pop("SMARTPOLI_VAPID_PRIVATE_KEY", None)
 

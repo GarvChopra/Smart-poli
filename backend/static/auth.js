@@ -132,7 +132,10 @@ async function apiFetch(method, path, body) {
   }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.detail || `${method} ${path} failed (${res.status})`);
+    const err = new Error((typeof detail.detail === 'string' && detail.detail) || `${method} ${path} failed (${res.status})`);
+    err.status = res.status;
+    err.info = detail;          // structured reason (code, earliest, source ...) when the server gives one
+    throw err;
   }
   return res.status === 204 ? null : res.json();
 }

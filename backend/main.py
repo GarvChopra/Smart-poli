@@ -28,11 +28,11 @@ from dotenv import load_dotenv
 # backend/ itself — matches .env.example's location and CLAUDE.md section 13.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -63,7 +63,7 @@ from schemas import (
     PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
-    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate,
+    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
@@ -92,6 +92,8 @@ import whatsapp_bot
 import reminders
 import regulatory
 import routine
+import take_guard
+import gap_ai
 import safety_service
 import safety_engine
 import webpush_service
@@ -519,7 +521,8 @@ def edit_medicine(medicine_id: int, body: MedicineEdit, user: User = Depends(req
 
 
 @app.post("/prescriptions/{prescription_id}/confirm")
-def confirm_prescription(prescription_id: int, user: User = Depends(require_prescription_write_access),
+def confirm_prescription(prescription_id: int, background: BackgroundTasks,
+                          user: User = Depends(require_prescription_write_access),
                           db: Session = Depends(get_db_session)):
     """
     Generate Dose rows for every medicine that is safe to schedule.
@@ -530,17 +533,49 @@ def confirm_prescription(prescription_id: int, user: User = Depends(require_pres
     SchedulingBlocked. The gate lives in the scheduler, not in this endpoint.
     """
     prescription = get_prescription_or_404(db, prescription_id)
-    return confirm_prescription_doses(db, prescription, f"patient:{user.id}")
+    result = confirm_prescription_doses(db, prescription, f"patient:{user.id}")
+    _maybe_warm(prescription.patient_id, background)
+    return result
 
 
 # ---------------------------------------------------------------- doses & dashboard (Feature 2)
+
+def _guard_payload(issue: dict, can_override: bool) -> dict:
+    """409 body for a refused tap. `detail` stays a plain sentence (older clients just show it); the rest lets the
+    app say why and offer 'I already took it' only where that is allowed."""
+    return {"detail": issue["message"], "code": issue["code"], "can_override": can_override,
+            "earliest": issue.get("earliest"), "source": issue.get("source"), "source_label": issue.get("source_label"),
+            "quote": issue.get("quote"), "medicine": issue.get("medicine"), "other_medicine": issue.get("other_medicine")}
+
+
+def _slot_of(medicine: Medicine, dose: Dose) -> Optional[str]:
+    """'morning' / 'afternoon' / ... for a dose, read from the medicine's own slot list (None for exact-time medicines)."""
+    try:
+        slots, times = json.loads(medicine.slots or "[]"), json.loads(medicine.times or "[]")
+    except ValueError:
+        return None
+    hhmm = dose.scheduled_at.strftime("%H:%M")
+    return slots[times.index(hhmm)] if hhmm in times and len(slots) == len(times) else None
+
+
+_last_warm: dict = {}
+
+
+def _maybe_warm(patient_id: int, background: BackgroundTasks) -> None:
+    """Fill the gap cache in the background (at most once every 6 hours per patient) so taps are answered from it."""
+    import time
+    if gap_ai.is_enabled() and time.time() - _last_warm.get(patient_id, 0) > 6 * 3600:
+        _last_warm[patient_id] = time.time()
+        background.add_task(gap_ai.warm_patient, patient_id)
+
 
 def _dose_patient_id(dose: Dose) -> int:
     return dose.medicine.prescription.patient_id
 
 
 @app.post("/doses/{dose_id}/take")
-def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
+def take_dose(dose_id: int, body: Optional[TakeDose] = None, user: User = Depends(require_dose_write_access),
+              db: Session = Depends(get_db_session)):
     """
     Record a dose as taken, at the time it was ACTUALLY taken (the patient's
     own clock - a late dose keeps its real time, which the timing-safety
@@ -554,15 +589,24 @@ def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
     now = patient_now(db, patient_id)
     if dose.state == "taken":
         return serialize_dose(dose)                      # idempotent: a repeat tap changes nothing
-    too_far = take_window_error(dose, now)
-    if too_far:
-        raise HTTPException(409, too_far)
+    issues = take_guard.evaluate(db, dose, now)
+    hard = [i for i in issues if i["hard"]]
+    if hard:
+        return JSONResponse(status_code=409, content=_guard_payload(hard[0], can_override=False))
+    soft = [i for i in issues if not i["hard"]]
+    overridden = bool(soft and body and body.override)
+    if soft and not overridden:
+        return JSONResponse(status_code=409, content=_guard_payload(soft[0], can_override=True))
     changed = (db.query(Dose).filter(Dose.id == dose_id, Dose.state != "taken")
                .update({"state": "taken", "acted_at": now}, synchronize_session=False))
     db.commit()
     db.refresh(dose)
     if changed:
         late = (now - scheduled) > timedelta(minutes=15)
+        if overridden:
+            log_audit(db, patient_id, f"patient:{user.id}", "dose_taken_override",
+                      json.dumps({"dose_id": dose.id, "warnings": [{k: i.get(k) for k in ("code", "source", "other_medicine", "earliest")}
+                                                                      for i in soft]}))
         log_audit(db, patient_id, f"patient:{user.id}",
                   "dose_taken_late" if late else "dose_taken",
                   f"dose {dose.id} was {previous_state}; scheduled {scheduled.isoformat()}, "
@@ -874,9 +918,10 @@ def log_prn(medicine_id: int, user: User = Depends(require_medicine_write_access
 
 
 @app.get("/patients/{patient_id}/dashboard")
-def dashboard(patient_id: int, user: User = Depends(require_patient_read_access),
+def dashboard(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
               db: Session = Depends(get_db_session)):
     get_patient_or_404(db, patient_id)
+    _maybe_warm(patient_id, background)
     sweep_missed(db)
 
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
@@ -909,7 +954,7 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
         "patient_id": patient_id,
         "today": today.isoformat(),
         "today_doses": [{**serialize_dose(dose), "medicine_name": medicine.name or medicine.raw_text,
-                         "food": medicine.food} for dose, medicine in todays],
+                         "food": medicine.food, "slot": _slot_of(medicine, dose)} for dose, medicine in todays],
         "left_today": sum(1 for dose, _ in todays if dose.state in ("pending", "snoozed")),
         "adherence": compute_adherence(all_doses),
         "per_medicine": compute_medicine_breakdown(medicines_with_doses),

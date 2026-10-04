@@ -138,3 +138,38 @@ def test_dashboard_does_not_repeat_todays_misses_in_a_second_card_or_claim_all_d
     assert "earlierMissed" in dash and "Missed earlier" in dash and "Missed recently" not in dash
     today = fn_body("renderTodaySchedule")
     assert "Nothing more scheduled today." in today and "All done for today ✓" in today and "anyMissed" in today
+
+
+def test_the_take_button_is_always_there_and_always_explains_itself():
+    today = fn_body("renderTodaySchedule")
+    assert "is-early" in today and 'data-act="take"' in today                         # far doses keep a (muted) Take button
+    dash = fn_body("renderDashboard")
+    assert "data-hero-take" in dash and "is-early" in dash and "Not due yet" in dash  # hero button also stays, muted
+    guard = fn_body("takeDoseWithGuard")
+    assert "confirmDialog(" in guard and "Taking this early?" in guard                # soft question when 30 min - 2 h early
+    assert "showNotice(" in guard and "Not yet — don’t take this now" in guard         # hard refusal shown as a popup
+    assert ".is-early" in CSS
+
+
+def test_confirm_dialog_resolves_only_on_the_yes_button():
+    body = fn_body("confirmDialog")
+    assert "resolve(true)" not in body or "done(true)" in body
+    assert "#cdYes" in body and "#cdNo" in body and "done(false)" in body
+
+
+def test_refused_taps_explain_why_and_only_soft_warnings_offer_i_already_took_it():
+    guard = fn_body("takeDoseWithGuard")
+    assert "info.can_override" in guard and "I already took it" in guard and "{ override: true }" in guard
+    assert "These two medicines need a gap" in guard and "Too soon after your last dose" in guard
+    auth_js = open(os.path.join(STATIC, "auth.js"), encoding="utf-8").read()
+    assert "err.info = detail" in auth_js and "err.status = res.status" in auth_js           # the structured reason reaches the UI
+
+
+def test_each_open_dose_says_when_and_how_to_take_it_without_locking_anything():
+    today = fn_body("renderTodaySchedule")
+    assert "d.slot" in today and "take after food" in today and "take before food" in today
+    assert "disabled" not in today and "lock" not in today.lower()                         # no locked/disabled state: tapping explains
+
+
+def test_when_the_safe_answer_is_to_wait_the_wait_button_is_the_prominent_one():
+    assert "safeIsNo" in fn_body("confirmDialog") and "'OK, I’ll wait', true)" in fn_body("takeDoseWithGuard")

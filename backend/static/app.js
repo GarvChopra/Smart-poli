@@ -715,9 +715,13 @@ function renderTodaySchedule(dash) {
                  <button class="ghost small" data-act="snooze">Snooze</button>
                  <button class="ghost small" data-act="skip">Skip</button>`;
     } else if (open && minsAway > 0) {
-      status = `<span class="today-pill muted">Later today</span>`;   // not due yet: nothing to tap
+      status = `<span class="today-pill muted">Later today</span>`;
+      actions = `<button class="ghost small is-early" data-act="take">Take</button>`;   // tapping explains why not yet
     }
-    const hint = open && d.food && d.food !== 'any' ? `<div class="reg-meta">Take ${escHtml(d.food)} food</div>` : '';
+    const slotName = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', night: 'Night', bedtime: 'Bedtime' }[d.slot] || '';
+    const foodText = d.food === 'before' ? 'take before food' : d.food === 'after' ? 'take after food' : '';
+    const hintText = [slotName, foodText].filter(Boolean).join(' · ');
+    const hint = open && hintText ? `<div class="reg-meta">${escHtml(hintText)}</div>` : '';
     return `
       <div class="dose-calendar-slot ${open ? '' : 'is-done'}" data-dose-id="${d.id}" data-med-name="${escHtml(d.medicine_name)}" data-scheduled-at="${escHtml(d.scheduled_at)}">
         <div class="dose-calendar-time">${escHtml(hhmm(d.scheduled_at))}</div>
@@ -813,14 +817,62 @@ function isTakeableNow(iso) {
   return diff <= TAKE_EARLY_MS && diff >= -TAKE_LATE_MS;
 }
 
-/** Mark a dose taken; if it is not due yet the server says so and we show it as a popup. */
-async function takeDoseWithGuard(doseId, medName, scheduledAt) {
+/** Yes/No popup. Resolves true only if the patient chooses the confirm button. */
+function confirmDialog(title, message, yesLabel, noLabel, safeIsNo = false) {
+  // safeIsNo: the "No / wait" answer is the safe one, so it gets the prominent button.
+  return new Promise((resolve) => {
+    const overlay = showSafetyModal(`
+      <h3>${escHtml(title)}</h3>
+      <div class="sm-headline" style="font-weight:500;">${escHtml(message)}</div>
+      <div class="sm-actions">
+        <button class="${safeIsNo ? 'ghost' : 'primary'} small" id="cdYes">${escHtml(yesLabel)}</button>
+        <button class="${safeIsNo ? 'primary' : 'ghost'} small" id="cdNo">${escHtml(noLabel)}</button>
+      </div>`);
+    const done = (v) => { overlay.remove(); resolve(v); };
+    overlay.querySelector('#cdYes').addEventListener('click', () => done(true));
+    overlay.querySelector('#cdNo').addEventListener('click', () => done(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+  });
+}
+
+function earlyLabel(mins) {
+  const m = Math.round(mins);
+  return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}` : `${m} min`;
+}
+
+/**
+ * Mark a dose taken, with layers of protection against taking the wrong dose:
+ *   - more than ~30 min early (but inside the 2 h window): ask first;
+ *   - a dose that is not due yet, or too soon after the last dose of the same medicine: the server refuses
+ *     and we show why, as a popup;
+ *   - two medicines that must be kept apart (FDA label rule, or an AI estimate): we say when it is okay, and the
+ *     patient can answer "I already took it" - which is recorded as an override.
+ * The button is always visible so tapping it always explains itself instead of doing nothing.
+ */
+async function takeDoseWithGuard(doseId, medName, scheduledAt, override = false) {
+  const minsEarly = (new Date(scheduledAt) - Date.now()) / 60000;
+  if (!override && minsEarly > 30 && minsEarly <= TAKE_EARLY_MS / 60000) {
+    const at = new Date(scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const yes = await confirmDialog('Taking this early?',
+      `${medName} is scheduled for ${at}, which is ${earlyLabel(minsEarly)} from now. Did you take it already?`,
+      'Yes, I took it', 'No, not yet');
+    if (!yes) return false;
+  }
   try {
-    await api('POST', `/doses/${doseId}/take`);
+    await api('POST', `/doses/${doseId}/take`, override ? { override: true } : undefined);
     showTakenPopup(medName, scheduledAt);
     return true;
   } catch (e) {
-    showNotice('Not yet — don’t take this now', e.message || 'This dose is not due yet.');
+    const info = e.info || {};
+    if (e.status === 409 && info.can_override) {
+      // Cross-medicine spacing or an AI-estimated gap: explain, and let the patient say they already took it.
+      const tookIt = await confirmDialog(
+        info.code === 'spacing' ? 'These two medicines need a gap' : 'A little too soon after your last dose',
+        e.message, 'I already took it', 'OK, I’ll wait', true);
+      return tookIt ? takeDoseWithGuard(doseId, medName, scheduledAt, true) : false;
+    }
+    showNotice(info.code === 'too_soon' ? 'Too soon after your last dose' : 'Not yet — don’t take this now',
+      e.message || 'This dose is not due yet.');
     return false;
   }
 }
@@ -1187,9 +1239,8 @@ async function renderDashboard() {
         </div>
         <div style="text-align:right;">
           <div class="countdown ${overdue ? 'overdue' : ''}">${overdue ? 'Overdue by ' : 'in '}${label}</div>
-          ${takeable
-            ? `<button class="primary small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>`
-            : `<div class="reg-meta" style="margin-top:8px;">Not due yet · can be taken from ${takeFrom}</div>`}
+          <button class="${takeable ? 'primary' : 'ghost is-early'} small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>
+          ${takeable ? '' : `<div class="reg-meta" style="margin-top:6px;">Not due yet · can be taken from ${takeFrom}</div>`}
         </div>
       </div>
     `;

@@ -542,6 +542,38 @@ def _earliest_after_spacing(medicine, dose, keys, rules, now, other_medicines) -
     return (earliest if earliest > now else None), notes
 
 
+def curated_rule_exists(name_a: str, name_b: str, rules: dict) -> bool:
+    """True if a curated spacing rule (with or without a stated interval) covers this pair in either order."""
+    ka, kb = resolve_ingredients(name_a, rules), resolve_ingredients(name_b, rules)
+    for rule in _all_spacing_rules(rules):
+        for x, y in ((ka, kb), (kb, ka)):
+            if _pair_rule_matches(rule, x, y) and not (rule["b"] == "*" and ka & kb):
+                return True
+    return False
+
+
+def take_time_spacing(this_name: str, other_name: str, other_taken_at: datetime, now: datetime,
+                      rules: dict) -> Optional[dict]:
+    """Does taking `this` medicine NOW break a curated label rule against `other`, which was ACTUALLY taken at
+    other_taken_at? Returns the binding rule's details (with the earliest allowed time) or None."""
+    this_keys, other_keys = resolve_ingredients(this_name, rules), resolve_ingredients(other_name, rules)
+    best = None
+    for rule in _all_spacing_rules(rules):
+        if _pair_rule_matches(rule, this_keys, other_keys) and not (rule["b"] == "*" and this_keys & other_keys):
+            wait = rule.get("b_then_a_min_hours")        # this is 'a'; the other (b) came first
+        elif _pair_rule_matches(rule, other_keys, this_keys) and not (rule["b"] == "*" and this_keys & other_keys):
+            wait = rule.get("a_then_b_min_hours")        # the other is 'a' and came first; this is 'b'
+        else:
+            continue
+        if wait is None:
+            continue
+        earliest = other_taken_at + timedelta(hours=wait)
+        if earliest > now and (best is None or earliest > best["earliest"]):
+            best = {"rule_id": rule["id"], "earliest": earliest, "required_hours": wait,
+                    "quote": rule["source"]["quote"], "source": _source_view(rule["source"])}
+    return best
+
+
 def build_missed_notification(guidance: dict, conflict_hint: Optional[str] = None) -> dict:
     """Short text for the single notification sent when a dose is missed:
     what was missed, never double, when the next dose is, and any gap rule."""

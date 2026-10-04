@@ -196,3 +196,7 @@ class RoutineUpdate(BaseModel):
     bedtime: str = Field(..., max_length=5)
     notify_soon: bool = True
     notify_followup: bool = True
+
+
+class TakeDose(BaseModel):
+    override: bool = False      # "I already took it" - honoured only for soft warnings (cross-medicine spacing / AI estimates)
