@@ -1049,3 +1049,17 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .hero-next-dose > div:last-child { text-align: center !important; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
 .hero-next-dose > div:last-child button { margin-top: 0 !important; min-width: 180px; font-weight: 800; }
 .hero-next-dose > div:last-child .reg-meta { margin-top: 0 !important; text-align: center; }
+
+/* Settings: notifications first, everything else in tidy collapsible rows */
+.set-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.set-top h2 { margin: 0; }
+.set-top .session-chip { display: flex; align-items: center; gap: 10px; }
+.set-group { background: var(--surface, #fff); border: 1px solid var(--line, #e3e8e6); border-radius: 16px; margin-top: 12px; padding: 0 16px; }
+.set-group > summary { cursor: pointer; list-style: none; font-weight: 700; padding: 15px 0; display: flex; justify-content: space-between; align-items: center; }
+.set-group > summary::-webkit-details-marker { display: none; }
+.set-group > summary::after { content: ""; width: 9px; height: 9px; border-right: 2px solid var(--ink-soft); border-bottom: 2px solid var(--ink-soft); transform: rotate(45deg); transition: transform .15s; margin-right: 4px; }
+.set-group[open] > summary::after { transform: rotate(-135deg); margin-top: 6px; }
+.set-group[open] { padding-bottom: 14px; }
+.set-group .card { border: 0; box-shadow: none; padding: 0; margin: 0; background: transparent; }
+.set-group .card-head { display: none; }
+.set-group:not(.set-static):not(:has(.card)) { display: none; }

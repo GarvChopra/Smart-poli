@@ -92,6 +92,8 @@ async function loadPatients() {
   select.innerHTML = state.patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   if (!state.patientId && state.patients.length) state.patientId = state.patients[0].id;
   if (state.patientId) select.value = state.patientId;
+  // Only people who manage more than one patient (e.g. a parent) ever see a patient switcher.
+  document.getElementById('patientGroup').style.display = state.patients.length > 1 ? '' : 'none';
 }
 
 document.getElementById('patientSelect').addEventListener('change', (e) => {
@@ -151,7 +153,6 @@ function renderSessionChip() {
   if (!chip || !currentUser) return;
   chip.innerHTML = `
     <span class="who">${currentUser.name}</span>
-    <span class="role-tag">Patient</span>
     <button class="ghost small" id="logoutBtn">Log out</button>
   `;
   document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -170,18 +171,6 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   applyA11yMode();
 });
 
-async function createNewPatient() {
-  const name = prompt('Patient name?');
-  if (!name) return;
-  const age = prompt('Age? (optional)');
-  const sex = prompt('Sex? (M/F/Other, optional)');
-  const patient = await api('POST', '/patients', { name, age: age ? Number(age) : null, sex: sex || null });
-  await loadPatients();
-  state.patientId = patient.id;
-  document.getElementById('patientSelect').value = patient.id;
-  renderActiveTab();
-}
-document.getElementById('newPatientBtn').addEventListener('click', createNewPatient);
 
 document.querySelectorAll('nav.pill-nav button[data-tab]').forEach(btn => {
   btn.addEventListener('click', () => {
