@@ -96,7 +96,19 @@ function requireRole(expectedRole) {
   return auth.user;
 }
 
-function logout() {
+async function logout() {
+  const auth = getAuth();
+  try {
+    if (auth && auth.token) {
+      // A shared phone must stop showing this person's dose reminders, and the
+      // session token must stop working server-side (a JWT is otherwise valid
+      // until it expires). Both are best effort - leaving the page must not hang on them.
+      if (typeof disablePushReminders === 'function' && auth.user && auth.user.patient_ids) {
+        for (const pid of auth.user.patient_ids) await disablePushReminders(pid);
+      }
+      await fetch('/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` }, keepalive: true });
+    }
+  } catch (e) { /* offline or already expired: still log out locally */ }
   clearAuth();
   window.location.href = '/static/login.html';
 }

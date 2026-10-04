@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from db import log_audit, Prescription, Medicine
 from parser import parse_medicine_line, compute_status
 from scheduler import generate_doses, SchedulingBlocked
+from clock import patient_now
 
 
 def create_prescription_from_lines(
@@ -88,6 +89,8 @@ def confirm_prescription_doses(db: Session, prescription: Prescription, actor: s
     SchedulingBlocked. The gate lives in the scheduler, not in this function.
     """
     medicines = db.query(Medicine).filter(Medicine.prescription_id == prescription.id).all()
+    # Dose times are the patient's local wall-clock, so "now" must be too.
+    local_start = patient_now(db, prescription.patient_id)
 
     scheduled, blocked, prn = [], [], []
     for medicine in medicines:
@@ -95,7 +98,7 @@ def confirm_prescription_doses(db: Session, prescription: Prescription, actor: s
             blocked.append(medicine.id)
             continue
         try:
-            doses = generate_doses(medicine)
+            doses = generate_doses(medicine, start_at=local_start, skip_past=True)
         except SchedulingBlocked:
             blocked.append(medicine.id)
             continue
@@ -109,5 +112,13 @@ def confirm_prescription_doses(db: Session, prescription: Prescription, actor: s
     db.commit()
     log_audit(db, prescription.patient_id, actor, "prescription_confirmed",
               f"scheduled={len(scheduled)} blocked={len(blocked)} prn={len(prn)}")
+
+    # Tell the patient now (once per pair) if the new medicines need spacing from their others.
+    try:
+        import reminders
+        reminders.notify_new_conflicts(db, prescription.patient_id)
+    except Exception:  # noqa: BLE001 - a notification problem must never fail a confirmation
+        import logging
+        logging.getLogger(__name__).exception("conflict notice failed after confirm")
 
     return {"prescription_id": prescription.id, "scheduled": scheduled, "blocked_needs_confirmation": blocked, "prn": prn}

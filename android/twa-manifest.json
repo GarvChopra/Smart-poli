@@ -1,0 +1,37 @@
+{
+  "packageId": "app.smartpoli.twa",
+  "host": "smartpoli.onrender.com",
+  "name": "SmartPoli",
+  "launcherName": "SmartPoli",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#0F8A70",
+  "themeColorDark": "#0F8A70",
+  "navigationColor": "#F4F7F6",
+  "navigationColorDark": "#F4F7F6",
+  "navigationDividerColor": "#F4F7F6",
+  "navigationDividerColorDark": "#F4F7F6",
+  "backgroundColor": "#F4F7F6",
+  "enableNotifications": true,
+  "startUrl": "/?source=twa",
+  "iconUrl": "https://smartpoli.onrender.com/static/app-icon-512.png",
+  "maskableIconUrl": "https://smartpoli.onrender.com/static/app-icon-maskable-512.png",
+  "webManifestUrl": "https://smartpoli.onrender.com/manifest.webmanifest",
+  "fullScopeUrl": "https://smartpoli.onrender.com/",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "minSdkVersion": 21,
+  "fallbackType": "customtabs",
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./smartpoli-release.keystore",
+    "alias": "smartpoli"
+  },
+  "shortcuts": [
+    { "name": "Talk to SmartPoli", "short_name": "Voice", "url": "/voice", "icons": [{ "src": "/static/app-icon-192.png", "sizes": "192x192" }] }
+  ],
+  "generatorApp": "bubblewrap-cli"
+}

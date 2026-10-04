@@ -540,6 +540,11 @@ footer.disclaimer { margin-top: 22px; font-size: 12.5px; color: var(--ink-soft);
 
 .empty { color: var(--ink-soft); padding: 18px 0; }
 
+/* missed doses: visually separate from (and quieter than) the upcoming ones */
+.missed-card { background: var(--paper); border: 1px dashed var(--line); margin-bottom: 16px; }
+.missed-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 13.5px; color: var(--ink-soft); }
+.missed-note { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--amber-soft); color: var(--amber); font-size: 12.5px; }
+
 @media print {
   .topbar, .glance, .no-print { display: none !important; }
   .body-row { display: block; }
@@ -895,3 +900,87 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
   .hc-print-face.hc-back { transform: none; display: flex; flex-direction: column; }
   .hc-print-face.hc-front { transform: none; }
 }
+
+
+/* ---------------------------------------------------------------- timing safety UI */
+.safety-modal-overlay { position: fixed; inset: 0; background: rgba(22,36,31,0.45); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
+.safety-modal { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-card-hover); padding: 22px 22px 18px; width: min(460px, 100%); max-height: 88vh; overflow-y: auto; }
+.safety-modal h3 { margin: 0 0 2px; }
+.sm-sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 10px; }
+.sm-headline { font-size: 15px; font-weight: 600; margin: 10px 0; }
+.sm-never { background: var(--amber-soft); color: var(--amber); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px; font-weight: 600; margin: 10px 0; }
+.sm-quote { border-left: 3px solid var(--teal); padding: 4px 0 4px 10px; margin: 10px 0; font-size: 13px; color: var(--ink-soft); }
+.sm-quote a { color: var(--teal-dark); }
+.sm-unreviewed { font-size: 11.5px; color: var(--ink-faint); margin-top: 6px; }
+.sm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.missed-row .missed-help { margin-left: 8px; }
+.conflict-item { border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 10px; font-size: 13.5px; }
+.conflict-item.needs_clarification { border-left-color: var(--alarm); }
+.conflict-meds { font-weight: 700; margin-bottom: 2px; }
+.conflict-proposal { margin-top: 8px; background: var(--teal-soft); color: var(--teal-dark); border-radius: var(--radius-sm); padding: 8px 10px; }
+.conflict-clarify { margin-top: 8px; color: var(--alarm); font-weight: 600; }
+.conflict-source { margin-top: 8px; font-size: 12px; color: var(--ink-soft); }
+.reg-med { border-top: 1px solid var(--line); padding: 10px 0; }
+.reg-med:first-of-type { border-top: none; }
+.reg-check { margin: 8px 0 0; font-size: 13px; }
+.reg-chip { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-right: 6px; background: var(--paper); border: 1px solid var(--line); color: var(--ink-soft); }
+.reg-chip.IN { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+.reg-chip.US { background: var(--teal-soft); color: var(--teal-dark); border-color: transparent; }
+.reg-status { font-weight: 700; }
+.reg-status.restricted_status_identified, .reg-status.regulatory_alert_found { color: var(--alarm); }
+.reg-status.potential_match { color: var(--amber); }
+.reg-meta { color: var(--ink-faint); font-size: 12px; }
+
+.scan-option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 13.5px; cursor: pointer; }
+.scan-result label { font-size: 12.5px; color: var(--ink-soft); }
+.scan-result input[type="text"], .scan-result input[type="number"], .scan-result select { width: 100%; }
+
+.verif-row { margin-top: 8px; }
+.verif-row .reg-chip { margin-bottom: 4px; }
+.scan-option { text-align: left; }
+.scan-option > span { flex: 1; min-width: 0; }
+.scan-result input[type="radio"], .scan-result input[type="checkbox"] { width: 18px; height: 18px; flex: none; padding: 0; margin: 2px 0 0; accent-color: var(--teal); }
+.scan-result label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 6px; }
+
+
+/* ---------------------------------------------------------------- alerts: calm, scannable, never "emergency red" */
+.alert-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-soft); margin: 0 0 10px; }
+.alert-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.alert-summary { display: inline-block; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); margin-bottom: 8px; }
+.alert-card { display: flex; gap: 12px; padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--line); margin-bottom: 10px; background: var(--surface); }
+.alert-icon { flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.alert-icon svg { width: 18px; height: 18px; }
+.alert-body { flex: 1; min-width: 0; }
+.alert-title { font-weight: 700; font-size: 15px; line-height: 1.3; }
+.alert-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); margin-top: 10px; font-weight: 700; }
+.alert-text { font-size: 13.5px; margin-top: 2px; }
+.alert-do { margin-top: 10px; background: rgba(255,255,255,0.75); border-radius: var(--radius-sm); padding: 9px 11px; border: 1px solid rgba(0,0,0,0.05); }
+.alert-card.tone-action { background: #FFF8EC; border-color: #E7B25B; }
+.alert-card.tone-action .alert-icon { background: var(--amber-soft); color: var(--amber); }
+.alert-card.tone-care { background: #FFFCF0; border-color: #E8D589; }
+.alert-card.tone-care .alert-icon { background: #FBF1C7; color: #8A6D00; }
+.alert-card.tone-info { background: var(--blue-soft); border-color: transparent; }
+.alert-card.tone-info .alert-icon { background: #fff; color: var(--blue); }
+.alert-card.tone-clear { background: var(--teal-soft); border-color: transparent; align-items: center; }
+.alert-card.tone-clear .alert-icon { background: #fff; color: var(--teal-dark); }
+.alert-card.tone-clear .alert-title { color: var(--teal-dark); font-weight: 600; }
+.gap-vis { margin-top: 10px; }
+.gap-ends { display: flex; justify-content: space-between; gap: 10px; }
+.gap-time { font-size: 18px; font-weight: 800; line-height: 1.1; }
+.gap-name { font-size: 12.5px; color: var(--ink-soft); }
+.gap-bar { height: 8px; border-radius: 999px; background: rgba(0,0,0,0.08); margin: 8px 0 4px; overflow: hidden; }
+.gap-fill { height: 100%; background: var(--amber); border-radius: 999px; }
+.gap-caption { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-soft); }
+.alert-why { margin-top: 10px; font-size: 12.5px; }
+.alert-why summary { cursor: pointer; color: var(--teal-dark); font-weight: 600; }
+
+
+/* ---------------------------------------------------------------- today's schedule */
+.today-pill { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+.today-pill.ok { background: var(--teal-soft); color: var(--teal-dark); }
+.today-pill.muted { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--line); }
+.today-pill.care { background: #FBF1C7; color: #8A6D00; }
+.today-pill.action { background: var(--amber-soft); color: var(--amber); }
+.today-pill.info { background: var(--blue-soft); color: var(--blue); }
+.dose-calendar-slot.is-done { opacity: 0.72; }
+.today-done { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--teal-soft); color: var(--teal-dark); font-size: 13.5px; font-weight: 600; }

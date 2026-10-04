@@ -1,0 +1,354 @@
+{
+  "ruleset_version": "1.0.0",
+  "compiled_on": "2026-10-04",
+  "review_status": "UNREVIEWED - no qualified clinician or pharmacist has reviewed these rules. Every rule below is a transcription of a US FDA label sentence (see 'source.quote'), not clinical advice. Re-check against the current label before relying on it, and have a pharmacist review before use with real patients.",
+  "scope_note": "Rules come from US FDA prescribing information via DailyMed/openFDA. Indian brands carry their own labels; an ingredient-level rule is shown to the patient as 'according to the US FDA label'. Use tools/verify_rule_sources.py to re-check every quote against the live label.",
+
+  "ingredient_aliases": {
+    "levothyroxine": ["levothyroxine", "eltroxin", "thyronorm", "thyroxine"],
+    "ciprofloxacin": ["ciprofloxacin", "ciplox", "cifran", "cipro"],
+    "levofloxacin": ["levofloxacin", "levoflox", "tavanic"],
+    "doxycycline": ["doxycycline", "doxy"],
+    "alendronate": ["alendronate", "fosamax"],
+    "calcium": ["calcium", "calcium carbonate", "calcium citrate", "shelcal", "calcimax"],
+    "iron": ["iron", "ferrous sulfate", "ferrous sulphate", "ferrous fumarate", "ferrous ascorbate", "ferrous gluconate"],
+    "magnesium_aluminium_antacid": ["magnesium hydroxide", "aluminium hydroxide", "aluminum hydroxide", "antacid", "digene", "gelusil"],
+    "zinc": ["zinc"],
+    "sucralfate": ["sucralfate"],
+    "sevelamer_lanthanum": ["sevelamer", "lanthanum"],
+    "ppi": ["omeprazole", "pantoprazole", "esomeprazole", "rabeprazole", "lansoprazole"],
+    "telmisartan": ["telmisartan", "telma"],
+    "amlodipine": ["amlodipine", "stamlo"],
+    "atorvastatin": ["atorvastatin", "storvas", "atorva"],
+    "metformin": ["metformin", "glycomet"],
+    "warfarin": ["warfarin"]
+  },
+
+  "spacing_rules": [
+    {
+      "id": "levothyroxine-calcium",
+      "a": "levothyroxine", "b": "calcium",
+      "a_then_b_min_hours": 4, "b_then_a_min_hours": 4,
+      "plain": "Calcium can bind levothyroxine in the gut and reduce how much is absorbed.",
+      "source": {
+        "title": "Levothyroxine sodium tablets - US FDA prescribing information",
+        "set_id": "008de8fd-150f-4022-8ccb-c8bfa94875c7", "effective": "2026-03-24",
+        "section": "drug_interactions",
+        "quote": "Administer levothyroxine sodium tablets at least 4 hours apart from these agents.",
+        "context_quote": "Phosphate Binders (e.g., calcium carbonate, ferrous sulfate, sevelamer, lanthanum)"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levothyroxine-iron",
+      "a": "levothyroxine", "b": "iron",
+      "a_then_b_min_hours": 4, "b_then_a_min_hours": 4,
+      "plain": "Iron can bind levothyroxine in the gut and reduce how much is absorbed.",
+      "source": {
+        "title": "Levothyroxine sodium tablets - US FDA prescribing information",
+        "set_id": "008de8fd-150f-4022-8ccb-c8bfa94875c7", "effective": "2026-03-24",
+        "section": "drug_interactions",
+        "quote": "Administer levothyroxine sodium tablets at least 4 hours apart from these agents.",
+        "context_quote": "Phosphate Binders (e.g., calcium carbonate, ferrous sulfate, sevelamer, lanthanum)"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levothyroxine-sevelamer-lanthanum",
+      "a": "levothyroxine", "b": "sevelamer_lanthanum",
+      "a_then_b_min_hours": 4, "b_then_a_min_hours": 4,
+      "plain": "These phosphate binders can bind levothyroxine in the gut and reduce how much is absorbed.",
+      "source": {
+        "title": "Levothyroxine sodium tablets - US FDA prescribing information",
+        "set_id": "008de8fd-150f-4022-8ccb-c8bfa94875c7", "effective": "2026-03-24",
+        "section": "drug_interactions",
+        "quote": "Administer levothyroxine sodium tablets at least 4 hours apart from these agents.",
+        "context_quote": "Phosphate Binders (e.g., calcium carbonate, ferrous sulfate, sevelamer, lanthanum)"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "ciprofloxacin-calcium",
+      "a": "ciprofloxacin", "b": "calcium",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 6,
+      "plain": "Calcium can stop ciprofloxacin from being absorbed properly. The label asks for ciprofloxacin to be taken 2 hours before, or 6 hours after, calcium.",
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "dosage_and_administration 2.4",
+        "quote": "Administer ciprofloxacin tablets at least 2 hours before or 6 hours after magnesium/aluminum antacids; polymeric phosphate binders (for example, sevelamer, lanthanum carbonate) or sucralfate; Videx"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "ciprofloxacin-iron",
+      "a": "ciprofloxacin", "b": "iron",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 6,
+      "plain": "Iron can stop ciprofloxacin from being absorbed properly. The label asks for ciprofloxacin to be taken 2 hours before, or 6 hours after, iron.",
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "information_for_patients",
+        "quote": "Inform patients that antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or six hours after ciprofloxacin tablets administration."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "ciprofloxacin-antacid",
+      "a": "ciprofloxacin", "b": "magnesium_aluminium_antacid",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 6,
+      "plain": "Magnesium or aluminium antacids can stop ciprofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "dosage_and_administration 2.4",
+        "quote": "Administer ciprofloxacin tablets at least 2 hours before or 6 hours after magnesium/aluminum antacids; polymeric phosphate binders (for example, sevelamer, lanthanum carbonate) or sucralfate; Videx"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "ciprofloxacin-zinc",
+      "a": "ciprofloxacin", "b": "zinc",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 6,
+      "plain": "Zinc can stop ciprofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "information_for_patients",
+        "quote": "Inform patients that antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or six hours after ciprofloxacin tablets administration."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "ciprofloxacin-sucralfate",
+      "a": "ciprofloxacin", "b": "sucralfate",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 6,
+      "plain": "Sucralfate can stop ciprofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "dosage_and_administration 2.4",
+        "quote": "Administer ciprofloxacin tablets at least 2 hours before or 6 hours after magnesium/aluminum antacids; polymeric phosphate binders (for example, sevelamer, lanthanum carbonate) or sucralfate; Videx"
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levofloxacin-iron",
+      "a": "levofloxacin", "b": "iron",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 2,
+      "plain": "Iron can stop levofloxacin from being absorbed properly. The label asks for them to be at least 2 hours apart.",
+      "source": {
+        "title": "Levofloxacin tablets - US FDA prescribing information",
+        "set_id": "05d179f5-b200-8597-e063-6394a90a10cc", "effective": "2025-03-04",
+        "section": "information_for_patients",
+        "quote": "Antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or two hours after oral levofloxacin administration."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levofloxacin-antacid",
+      "a": "levofloxacin", "b": "magnesium_aluminium_antacid",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 2,
+      "plain": "Magnesium or aluminium antacids can stop levofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Levofloxacin tablets - US FDA prescribing information",
+        "set_id": "05d179f5-b200-8597-e063-6394a90a10cc", "effective": "2025-03-04",
+        "section": "information_for_patients",
+        "quote": "Antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or two hours after oral levofloxacin administration."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levofloxacin-zinc",
+      "a": "levofloxacin", "b": "zinc",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 2,
+      "plain": "Zinc can stop levofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Levofloxacin tablets - US FDA prescribing information",
+        "set_id": "05d179f5-b200-8597-e063-6394a90a10cc", "effective": "2025-03-04",
+        "section": "information_for_patients",
+        "quote": "Antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or two hours after oral levofloxacin administration."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "levofloxacin-sucralfate",
+      "a": "levofloxacin", "b": "sucralfate",
+      "a_then_b_min_hours": 2, "b_then_a_min_hours": 2,
+      "plain": "Sucralfate can stop levofloxacin from being absorbed properly.",
+      "source": {
+        "title": "Levofloxacin tablets - US FDA prescribing information",
+        "set_id": "05d179f5-b200-8597-e063-6394a90a10cc", "effective": "2025-03-04",
+        "section": "information_for_patients",
+        "quote": "Antacids containing magnesium, or aluminum, as well as sucralfate, metal cations such as iron, and multivitamin preparations with zinc or didanosine should be taken at least two hours before or two hours after oral levofloxacin administration."
+      },
+      "reviewed": false
+    }
+  ],
+
+  "alendronate_rule": {
+    "id": "alendronate-other-oral-medicines",
+    "a": "alendronate", "b": "*",
+    "a_then_b_min_hours": 0.5, "b_then_a_min_hours": null,
+    "plain": "Alendronate is absorbed poorly if anything else is taken with it. Take it first, with plain water, and wait at least half an hour before other medicines.",
+    "source": {
+      "title": "Fosamax (alendronate sodium) tablets - US FDA prescribing information",
+      "set_id": "14e931fd-2c5f-4d90-b7db-5980706f4a56", "effective": "2026-03-12",
+      "section": "drug_interactions",
+      "quote": "Therefore, instruct patients to wait at least one-half hour after taking FOSAMAX before taking any other oral medications."
+    },
+    "reviewed": false
+  },
+
+  "interval_unspecified_rules": [
+    {
+      "id": "levothyroxine-ppi-antacid",
+      "a": "levothyroxine", "b": "ppi",
+      "plain": "Acid-reducing medicines can reduce how much levothyroxine is absorbed. The label does not give a spacing time for these, so ask your pharmacist or doctor.",
+      "source": {
+        "title": "Levothyroxine sodium tablets - US FDA prescribing information",
+        "set_id": "008de8fd-150f-4022-8ccb-c8bfa94875c7", "effective": "2026-03-24",
+        "section": "drug_interactions",
+        "quote": "Sucralfate, antacids and proton pump inhibitors may cause hypochlorhydria, affect intragastric pH, and reduce levothyroxine absorption."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "doxycycline-calcium",
+      "a": "doxycycline", "b": "calcium",
+      "plain": "Calcium can reduce how much doxycycline is absorbed. The label does not give a spacing time, so ask your pharmacist or doctor how far apart to take them.",
+      "source": {
+        "title": "Doxycycline - US FDA prescribing information",
+        "set_id": "00b2aa98-dea2-90c3-e063-6294a90a35d6", "effective": "2026-05-01",
+        "section": "drug_interactions",
+        "quote": "Absorption of tetracyclines is impaired by antacids containing aluminum, calcium, or magnesium, and iron-containing preparations."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "doxycycline-iron",
+      "a": "doxycycline", "b": "iron",
+      "plain": "Iron can reduce how much doxycycline is absorbed. The label does not give a spacing time, so ask your pharmacist or doctor how far apart to take them.",
+      "source": {
+        "title": "Doxycycline - US FDA prescribing information",
+        "set_id": "00b2aa98-dea2-90c3-e063-6294a90a35d6", "effective": "2026-05-01",
+        "section": "drug_interactions",
+        "quote": "Absorption of tetracyclines is impaired by antacids containing aluminum, calcium, or magnesium, and iron-containing preparations."
+      },
+      "reviewed": false
+    },
+    {
+      "id": "doxycycline-antacid",
+      "a": "doxycycline", "b": "magnesium_aluminium_antacid",
+      "plain": "Antacids can reduce how much doxycycline is absorbed. The label does not give a spacing time, so ask your pharmacist or doctor how far apart to take them.",
+      "source": {
+        "title": "Doxycycline - US FDA prescribing information",
+        "set_id": "00b2aa98-dea2-90c3-e063-6294a90a35d6", "effective": "2026-05-01",
+        "section": "drug_interactions",
+        "quote": "Absorption of tetracyclines is impaired by antacids containing aluminum, calcium, or magnesium, and iron-containing preparations."
+      },
+      "reviewed": false
+    }
+  ],
+
+  "missed_dose_rules": {
+    "ciprofloxacin": {
+      "type": "window_hours_before_next",
+      "min_hours_before_next_dose": 6,
+      "action_if_met": "take_now",
+      "action_if_not_met": "skip_and_continue",
+      "never_double": true,
+      "source": {
+        "title": "Ciprofloxacin tablets - US FDA prescribing information",
+        "set_id": "0c355077-7361-41d0-9e82-eb31beaf5daa", "effective": "2025-03-06",
+        "section": "dosage_and_administration",
+        "quote": "If a dose is missed, it should be taken anytime but not later than 6 hours prior to the next scheduled dose."
+      },
+      "reviewed": false
+    },
+    "metformin": {
+      "type": "skip_and_continue",
+      "never_double": true,
+      "source": {
+        "title": "Metformin hydrochloride tablets - US FDA patient information",
+        "set_id": "011de1a5-1ac0-4831-9e8d-26ec79ba2205", "effective": "2024-08-21",
+        "section": "spl_patient_package_insert",
+        "quote": "If you miss a dose of metformin hydrochloride tablets, take your next dose as prescribed unless your healthcare provider tells you differently."
+      },
+      "reviewed": false
+    },
+    "alendronate": {
+      "type": "label_text_only",
+      "applies_to_note": "Applies to the once-weekly regimen described in the label.",
+      "source": {
+        "title": "Fosamax (alendronate sodium) tablets - US FDA prescribing information",
+        "set_id": "14e931fd-2c5f-4d90-b7db-5980706f4a56", "effective": "2026-03-12",
+        "section": "information_for_patients",
+        "quote": "If patients miss a dose of once weekly FOSAMAX, instruct patients to take one dose on the morning after they remember."
+      },
+      "reviewed": false
+    },
+    "telmisartan": {
+      "type": "label_text_only",
+      "source": {
+        "title": "Telmisartan tablets - US FDA patient information",
+        "set_id": "09d31eee-cd22-4918-a889-3eb4d2969525", "effective": "2026-06-05",
+        "section": "spl_patient_package_insert",
+        "quote": "If it is close to your next dose, do not take the missed dose."
+      },
+      "reviewed": false
+    },
+    "amlodipine": {
+      "type": "label_text_only",
+      "source": {
+        "title": "Amlodipine besylate tablets - US FDA patient information",
+        "set_id": "003dd1ec-16f8-4f96-b6a8-c4689d35892a", "effective": "2026-04-20",
+        "section": "spl_patient_package_insert",
+        "quote": "If you miss a dose, take it as soon as you remember."
+      },
+      "reviewed": false
+    },
+    "atorvastatin": {
+      "type": "label_text_only",
+      "source": {
+        "title": "Atorvastatin calcium tablets - US FDA patient information",
+        "set_id": "043c4742-081d-4bc4-bf27-dad92bb2dfbc", "effective": "2026-02-12",
+        "section": "spl_patient_package_insert",
+        "quote": "If you miss a dose, take it as soon as you remember."
+      },
+      "reviewed": false
+    },
+    "levofloxacin": {
+      "type": "label_text_only",
+      "source": {
+        "title": "Levofloxacin tablets - US FDA medication guide",
+        "set_id": "05d179f5-b200-8597-e063-6394a90a10cc", "effective": "2025-03-04",
+        "section": "spl_medguide",
+        "quote": "If you miss a dose of levofloxacin tablets, take it as soon as you remember."
+      },
+      "reviewed": false
+    }
+  },
+
+  "high_risk": {
+    "note": "For these medicines SmartPoli never calculates or suggests a catch-up time. It shows the label sentence where one exists and tells the patient to contact their prescriber or pharmacist. A missed or doubled dose can have serious consequences.",
+    "ingredients": {
+      "warfarin": ["warfarin", "coumadin", "uniwarfin"],
+      "insulin": ["insulin", "glargine", "lispro", "aspart", "detemir", "degludec", "human insulin", "mixtard", "lantus", "novorapid", "huminsulin"],
+      "anticoagulant_other": ["apixaban", "rivaroxaban", "dabigatran", "edoxaban", "heparin", "enoxaparin", "acenocoumarol"],
+      "antiplatelet": ["clopidogrel", "prasugrel", "ticagrelor"],
+      "digoxin": ["digoxin"],
+      "methotrexate": ["methotrexate"]
+    },
+    "label_text": {
+      "warfarin": {
+        "source": {
+          "title": "Warfarin sodium tablets - US FDA medication guide",
+          "set_id": "0cbce382-9c88-4f58-ae0f-532a841e8f95", "effective": "2025-06-17",
+          "section": "spl_medguide",
+          "quote": "If you miss a dose of warfarin sodium tablets, call your healthcare provider."
+        }
+      }
+    }
+  }
+}

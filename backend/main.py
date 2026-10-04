@@ -15,6 +15,7 @@ actually uploads an image, and any failure there falls back to "use manual
 entry" rather than breaking anything else (CLAUDE.md section 5).
 """
 
+import hmac
 import io
 import json
 import logging
@@ -27,7 +28,7 @@ from dotenv import load_dotenv
 # backend/ itself — matches .env.example's location and CLAUDE.md section 13.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -36,12 +37,15 @@ from sqlalchemy.orm import Session
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from db import init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog, User, VoiceMessage
+from db import (
+    init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck,
+    AuditLog, User, VoiceMessage, PatientSettings, PushSubscription, ReminderLog,
+)
 from parser import parse_medicine_line, compute_status
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
-    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, undo_taken,
+    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, undo_taken,
 )
 from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
@@ -49,7 +53,8 @@ import voice_assistant
 import voice_stt
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
-from ocr_plugin import read_prescription_image, OCRUnavailable
+from ocr_plugin import read_prescription_image, read_image_text_lines, OCRUnavailable
+import medicine_scan
 from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
@@ -57,6 +62,7 @@ from schemas import (
     PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
+    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
@@ -70,6 +76,7 @@ from auth import (
     has_write_access, has_read_access,
 )
 from nudges import compute_nudges
+from clock import patient_now, is_valid_timezone, patient_timezone
 from safety import build_safety_center
 from ics_export import build_ics
 from emergency_tokens import patient_id_for_token, rotate_token
@@ -80,6 +87,11 @@ import caregiver_router
 import doctor_router
 import whatsapp_router
 import whatsapp_bot
+import reminders
+import regulatory
+import safety_service
+import safety_engine
+import webpush_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -115,29 +127,105 @@ def serve_frontend():
     return FileResponse("static/index.html")
 
 
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def app_manifest():
+    """Web app manifest for the whole app (scope "/"): what Chrome and the
+    Android Trusted Web Activity read. The older /static/manifest.webmanifest
+    belongs to the voice page only."""
+    return FileResponse("static/app.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/sw-push.js", include_in_schema=False)
+def push_service_worker():
+    """Served from the site root so its scope can be "/". Never cached, so a
+    fixed worker reaches users immediately."""
+    return FileResponse("static/sw-push.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+def asset_links():
+    """Digital Asset Links: proves the Android app (package + signing-key
+    fingerprint) and this website belong together, which is what lets the
+    Trusted Web Activity open full-screen without a browser address bar.
+    Both values come from the environment (docs/ANDROID_TWA.md); until they
+    are set this returns an empty list, which verifies nothing - on purpose."""
+    package = os.getenv("SMARTPOLI_ANDROID_PACKAGE", "").strip()
+    fingerprints = [f.strip().upper() for f in os.getenv("SMARTPOLI_ANDROID_SHA256", "").split(",") if f.strip()]
+    if not package or not fingerprints:
+        return Response("[]", media_type="application/json")
+    return Response(json.dumps([{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {"namespace": "android_app", "package_name": package, "sha256_cert_fingerprints": fingerprints},
+    }]), media_type="application/json")
+
+
 reminder_scheduler = BackgroundScheduler()
 
 
 def _reminder_sweep_job():
     """
-    The proactive half of Feature 2's reminders (CLAUDE.md section 9):
-    runs on a timer instead of only when a page happens to load, so a dose
-    left untouched gets marked missed — and that transition logged to
-    AuditLog — even if nobody opens the dashboard. In-browser notifications
-    (the countdown hero, the voice 'remind me in N minutes') cover the
-    "upcoming dose" side; this covers "dose is now overdue."
+    The proactive half of Feature 2's reminders (CLAUDE.md section 9): runs
+    on a timer instead of only when a page happens to load. Each tick:
+      1. marks doses >2h overdue as missed (judged on each patient's own clock),
+         and sends the one-off "missed dose" notification for those;
+      2. sends every heads-up / due / follow-up reminder that is owed
+         (Web Push + opted-in WhatsApp), each at most once per dose.
+    Every step is isolated so one failure cannot stop the others.
     """
     db = SessionLocal()
     try:
-        count = sweep_missed(db)
-        if count:
-            logger.info(f"Reminder sweep: auto-marked {count} overdue dose(s) as missed.")
-        if whatsapp_bot.is_configured():
-            sent = whatsapp_bot.send_due_dose_reminders(db)
+        missed = sweep_missed_doses(db)
+        if missed:
+            logger.info(f"Reminder sweep: auto-marked {len(missed)} overdue dose(s) as missed.")
+            try:
+                reminders.notify_missed(db, missed)
+            except Exception:
+                logger.exception("Reminder sweep: missed-dose notifications failed.")
+        try:
+            sent = reminders.run_reminder_sweep(db)
             if sent:
-                logger.info(f"Reminder sweep: sent {sent} WhatsApp dose reminder(s).")
+                logger.info(f"Reminder sweep: sent {sent} reminder message(s).")
+        except Exception:
+            logger.exception("Reminder sweep: reminder delivery failed.")
     finally:
         db.close()
+
+
+def _check_secure_config() -> None:
+    """Loud warnings (or a refusal to start, with SMARTPOLI_REQUIRE_SECURE_CONFIG=1)
+    for settings that are fine on a laptop and unsafe in production."""
+    import auth as _auth
+    problems = []
+    if _auth.JWT_SECRET.startswith("dev-only-insecure"):
+        problems.append("SMARTPOLI_JWT_SECRET is not set: sessions are signed with a public development secret.")
+    if os.getenv("SMARTPOLI_SKIP_TWILIO_SIGNATURE") == "1":
+        problems.append("SMARTPOLI_SKIP_TWILIO_SIGNATURE=1: WhatsApp webhook requests are NOT being verified.")
+    for p in problems:
+        logger.warning("SECURITY CONFIG: %s", p)
+    if problems and os.getenv("SMARTPOLI_REQUIRE_SECURE_CONFIG") == "1":
+        raise RuntimeError("Refusing to start with an insecure configuration: " + " ".join(problems))
+
+
+@app.post("/internal/reminder-sweep", include_in_schema=False)
+def internal_reminder_sweep(x_cron_secret: Optional[str] = Header(None)):
+    """
+    Trigger one reminder sweep from OUTSIDE the process. The in-process timer
+    only runs while the server is awake, and a free Render instance sleeps
+    after ~15 minutes without traffic - so reminders would silently stop. An
+    external scheduler (cron-job.org, a Render Cron Job, GitHub Actions ...)
+    calling this every minute both runs the sweep and keeps the instance awake.
+
+    Guarded by SMARTPOLI_CRON_SECRET in the X-Cron-Secret header. When the
+    secret is unset or wrong the endpoint answers 404, as if it did not exist.
+    Safe to overlap with the in-process timer: every reminder is deduplicated
+    in the database.
+    """
+    secret = os.getenv("SMARTPOLI_CRON_SECRET", "")
+    if not secret or not x_cron_secret or not hmac.compare_digest(secret.encode(), x_cron_secret.encode()):
+        raise HTTPException(404, "Not Found")
+    _reminder_sweep_job()
+    return {"ok": True}
 
 
 @app.on_event("startup")
@@ -152,14 +240,23 @@ def on_startup():
             seed()
         except Exception as e:
             logger.warning(f"Auto-seed skipped/failed (non-fatal): {e}")
-    reminder_scheduler.add_job(_reminder_sweep_job, "interval", minutes=5, id="reminder_sweep")
-    reminder_scheduler.start()
-    logger.info("SmartPoli API up. Manual path only — zero API keys required. Reminder sweep running every 5 minutes.")
+    _check_secure_config()
+    if os.getenv("SMARTPOLI_DISABLE_SCHEDULER") == "1":
+        # Tests drive the sweeps directly with an injected clock; a live timer
+        # sweeping the shared test database would make them flaky.
+        logger.info("SmartPoli API up. Background reminder sweep disabled (SMARTPOLI_DISABLE_SCHEDULER=1).")
+        return
+    reminder_scheduler.add_job(_reminder_sweep_job, "interval", minutes=1, id="reminder_sweep",
+                               max_instances=1, coalesce=True, replace_existing=True)
+    if not reminder_scheduler.running:
+        reminder_scheduler.start()
+    logger.info("SmartPoli API up. Manual path only — zero API keys required. Reminder sweep running every minute.")
 
 
 @app.on_event("shutdown")
 def on_shutdown():
-    reminder_scheduler.shutdown(wait=False)
+    if reminder_scheduler.running:
+        reminder_scheduler.shutdown(wait=False)
 
 
 # ---------------------------------------------------------------- patients
@@ -246,6 +343,60 @@ def create_prescription(body: PrescriptionCreate, user: User = Depends(get_curre
     }
 
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def _looks_like_image(b: bytes) -> bool:
+    """Magic-byte check: the client-supplied filename/content-type is not trusted."""
+    return (b[:3] == b"\xff\xd8\xff" or b[:8] == b"\x89PNG\r\n\x1a\n" or b[:2] == b"BM"
+            or (b[:4] == b"RIFF" and b[8:12] == b"WEBP") or b[:4] in (b"II*\x00", b"MM\x00*"))
+
+
+async def _read_image_upload(file: UploadFile) -> bytes:
+    """Read an uploaded image with a hard size cap and a magic-byte type check
+    (the client-supplied filename and content-type are never trusted)."""
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    if not data:
+        raise HTTPException(400, "Empty file upload.")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, f"That image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)} MB. "
+                                 "Take a smaller photo or use manual entry.")
+    if not _looks_like_image(data):
+        raise HTTPException(415, "That file is not a supported image (JPEG, PNG, WebP, BMP or TIFF).")
+    return data
+
+
+@app.post("/medicines/scan")
+async def scan_medicine(
+    patient_id: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """
+    Camera scan of a medicine strip or box. Returns CANDIDATE names read from
+    the packaging for the patient to confirm - nothing is added here, no
+    schedule is guessed and the photo is not stored. The patient then adds the
+    medicine through the normal prescription path (POST /prescriptions), which
+    applies the usual review/confirm gate.
+    """
+    get_patient_or_404(db, patient_id)
+    if not has_write_access(db, user, patient_id):
+        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
+    image_bytes = await _read_image_upload(file)
+    try:
+        lines = await run_in_threadpool(read_image_text_lines, image_bytes)
+    except OCRUnavailable as e:
+        raise HTTPException(503, f"Scanning is unavailable right now ({e}). Type the medicine in instead.")
+    if not lines:
+        raise HTTPException(422, "No text could be read from that photo. Try again in good light, "
+                                 "close to the printed name, or type the medicine in.")
+    result = medicine_scan.candidates_from_lines(lines)
+    log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
+              f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
+    return result
+
+
 @app.post("/prescriptions/from-image")
 async def create_prescription_from_image(
     patient_id: int = Form(...),
@@ -271,9 +422,7 @@ async def create_prescription_from_image(
     if not has_write_access(db, user, patient_id):
         raise HTTPException(403, "Only the patient can add a prescription to their own record.")
 
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(400, "Empty file upload.")
+    image_bytes = await _read_image_upload(file)
 
     try:
         # run_in_threadpool: OCR is synchronous, CPU-bound work (OpenCV +
@@ -323,6 +472,8 @@ def edit_medicine(medicine_id: int, body: MedicineEdit, user: User = Depends(req
     schedule_code and marks it verified — a human just looked at it.
     """
     medicine = get_medicine_or_404(db, medicine_id)
+    before = {f: getattr(medicine, f) for f in
+              ("name", "dose_amount", "dose_unit", "schedule_code", "food", "duration_days", "is_prn", "status")}
 
     from shorthand import decode_schedule
 
@@ -357,8 +508,10 @@ def edit_medicine(medicine_id: int, body: MedicineEdit, user: User = Depends(req
     medicine.status = "verified"
 
     db.commit()
+    changes = {f: [before[f], getattr(medicine, f)] for f in before if before[f] != getattr(medicine, f)}
     log_audit(db, medicine.prescription.patient_id, f"patient:{user.id}", "medicine_confirmed",
-              f"medicine {medicine.id}: {medicine.raw_text!r}")
+              json.dumps({"medicine_id": medicine.id, "raw_text": medicine.raw_text, "corrections": changes,
+                          "confirmed_at": datetime.utcnow().isoformat() + "Z"}, default=str))
     return serialize_medicine(medicine)
 
 
@@ -379,12 +532,33 @@ def confirm_prescription(prescription_id: int, user: User = Depends(require_pres
 
 # ---------------------------------------------------------------- doses & dashboard (Feature 2)
 
+def _dose_patient_id(dose: Dose) -> int:
+    return dose.medicine.prescription.patient_id
+
+
 @app.post("/doses/{dose_id}/take")
 def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
+    """
+    Record a dose as taken, at the time it was ACTUALLY taken (the patient's
+    own clock - a late dose keeps its real time, which the timing-safety
+    engine then uses for spacing). Idempotent and race-safe: the state flip
+    is one conditional UPDATE, so a double tap or a retried request leaves the
+    first recorded time untouched and never double-counts.
+    """
     dose = get_dose_or_404(db, dose_id)
-    mark_taken(dose)
+    patient_id = _dose_patient_id(dose)
+    previous_state, scheduled = dose.state, dose.scheduled_at
+    now = patient_now(db, patient_id)
+    changed = (db.query(Dose).filter(Dose.id == dose_id, Dose.state != "taken")
+               .update({"state": "taken", "acted_at": now}, synchronize_session=False))
     db.commit()
-    log_audit(db, dose.medicine.prescription.patient_id, f"patient:{user.id}", "dose_taken", f"dose {dose.id}")
+    db.refresh(dose)
+    if changed:
+        late = (now - scheduled) > timedelta(minutes=15)
+        log_audit(db, patient_id, f"patient:{user.id}",
+                  "dose_taken_late" if late else "dose_taken",
+                  f"dose {dose.id} was {previous_state}; scheduled {scheduled.isoformat()}, "
+                  f"recorded {now.isoformat()}")
     return serialize_dose(dose)
 
 
@@ -392,7 +566,7 @@ def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
 def undo_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
     dose = get_dose_or_404(db, dose_id)
     try:
-        undo_taken(dose)
+        undo_taken(dose, now=patient_now(db, _dose_patient_id(dose)))
     except ValueError as e:
         raise HTTPException(400, str(e))
     db.commit()
@@ -403,9 +577,12 @@ def undo_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
 @app.post("/doses/{dose_id}/miss")
 def miss_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
     dose = get_dose_or_404(db, dose_id)
-    mark_missed(dose)
-    db.commit()
-    log_audit(db, dose.medicine.prescription.patient_id, f"patient:{user.id}", "dose_missed", f"dose {dose.id}")
+    if dose.state == "taken":
+        raise HTTPException(409, "This dose is recorded as taken. Undo it first if that was a mistake.")
+    if dose.state != "missed":
+        mark_missed(dose, acted_at=patient_now(db, _dose_patient_id(dose)))
+        db.commit()
+        log_audit(db, dose.medicine.prescription.patient_id, f"patient:{user.id}", "dose_missed", f"dose {dose.id}")
     return serialize_dose(dose)
 
 
@@ -413,8 +590,10 @@ def miss_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
 def skip_dose(dose_id: int, body: SkipDose, user: User = Depends(require_dose_write_access),
                db: Session = Depends(get_db_session)):
     dose = get_dose_or_404(db, dose_id)
+    if dose.state == "taken":
+        raise HTTPException(409, "This dose is recorded as taken. Undo it first if that was a mistake.")
     try:
-        mark_skipped(dose, body.reason)
+        mark_skipped(dose, body.reason, acted_at=patient_now(db, _dose_patient_id(dose)))
     except ValueError as e:
         raise HTTPException(400, str(e))
     db.commit()
@@ -426,9 +605,197 @@ def skip_dose(dose_id: int, body: SkipDose, user: User = Depends(require_dose_wr
 @app.post("/doses/{dose_id}/snooze")
 def snooze_dose(dose_id: int, user: User = Depends(require_dose_write_access), db: Session = Depends(get_db_session)):
     dose = get_dose_or_404(db, dose_id)
+    if dose.state in ("taken", "skipped", "missed"):
+        raise HTTPException(409, f"A dose that is already {dose.state} cannot be snoozed.")
     snooze(dose)
+    # The new time needs its own 'due' / follow-up reminders; the heads-up stays as sent.
+    db.query(ReminderLog).filter(ReminderLog.dose_id == dose.id, ReminderLog.kind.in_(("due", "followup"))).delete(
+        synchronize_session=False)
     db.commit()
     return serialize_dose(dose)
+
+
+# ---------------------------------------------------------------- timing safety (missed-dose guidance, conflicts)
+#
+# All answers come from safety_engine.py + safety_rules.json (quoted US FDA
+# label sentences). Nothing here is generated by an LLM, and a medicine or
+# pair without a verified rule is reported as "not verified", never as safe.
+
+@app.get("/doses/{dose_id}/missed-guidance")
+def dose_missed_guidance(dose_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
+    dose = get_dose_or_404(db, dose_id)
+    if not has_read_access(db, user, _dose_patient_id(dose)):
+        raise HTTPException(403, "You do not have access to this patient's records.")
+    if dose.state not in ("missed", "pending", "snoozed"):
+        raise HTTPException(409, f"This dose is {dose.state}; there is nothing to advise.")
+    return safety_service.missed_guidance_for_dose(db, dose)
+
+
+@app.get("/patients/{patient_id}/schedule-conflicts")
+def schedule_conflicts(patient_id: int, user: User = Depends(require_patient_read_access),
+                       db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    return safety_service.conflicts_for_patient(db, patient_id)
+
+
+@app.post("/doses/{dose_id}/reschedule")
+def reschedule_dose(dose_id: int, body: RescheduleDose, user: User = Depends(require_dose_write_access),
+                    db: Session = Depends(get_db_session)):
+    """
+    Accept a spacing proposal. The server re-derives the answer from the
+    verified rules and refuses any time the engine would not itself suggest
+    (earlier than allowed, at/after the medicine's next dose, or breaking
+    another rule) - the client's time is never trusted. The original time is
+    kept in the audit trail; dose, frequency and course length are unchanged.
+    """
+    dose = get_dose_or_404(db, dose_id)
+    patient_id = _dose_patient_id(dose)
+    if dose.state not in ("pending", "snoozed"):
+        raise HTTPException(409, f"A dose that is {dose.state} cannot be rescheduled.")
+    try:
+        target = datetime.fromisoformat(body.to).replace(tzinfo=None)
+    except ValueError:
+        raise HTTPException(400, "'to' must be an ISO date-time like 2026-10-05T14:00:00.")
+    if dose.scheduled_at == target:
+        return serialize_dose(dose)  # idempotent retry of an already-applied move
+    medicines, now = safety_service.engine_inputs(db, patient_id)
+    ok, reason = safety_engine.validate_reschedule(medicines, safety_service.rules(), now, dose_id, target)
+    if not ok:
+        raise HTTPException(422, reason)
+    original = dose.scheduled_at
+    dose.scheduled_at = target
+    db.query(ReminderLog).filter(ReminderLog.dose_id == dose.id).delete(synchronize_session=False)
+    db.commit()
+    safety_service.record_decision(
+        db, patient_id, f"patient:{user.id}", "dose_rescheduled_by_rule",
+        {"dose_id": dose.id, "from": original.isoformat(), "to": target.isoformat()},
+        {"action": "reschedule", "status": "accepted_by_patient"})
+    return serialize_dose(dose)
+
+
+# ---------------------------------------------------------------- settings, push, regulatory
+
+@app.get("/patients/{patient_id}/settings")
+def get_patient_settings(patient_id: int, user: User = Depends(require_patient_read_access),
+                         db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    row = db.query(PatientSettings).filter(PatientSettings.patient_id == patient_id).first()
+    return {"timezone": patient_timezone(db, patient_id),
+            "timezone_is_set": bool(row and row.timezone),
+            "reminder_lead_minutes": row.reminder_lead_minutes if row and row.reminder_lead_minutes is not None
+            else reminders.DEFAULT_LEAD_MINUTES}
+
+
+@app.put("/patients/{patient_id}/settings")
+def put_patient_settings(patient_id: int, body: PatientSettingsUpdate,
+                         user: User = Depends(require_patient_write_access), db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    if body.timezone is not None and not is_valid_timezone(body.timezone):
+        raise HTTPException(422, "Unknown timezone. Use an IANA name such as Asia/Kolkata.")
+    row = db.query(PatientSettings).filter(PatientSettings.patient_id == patient_id).first()
+    if row is None:
+        row = PatientSettings(patient_id=patient_id)
+        db.add(row)
+    changed = []
+    if body.timezone is not None and body.timezone != row.timezone:
+        changed.append(f"timezone {row.timezone} -> {body.timezone}")
+        row.timezone = body.timezone
+    if body.reminder_lead_minutes is not None and body.reminder_lead_minutes != row.reminder_lead_minutes:
+        changed.append(f"reminder lead -> {body.reminder_lead_minutes} min")
+        row.reminder_lead_minutes = body.reminder_lead_minutes
+    db.commit()
+    if changed:
+        log_audit(db, patient_id, f"patient:{user.id}", "settings_updated", "; ".join(changed))
+    return get_patient_settings(patient_id, user, db)
+
+
+@app.get("/push/public-key")
+def push_public_key():
+    """The VAPID public key a browser needs to subscribe (public by design)."""
+    return {"configured": webpush_service.is_configured(), "public_key": webpush_service.public_key()}
+
+
+@app.post("/patients/{patient_id}/push/subscribe")
+def push_subscribe(patient_id: int, body: PushSubscribeRequest, user: User = Depends(require_patient_write_access),
+                   db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    if not body.endpoint.startswith("https://"):
+        raise HTTPException(422, "Push endpoints must be https.")
+    sub = db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint).first()
+    if sub is None:
+        sub = PushSubscription(endpoint=body.endpoint, patient_id=patient_id, user_id=user.id,
+                               p256dh=body.keys.p256dh, auth=body.keys.auth)
+        db.add(sub)
+    else:  # same device re-subscribing (or a new account on a shared device): re-point, never duplicate
+        sub.patient_id, sub.user_id, sub.p256dh, sub.auth = patient_id, user.id, body.keys.p256dh, body.keys.auth
+    db.commit()
+    return {"subscribed": True,
+            "count": db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count()}
+
+
+@app.post("/patients/{patient_id}/push/unsubscribe")
+def push_unsubscribe(patient_id: int, body: PushUnsubscribeRequest, user: User = Depends(require_patient_write_access),
+                     db: Session = Depends(get_db_session)):
+    db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint,
+                                      PushSubscription.patient_id == patient_id).delete(synchronize_session=False)
+    db.commit()
+    return {"subscribed": False}
+
+
+_last_push_test: dict = {}
+
+
+@app.post("/patients/{patient_id}/push/test")
+def push_test(patient_id: int, user: User = Depends(require_patient_write_access),
+              db: Session = Depends(get_db_session)):
+    """Send one test notification to this patient's registered devices - the
+    way to check, on the real phone, that reminders actually arrive."""
+    import time
+    get_patient_or_404(db, patient_id)
+    if not webpush_service.is_configured():
+        raise HTTPException(503, "Push reminders are not configured on this server.")
+    if time.time() - _last_push_test.get(patient_id, 0) < 10:
+        raise HTTPException(429, "Please wait a few seconds between tests.")
+    _last_push_test[patient_id] = time.time()
+    subs = db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).all()
+    sent = 0
+    for sub in subs:
+        status = webpush_service.send(sub.endpoint, sub.p256dh, sub.auth, {
+            "title": "SmartPoli test", "body": "Reminders are working on this device.",
+            "url": "/", "tag": "smartpoli-test", "kind": "test"})
+        if status == "sent":
+            sent += 1
+        elif status == "gone":
+            db.delete(sub)
+    db.commit()
+    return {"devices": len(subs), "sent": sent}
+
+
+@app.get("/patients/{patient_id}/regulatory")
+def patient_regulatory(patient_id: int, user: User = Depends(require_patient_read_access),
+                       db: Session = Depends(get_db_session)):
+    """Official-source status for each of the patient's confirmed medicines."""
+    get_patient_or_404(db, patient_id)
+    meds = (db.query(Medicine).join(Prescription)
+            .filter(Prescription.patient_id == patient_id, Medicine.status != "needs_confirmation").all())
+    regulatory.prefetch(db, [m.name or m.raw_text for m in meds])
+    seen, out = set(), []
+    for m in meds:
+        key = (m.name or m.raw_text or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        strength = f"{m.dose_amount}{m.dose_unit}" if m.dose_amount and m.dose_unit else None
+        out.append({"medicine_id": m.id, **regulatory.lookup_medicine(db, m.name or m.raw_text, m.raw_text, strength)})
+    return {"medicines": out, "disclaimer": regulatory.DISCLAIMER}
+
+
+@app.get("/regulatory/lookup")
+def regulatory_lookup(name: str, strength: Optional[str] = None, user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db_session)):
+    if not name.strip() or len(name) > 120:
+        raise HTTPException(422, "Give a medicine name (up to 120 characters).")
+    return regulatory.lookup_medicine(db, name.strip(), None, strength)
 
 
 @app.post("/medicines/{medicine_id}/log-prn")
@@ -453,7 +820,7 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
 
     medicines_with_doses = []
     upcoming = []
-    now = datetime.utcnow()
+    now = patient_now(db, patient_id)  # dose times are patient-local wall-clock
     for pres in prescriptions:
         for medicine in pres.medicines:
             medicines_with_doses.append((medicine, medicine.doses))
@@ -469,8 +836,18 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
     recent = sorted(((d, m) for m, doses in medicines_with_doses for d in doses
                      if abs(d.scheduled_at - now) <= timedelta(hours=36)), key=lambda pair: pair[0].scheduled_at)
 
+    # What the patient actually sees: TODAY (in their own timezone), every state, in time order.
+    # The 30 generated days stay in the database; they are not a screen.
+    today = now.date()
+    todays = sorted(((d, m) for m, doses in medicines_with_doses for d in doses if d.scheduled_at.date() == today),
+                    key=lambda pair: pair[0].scheduled_at)
+
     return {
         "patient_id": patient_id,
+        "today": today.isoformat(),
+        "today_doses": [{**serialize_dose(dose), "medicine_name": medicine.name or medicine.raw_text,
+                         "food": medicine.food} for dose, medicine in todays],
+        "left_today": sum(1 for dose, _ in todays if dose.state in ("pending", "snoozed")),
         "adherence": compute_adherence(all_doses),
         "per_medicine": compute_medicine_breakdown(medicines_with_doses),
         "upcoming_doses": [

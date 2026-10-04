@@ -166,3 +166,17 @@ def read_prescription_image(image_bytes: bytes) -> list[dict]:
         except OCRUnavailable as tesseract_err:
             raise OCRUnavailable(f"{trocr_err}; {tesseract_err}") from tesseract_err
     return [line for line in lines if not is_likely_header_line(line["text"])]
+
+
+def read_image_text_lines(image_bytes: bytes) -> list[dict]:
+    """Every OCR'd text line of an image, unfiltered. read_prescription_image()
+    drops lines that look like prescription boilerplate; on a medicine box the
+    brand/composition lines are exactly what is wanted, so the medicine-scan
+    path uses this instead. Same engines, same fallbacks, same OCRUnavailable."""
+    try:
+        return run_ocr_on_image(image_bytes)
+    except OCRUnavailable as trocr_err:
+        try:
+            return run_tesseract_ocr_on_image(image_bytes)
+        except OCRUnavailable as tesseract_err:
+            raise OCRUnavailable(f"{trocr_err}; {tesseract_err}") from tesseract_err

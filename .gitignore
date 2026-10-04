@@ -13,3 +13,14 @@ frontend/out/
 
 # downloaded source files for knowledge/ingest.py (re-fetched on demand)
 backend/knowledge/.cache/
+
+# Android signing material and build output - NEVER commit these
+*.keystore
+*.jks
+keystore.properties
+signing.properties
+android/build/
+android/app/build/
+*.aab
+*.apk
+android/*.idsig

@@ -1,0 +1,22 @@
+{
+  "id": "/",
+  "name": "SmartPoli",
+  "short_name": "SmartPoli",
+  "description": "Understand your prescription, take your medicines on time, and stay safe.",
+  "lang": "en-IN",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F7F6",
+  "theme_color": "#0F8A70",
+  "categories": ["health", "medical"],
+  "icons": [
+    { "src": "/static/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Talk to SmartPoli", "short_name": "Voice", "url": "/voice" }
+  ]
+}

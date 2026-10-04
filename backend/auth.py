@@ -23,7 +23,7 @@ import jwt
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
-from db import get_db_session, User, Patient, CaregiverLink, DoctorLink, Medicine, Dose, Prescription
+from db import get_db_session, User, Patient, CaregiverLink, DoctorLink, Medicine, Dose, Prescription, RevokedToken
 
 JWT_SECRET = os.getenv("SMARTPOLI_JWT_SECRET") or "dev-only-insecure-secret-change-me-in-.env"
 JWT_ALGO = "HS256"
@@ -54,6 +54,7 @@ def create_token(user: User) -> str:
         "email": user.email,
         "exp": datetime.utcnow() + timedelta(hours=JWT_TTL_HOURS),
         "iat": datetime.utcnow(),
+        "jti": secrets.token_urlsafe(16),   # lets a logout revoke exactly this session
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
@@ -61,6 +62,18 @@ def create_token(user: User) -> str:
 def gen_link_code() -> str:
     """Short, shareable, hard-to-guess invite code (patient -> caregiver/doctor)."""
     return secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:8].upper()
+
+
+def revoke_token(db: Session, token: str) -> None:
+    """Remember a logged-out token until it would have expired anyway."""
+    payload = _decode_token(token)
+    jti = payload.get("jti")
+    if not jti or db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+        return
+    db.add(RevokedToken(jti=jti, expires_at=datetime.utcfromtimestamp(payload["exp"])))
+    # opportunistic cleanup of rows that no longer matter
+    db.query(RevokedToken).filter(RevokedToken.expires_at < datetime.utcnow()).delete(synchronize_session=False)
+    db.commit()
 
 
 def _decode_token(token: str) -> dict:
@@ -87,6 +100,9 @@ def get_current_user(
         user_id = int(payload["sub"])
     except (KeyError, ValueError):
         raise HTTPException(401, "Malformed session token.")
+    jti = payload.get("jti")
+    if jti and db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+        raise HTTPException(401, "You have been logged out. Please log in again.")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(401, "This account no longer exists.")

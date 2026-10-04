@@ -48,3 +48,29 @@ services:
         sync: false
       - key: SMARTPOLI_SKIP_TWILIO_SIGNATURE
         value: "0"
+      # --- reminders / Android (see docs/ANDROID_TWA.md and docs/LAUNCH_REPORT.md) ---
+      # Patient time zone used until a device reports its own.
+      - key: SMARTPOLI_DEFAULT_TZ
+        value: Asia/Kolkata
+      # Web Push keys: python tools/generate_vapid_keys.py, then paste in the dashboard.
+      - key: SMARTPOLI_VAPID_PRIVATE_KEY
+        sync: false
+      - key: SMARTPOLI_VAPID_PUBLIC_KEY
+        sync: false
+      - key: SMARTPOLI_VAPID_SUBJECT
+        sync: false
+      # Shared secret for the external 1-minute cron that calls POST /internal/reminder-sweep.
+      # A free Render instance sleeps when idle, which stops the in-process reminder timer.
+      - key: SMARTPOLI_CRON_SECRET
+        sync: false
+      # Digital Asset Links for the Android app (package id + release-signing SHA-256).
+      - key: SMARTPOLI_ANDROID_PACKAGE
+        sync: false
+      - key: SMARTPOLI_ANDROID_SHA256
+        sync: false
+      # Optional: raises the openFDA limit from 1,000 to 120,000 requests/day.
+      - key: OPENFDA_API_KEY
+        sync: false
+      # Set to 1 to refuse to start with an insecure configuration.
+      - key: SMARTPOLI_REQUIRE_SECURE_CONFIG
+        value: "1"

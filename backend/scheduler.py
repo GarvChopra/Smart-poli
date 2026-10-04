@@ -27,7 +27,7 @@ class SchedulingBlocked(Exception):
     """Raised when something tries to schedule a medicine that hasn't been confirmed safe."""
 
 
-def generate_doses(medicine: Medicine, start_at: Optional[datetime] = None) -> list[Dose]:
+def generate_doses(medicine: Medicine, start_at: Optional[datetime] = None, skip_past: bool = False) -> list[Dose]:
     """
     Build the Dose rows for one confirmed medicine.
 
@@ -36,6 +36,11 @@ def generate_doses(medicine: Medicine, start_at: Optional[datetime] = None) -> l
     - STAT medicines generate exactly one dose, right now, not repeated daily.
     - Ongoing (duration_days is None) medicines are scheduled 30 days forward,
       per CLAUDE.md 7.4 — never invent a stop date beyond that window.
+    - skip_past=True drops today's slots that are already behind `start_at`
+      (which must then be the patient's LOCAL now). Without it, confirming a
+      prescription at 3pm created a pending 8am dose that the sweeper would
+      immediately count as missed. The course still ends on the same
+      calendar day; no replacement dose is invented.
     """
     if medicine.status == "needs_confirmation":
         raise SchedulingBlocked(
@@ -66,6 +71,8 @@ def generate_doses(medicine: Medicine, start_at: Optional[datetime] = None) -> l
             hh, mm = (int(x) for x in t.split(":"))
             scheduled_at = datetime.combine(start_date + timedelta(days=day), datetime.min.time())
             scheduled_at = scheduled_at.replace(hour=hh, minute=mm)
+            if skip_past and scheduled_at < start_at:
+                continue
             doses.append(Dose(medicine_id=medicine.id, scheduled_at=scheduled_at, state="pending"))
 
     return doses
@@ -119,28 +126,54 @@ def snooze(dose: Dose) -> Dose:
     return dose
 
 
-def sweep_missed(db: Session, now: Optional[datetime] = None) -> int:
+def sweep_missed_doses(db: Session, now: Optional[datetime] = None,
+                       utc_now: Optional[datetime] = None) -> list[Dose]:
     """
-    Auto-mark still-pending doses as missed once >2h past their scheduled
-    time. Runs both reactively (dashboard/report calls) and proactively
-    (main.py's background reminder job, CLAUDE.md section 9) — either way,
-    every auto-miss is logged to AuditLog, same as a human-initiated one.
+    Auto-mark still-pending (or snoozed) doses as missed once >2h past their
+    scheduled time, and return the doses that were just marked.
+
+    'Past' is judged on each PATIENT's clock (Dose.scheduled_at is local
+    wall-clock time), not the server's UTC clock. Passing `now` forces one
+    shared clock for everyone - used by tests and callers that already
+    hold a local time. Idempotent: a dose already missed is not touched.
+
+    Runs both reactively (dashboard/report calls) and proactively
+    (main.py's background reminder job, CLAUDE.md section 9) — every
+    auto-miss is logged to AuditLog, same as a human-initiated one.
     """
     from db import AuditLog  # local import: avoids a circular import with db.py at module load time
+    from clock import local_now, patient_timezone, MAX_UTC_OFFSET
 
-    now = now or datetime.utcnow()
-    cutoff = now - MISSED_AFTER
-    pending = db.query(Dose).filter(Dose.state == "pending", Dose.scheduled_at < cutoff).all()
-    for dose in pending:
-        mark_missed(dose, acted_at=now)
+    utc_now = utc_now or datetime.utcnow()
+    # Coarse SQL filter: nobody's local clock is more than 14h ahead of UTC.
+    coarse = (now if now is not None else utc_now + MAX_UTC_OFFSET) - MISSED_AFTER
+    candidates = db.query(Dose).filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at < coarse).all()
+
+    clocks: dict[int, datetime] = {}
+    missed: list[Dose] = []
+    for dose in candidates:
         patient_id = dose.medicine.prescription.patient_id
+        if now is not None:
+            local = now
+        else:
+            if patient_id not in clocks:
+                clocks[patient_id] = local_now(patient_timezone(db, patient_id), utc_now)
+            local = clocks[patient_id]
+        if dose.scheduled_at >= local - MISSED_AFTER:
+            continue
+        mark_missed(dose, acted_at=local)
         db.add(AuditLog(
             patient_id=patient_id, actor="system", action="dose_auto_missed",
             detail=f"dose {dose.id} ({dose.medicine.name or dose.medicine.raw_text}) "
                    f"scheduled {dose.scheduled_at.isoformat()}, auto-marked missed after 2h",
         ))
+        missed.append(dose)
     db.commit()
-    return len(pending)
+    return missed
+
+
+def sweep_missed(db: Session, now: Optional[datetime] = None) -> int:
+    return len(sweep_missed_doses(db, now))
 
 
 # ---------------------------------------------------------------- adherence

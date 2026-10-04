@@ -163,3 +163,26 @@ class VoiceTurnRequest(BaseModel):
     history: list[VoiceMessage] = Field(default_factory=list, max_length=40)
     state: dict = Field(default_factory=dict)
     recheck: Optional[Literal["better", "same", "worse"]] = None   # a tapped recheck button
+
+
+class PatientSettingsUpdate(BaseModel):
+    timezone: Optional[str] = Field(None, max_length=64)       # IANA name, validated server-side
+    reminder_lead_minutes: Optional[int] = Field(None, ge=0, le=120)
+
+
+class PushKeys(BaseModel):
+    p256dh: str = Field(..., min_length=10, max_length=200)
+    auth: str = Field(..., min_length=10, max_length=100)
+
+
+class PushSubscribeRequest(BaseModel):
+    endpoint: str = Field(..., min_length=10, max_length=2000)
+    keys: PushKeys
+
+
+class PushUnsubscribeRequest(BaseModel):
+    endpoint: str = Field(..., min_length=10, max_length=2000)
+
+
+class RescheduleDose(BaseModel):
+    to: str = Field(..., max_length=40)   # ISO local datetime, e.g. 2026-10-05T14:00:00

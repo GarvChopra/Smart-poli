@@ -87,6 +87,11 @@ def test_prescription_photo_then_confirm_schedules_doses(monkeypatch):
         assert "CONFIRM" in reply
         assert "need manual confirmation" in reply  # the malformed 1-?-1 line
 
+        # Confirming mid-day now (correctly) skips today's slots already in the
+        # past; freeze the clock before the first slot so the count is exact.
+        import clock
+        from datetime import datetime
+        monkeypatch.setattr(clock, "patient_now", lambda db_, patient_id_, utc_now=None: datetime.utcnow().replace(hour=0, minute=1))
         reply = whatsapp_bot.handle_incoming_message(db, phone, "confirm")
         assert "Scheduled 1" in reply
 

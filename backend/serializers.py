@@ -7,6 +7,8 @@ Medicine, Dose or report (CLAUDE.md section 6: "One model.").
 
 import base64
 import json
+
+from verification import verification_status
 from datetime import datetime
 from typing import Optional
 
@@ -80,6 +82,7 @@ def serialize_medicine(m: Medicine) -> dict:
         "field_confidence": json.loads(m.field_confidence) if m.field_confidence else {},
         "status": m.status,
         "plain_language_hi": m.plain_language_hi,
+        "verification": verification_status(m),
     }
 
 

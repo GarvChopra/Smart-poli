@@ -15,7 +15,8 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey, inspect, text
+    create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey, UniqueConstraint,
+    inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 
@@ -291,6 +292,73 @@ class WhatsAppSession(Base):
     notifications_opt_in = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PatientSettings(Base):
+    """Per-patient preferences. A separate table (not columns on `patients`)
+    for the Postgres reason noted on EmergencyCardToken. Created on first
+    save; a missing row means 'defaults' (clock.DEFAULT_TZ, standard reminder
+    offsets)."""
+    __tablename__ = "patient_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, unique=True, index=True)
+    timezone = Column(String, nullable=True)            # IANA name, e.g. "Asia/Kolkata"
+    reminder_lead_minutes = Column(Integer, nullable=True)  # heads-up before the dose; null = default
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PushSubscription(Base):
+    """A browser/TWA Web Push endpoint for one patient (RFC 8030 / VAPID).
+    `endpoint` is unique: re-subscribing the same device updates the row."""
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(String, nullable=False)
+    auth = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_success_at = Column(DateTime, nullable=True)
+
+
+class ReminderLog(Base):
+    """One row per (dose, kind, channel) that has been sent. The unique
+    constraint is the dedupe: a 1-minute sweep, a restarted server or two
+    overlapping workers can never send the same reminder twice."""
+    __tablename__ = "reminder_log"
+    __table_args__ = (UniqueConstraint("dose_id", "kind", "channel", name="uq_reminder_dose_kind_channel"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dose_id = Column(Integer, ForeignKey("doses.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)       # 'lead' | 'due' | 'followup' | 'missed'
+    channel = Column(String, nullable=False)    # 'push' | 'whatsapp'
+    sent_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RevokedToken(Base):
+    """Session tokens that were logged out before they expired. A JWT is
+    stateless, so 'logout' has to be remembered server-side or the token keeps
+    working until `exp`. Rows can be pruned once expires_at has passed."""
+    __tablename__ = "revoked_tokens"
+
+    jti = Column(String, primary_key=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    revoked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RegulatoryLookupCache(Base):
+    """Cached result of an official-source lookup (openFDA etc.) so a page
+    view never hammers a rate-limited public API, and so every answer can
+    say exactly when it was last checked."""
+    __tablename__ = "regulatory_lookup_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String, nullable=False, index=True)   # 'openfda_drugsfda' | 'openfda_enforcement'
+    query_key = Column(String, nullable=False, index=True)
+    payload = Column(Text, nullable=False)                # JSON
+    fetched_at = Column(DateTime, default=datetime.utcnow)
 
 
 def _migrate_sqlite_add_columns() -> None:

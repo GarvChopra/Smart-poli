@@ -22,7 +22,7 @@ from conftest import register_and_login  # noqa: E402
 
 
 def _fake_file():
-    return {"file": ("prescription.png", io.BytesIO(b"not a real image, just bytes"), "image/png")}
+    return {"file": ("prescription.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"fake body"), "image/png")}
 
 
 def test_image_upload_reuses_the_manual_parser_and_tags_source_ocr(monkeypatch):

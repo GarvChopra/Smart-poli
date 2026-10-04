@@ -9,6 +9,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # so integration tests never touch the real smartpoli.db file.
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["SMARTPOLI_DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
+# Test fixtures build dose times from datetime.utcnow(); pin the default
+# patient timezone to UTC so they stay valid. Timezone behaviour itself is
+# tested explicitly (tests/test_timezone_and_reminders.py) with named zones.
+os.environ["SMARTPOLI_DEFAULT_TZ"] = "UTC"
+os.environ["SMARTPOLI_DISABLE_SCHEDULER"] = "1"
+# No real outbound push/WhatsApp from tests.
+os.environ.pop("SMARTPOLI_VAPID_PRIVATE_KEY", None)
 
 _email_counter = itertools.count()
 

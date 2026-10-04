@@ -368,13 +368,15 @@ def _handle_confirm(db: Session, session: WhatsAppSession, patient_id: int) -> s
         return "There's no unconfirmed prescription to schedule — send a photo first."
 
     medicines = prescription.medicines
+    from clock import patient_now
+    local_start = patient_now(db, patient_id)
     scheduled, blocked, prn = [], [], []
     for medicine in medicines:
         if medicine.status == "needs_confirmation":
             blocked.append(medicine)
             continue
         try:
-            doses = generate_doses(medicine)
+            doses = generate_doses(medicine, start_at=local_start, skip_past=True)
         except SchedulingBlocked:
             blocked.append(medicine)
             continue
@@ -419,8 +421,9 @@ def _handle_emergency(db: Session, patient_id: int) -> str:
 def _handle_today(db: Session, patient_id: int) -> str:
     from scheduler import sweep_missed
     sweep_missed(db)
+    from clock import patient_now
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
-    now = datetime.utcnow()
+    now = patient_now(db, patient_id)
     today_doses = [
         (m, d) for pres in prescriptions for m in pres.medicines for d in m.doses
         if d.scheduled_at.date() == now.date()
