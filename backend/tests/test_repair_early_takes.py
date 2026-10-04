@@ -51,7 +51,7 @@ def test_only_doses_taken_more_than_two_hours_early_are_found_and_reverted_with_
         on_time = dose(db, med, BASE, BASE + timedelta(minutes=5))
         late = dose(db, med, BASE - timedelta(hours=5), BASE)
         pending = dose(db, med, BASE + timedelta(days=1), None, state="pending")
-        found = find_early_takes(db)
+        found = find_early_takes(db, include_past=True)
         ids = {d.id for d, p in found}
         assert bogus in ids and not ({edge_ok, on_time, late, pending} & ids)
 
@@ -61,7 +61,7 @@ def test_only_doses_taken_more_than_two_hours_early_are_found_and_reverted_with_
         entry = db.query(AuditLog).filter_by(patient_id=pid, action="dose_taken_reverted").one()
         assert json.loads(entry.detail)["was_acted_at"] == BASE.isoformat() and entry.actor == "system:repair"
         assert db.query(Dose).get(on_time).state == "taken"
-        assert find_early_takes(db) == [] or bogus not in {d.id for d, p in find_early_takes(db)}   # idempotent
+        assert bogus not in {d.id for d, p in find_early_takes(db, include_past=True)}   # idempotent
     finally:
         db.close()
 
@@ -74,9 +74,9 @@ def test_the_only_demo_filter_leaves_real_accounts_alone():
         _, real_med = make(db, "repair-real@example.com")
         demo_bad = dose(db, demo_med, BASE + timedelta(days=1), BASE)
         real_bad = dose(db, real_med, BASE + timedelta(days=1), BASE)
-        ids = {d.id for d, p in find_early_takes(db, only_demo=True)}
+        ids = {d.id for d, p in find_early_takes(db, only_demo=True, include_past=True)}
         assert demo_bad in ids and real_bad not in ids
-        assert real_bad in {d.id for d, p in find_early_takes(db)}
+        assert real_bad in {d.id for d, p in find_early_takes(db, include_past=True)}
     finally:
         db.close()
 
@@ -98,7 +98,7 @@ def test_cli_is_a_dry_run_by_default_and_apply_needs_the_matching_host(tmp_path)
                     "p = db.Patient(user_id=u.id, name='C'); s.add(p); s.commit()\n"
                     "r = db.Prescription(patient_id=p.id, status='confirmed', source='manual'); s.add(r); s.commit()\n"
                     "m = db.Medicine(prescription_id=r.id, raw_text='x', name='X', status='verified', confidence=1.0); s.add(m); s.commit()\n"
-                    "s.add(db.Dose(medicine_id=m.id, scheduled_at=d.datetime(2026,10,6,8,30), state='taken', acted_at=d.datetime(2026,10,4,19,0))); s.commit()\n"],
+                    "s.add(db.Dose(medicine_id=m.id, scheduled_at=d.datetime.utcnow()+d.timedelta(days=2), state='taken', acted_at=d.datetime.utcnow())); s.commit()\n"],
                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), env=dict(os.environ, SMARTPOLI_DATABASE_URL=url),
                    check=True)
     dry = env_run()
@@ -111,3 +111,19 @@ def test_cli_is_a_dry_run_by_default_and_apply_needs_the_matching_host(tmp_path)
     assert ok.returncode == 0 and "Reverted 1 dose(s)" in ok.stdout
     again = env_run()
     assert "0 dose(s)" in again.stdout
+
+
+def test_old_doses_are_left_alone_unless_asked_for():
+    from clock import patient_now
+    init_db()
+    db = SessionLocal()
+    try:
+        pid, med = make(db, "repair-past@smartpoli.demo")
+        now = patient_now(db, pid)
+        future_bad = dose(db, med, now + timedelta(days=1), now - timedelta(hours=1))
+        past_bad = dose(db, med, now - timedelta(days=5), now - timedelta(days=5, hours=6))     # marked 6 h before its time, long ago
+        default_ids = {d.id for d, p in find_early_takes(db, only_demo=True)}
+        assert future_bad in default_ids and past_bad not in default_ids
+        assert past_bad in {d.id for d, p in find_early_takes(db, only_demo=True, include_past=True)}
+    finally:
+        db.close()

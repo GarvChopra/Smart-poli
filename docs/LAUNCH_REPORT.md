@@ -126,7 +126,7 @@ New dependencies: `pywebpush==2.5.0`, `tzdata==2026.2` (runtime); `pdfplumber` (
 
 ## 6. Tests actually run (2026-10-04)
 
-* **Python:** `pytest tests` → **568 passed, 0 failed** (339 before this work; +229 new).
+* **Python:** `pytest tests` → **569 passed, 0 failed** (339 before this work; +230 new).
 * **JavaScript:** `auth_next` 3, `voice_commands` 11, `voice_engine` 18, `shorthand` 26 — all pass.
 * **Rule sources:** `verify_rule_sources.py` → 25 sources, **0 failures** against the live FDA labels.
 * **TWA readiness:** local tree 21 pass / 2 warn / 0 fail. **Production as currently deployed: 4 fail**

@@ -5,12 +5,15 @@ that was a day or more away. Tapping repeatedly "took" the whole course (and pro
 
     python tools/repair_early_takes.py                       # DRY RUN: only lists what would change
     python tools/repair_early_takes.py --only-demo           # ... demo accounts (@smartpoli.demo) only
+    python tools/repair_early_takes.py --include-past        # also old doses whose time has already passed
     python tools/repair_early_takes.py --apply --confirm-host <part of the database host shown>   # really do it
 
 A dose is "impossible" when it was recorded taken MORE than the 2-hour early window (scheduler.TAKE_EARLY_WINDOW)
 before its scheduled time. Those doses are put back to pending (acted time cleared) and each change is written to the
 audit log (action "dose_taken_reverted") with the original acted time, so nothing is lost. Doses taken on time or
-late are never touched.
+late are never touched. By default only doses whose time is STILL IN THE FUTURE are repaired: putting an old one back to
+pending would make it "missed" overnight, which would rewrite history rather than undo a mistake (use --include-past if
+you really want that).
 
 Safety: dry-run by default; --apply refuses to run unless --confirm-host matches the database host that is printed, so
 it cannot be pointed at the wrong database by accident. It never deletes rows.
@@ -30,7 +33,8 @@ from sqlalchemy.orm import Session  # noqa: E402
 from scheduler import TAKE_EARLY_WINDOW  # noqa: E402
 
 
-def find_early_takes(db: Session, only_demo: bool = False) -> list:
+def find_early_takes(db: Session, only_demo: bool = False, include_past: bool = False) -> list:
+    from clock import patient_now
     from db import Dose, Medicine, Patient, Prescription, User
     q = (db.query(Dose, Patient.id.label("pid")).join(Medicine, Dose.medicine_id == Medicine.id)
          .join(Prescription, Medicine.prescription_id == Prescription.id).join(Patient, Prescription.patient_id == Patient.id)
@@ -38,7 +42,18 @@ def find_early_takes(db: Session, only_demo: bool = False) -> list:
     if only_demo:
         q = q.join(User, Patient.user_id == User.id).filter(User.email.like("%@smartpoli.demo"))
     slack = timedelta(minutes=1)
-    return [(dose, pid) for dose, pid in q.all() if dose.acted_at < dose.scheduled_at - TAKE_EARLY_WINDOW - slack]
+    clocks: dict = {}                                    # each patient's own "now" (dose times are patient-local)
+    out = []
+    for dose, pid in q.all():
+        if dose.acted_at >= dose.scheduled_at - TAKE_EARLY_WINDOW - slack:
+            continue
+        if not include_past:
+            if pid not in clocks:
+                clocks[pid] = patient_now(db, pid)
+            if dose.scheduled_at <= clocks[pid]:
+                continue
+        out.append((dose, pid))
+    return out
 
 
 def revert(db: Session, found: list) -> int:
@@ -56,6 +71,7 @@ def revert(db: Session, found: list) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="really change the data (default is a dry run)")
+    ap.add_argument("--include-past", action="store_true", help="also repair doses whose time has already passed (they will become missed)")
     ap.add_argument("--only-demo", action="store_true", help="only accounts whose email ends in @smartpoli.demo")
     ap.add_argument("--confirm-host", default="", help="a fragment of the database host printed below; required with --apply")
     args = ap.parse_args()
@@ -66,11 +82,11 @@ def main() -> int:
     print(f"Database: {host}")
     session = dbmod.SessionLocal()
     try:
-        found = find_early_takes(session, args.only_demo)
+        found = find_early_takes(session, args.only_demo, args.include_past)
         by_patient: dict = {}
         for dose, pid in found:
             by_patient.setdefault(pid, []).append(dose)
-        print(f"{len(found)} dose(s) recorded taken more than 2 h early, across {len(by_patient)} patient(s).")
+        print(f"{len(found)} dose(s) recorded taken more than 2 h early{'' if args.include_past else ' and still in the future'}, across {len(by_patient)} patient(s).")
         for pid, doses in sorted(by_patient.items()):
             print(f"  patient {pid}: " + ", ".join(f"#{d.id} due {d.scheduled_at:%d %b %H:%M} (marked {d.acted_at:%d %b %H:%M})"
                                                   for d in doses[:5]) + (" ..." if len(doses) > 5 else ""))
