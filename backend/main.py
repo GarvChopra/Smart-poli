@@ -180,7 +180,8 @@ def app_manifest():
     """Web app manifest for the whole app (scope "/"): what Chrome and the
     Android Trusted Web Activity read. The older /static/manifest.webmanifest
     belongs to the voice page only."""
-    return FileResponse("static/app.webmanifest", media_type="application/manifest+json")
+    return FileResponse("static/app.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/sw-voice.js", include_in_schema=False)

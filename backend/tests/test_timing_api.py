@@ -318,7 +318,7 @@ def test_web_manifest_meets_the_twa_requirements():
         assert r.status_code == 200 and r.headers["content-type"].startswith("application/manifest+json")
         m = r.json()
         assert m["name"] == "SmartPoli" and m["display"] == "standalone"
-        assert m["scope"] == "/" and m["start_url"].startswith("/") and m["id"] == "/"
+        assert m["scope"] == "/" and m["start_url"].startswith("/") and m["id"] == "/smartpoli"
         assert m["theme_color"].startswith("#") and m["background_color"].startswith("#")
         sizes = {(i["sizes"], i.get("purpose", "any")) for i in m["icons"]}
         assert ("192x192", "any") in sizes and ("512x512", "any") in sizes and ("512x512", "maskable") in sizes
