@@ -138,6 +138,10 @@ async function runCommand(text) {
   showHeard(text);
   if (!VX.dash) await loadToday();
   const intent = VoiceCommands.understand(text);
+  if (intent.type === 'unknown') {
+    const ai = await askAssistant(text);
+    if (ai) return ai;
+  }
   const res = VoiceCommands.answer(intent, VX.dash, new Date(), VX.lang);
 
   const take = res.actions.find(a => a.type === 'take');
@@ -157,6 +161,20 @@ async function runCommand(text) {
     res.reply = '';
   }
   return res;
+}
+
+/** Anything the fixed phrases don't cover goes to the AI assistant on the server (Groq, with the same safe tools).
+ * Returns null when it isn't available or fails, so the normal "sorry, try ..." answer still appears. */
+async function askAssistant(text) {
+  try {
+    const out = await apiFetch('POST', `/patients/${VX.patientId}/voice/turn`, {
+      text, lang: VX.lang, client_time: new Date().toISOString(), history: [], state: {},
+    });
+    if (!out || !out.reply) return null;
+    const actions = (out.actions || []).filter((a) => ['navigate', 'emergency'].includes(a.type));
+    const nav = actions.find((a) => a.type === 'navigate');
+    return nav ? { reply: '', display: out.reply, actions, lang: VX.lang } : { reply: out.reply, actions, lang: VX.lang };
+  } catch { return null; }
 }
 
 function onReply(res) {

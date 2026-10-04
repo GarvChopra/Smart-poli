@@ -40,8 +40,10 @@
   const MARK = /\b(mark|tick)\b.{0,20}\b(taken|done|as taken)\b/;
   const QUESTION = /\b(did i|have i|kya maine|kya mene)\b|\?|क्या मैंने/;
   const NEGATION = /\b(not|didn'?t|haven'?t|nahi|nahin|nhi|na)\b|नहीं/;
-  const NEXT = /\bnext\b|\bagli\b|\bagla\b|\bkab (hai|leni|lena)\b|\bwhen\b.{0,25}\b(medicine|dose|tablet|pill)|अगली|कब/;
-  const LEFT = /\b(left|remaining|baaki|baki|bachi|kitni)\b|\btoday'?s (medicines|doses|schedule)\b|\baaj ki (dawai|dawaiyan|medicines?)\b|बाकी|आज की/;
+  const NEXT = /\bnext\b|\bagli\b|\bkab (hai|leni)\b|\bwhen\b.{0,25}\b(medicine|dose|tablet|pill)|अगली|अगला|अगले|कब/;
+  const LEFT = /\b(left|remaining|baaki|baki|bachi|bacha|kitni|how many)\b|बाकी|बची|कितनी/;
+  // \"which medicines today?\" / \"aaj konsi konsi dawai leni hai\" - the whole day, taken and still to take.
+  const SCHEDULE = /\b(konsi|which|list|schedule|saari|sari|sabhi|kya kya|kaun kaun)\b|\btoday'?s (medicines|doses|schedule)\b|\baaj ki dawai\b|कौन|कौनसी|कौन सी|सारी|सभी|आज की/;
   const ADHERENCE = /\b(adherence|missed|miss|chhooti|chhoot|chhut|progress|score)\b|छूटी/;
   const SYMPTOM = /\b(pain|ache|aching|hurts?|headache|dizzy|dizziness|fever|vomit|vomiting|nausea|cough|cold|rash|itch|breathless|weak|tired|unwell|sick|not feeling well|dard|chakkar|bukhar|ulti|ji machla|khansi|jukam|khujli|kamzori|thakan|tabiyat|theek nahi)\b|symptom|lakshan|दर्द|चक्कर|बुखार|उल्टी|खांसी/;
   const UPDATE = /\b(update|edit|change|badlo|badalna|sudhar|theek karo)\b|बदलो/;
@@ -65,8 +67,19 @@
   ];
   const OPEN = /\b(open|show|go to|goto|take me|display|manage|kholo|kholiye|khol do|dikhao|dikhaiye|chalo|le chalo)\b|खोलो|दिखाओ|दिखाइए|चलो/;
 
+  // Speech-to-text spells Hindi words many ways; fold the common variants into the one spelling the tables use.
+  const SPELLINGS = [
+    [/(davai|davaai|dawayi|dawaee|davaee|dawaie|daawai|dawaiyan|davaiyan|dawayian)/g, 'dawai'],
+    [/(agle|agla|aglee|agali|agley)/g, 'agli'],
+    [/(batiye|bataiye|batayiye|bataye|bataiyen|btao|btaiye|batiyega|bata do|bta do|batado|btado)/g, 'batao'],
+    [/(konsi|konsee|kaunsi|kaun si|kon si|konsa|kaunsa|kaun sa|kon sa)/g, 'konsi'],
+    [/(lagi|lage|lagee|leni|lena|khani|khana hai)/g, 'leni'],
+  ];
+
   function clean(text) {
-    return String(text || '').toLowerCase().replace(/[.,!।]/g, ' ').replace(/\s+/g, ' ').trim();
+    let t = String(text || '').toLowerCase().replace(/[.,!।?]/g, ' ').replace(/\s+/g, ' ').trim();
+    for (const [re, to] of SPELLINGS) t = t.replace(re, to);
+    return t;
   }
 
   function slotOf(t) {
@@ -100,12 +113,13 @@
 
     const screen = screenOf(t);
     if (opens && screen) return { type: 'navigate', screen };
-    if (NEXT.test(t) && (MED.test(t) || /\bnext\b|\bagli\b|अगली/.test(t))) return { type: 'next' };
+    if (NEXT.test(t) && !SCHEDULE.test(t.replace(/\bnext\b/, ''))) return { type: 'next' };
     if (ADHERENCE.test(t)) return { type: 'adherence' };
     if (LEFT.test(t) && (MED.test(t) || /\btoday\b|\baaj\b|आज/.test(t))) return { type: 'today' };
+    if ((SCHEDULE.test(t) && (MED.test(t) || /\btoday\b|\baaj\b|आज/.test(t))) || (MED.test(t) && /\b(aaj|today)\b|आज/.test(t))) return { type: 'schedule' };
     if (SYMPTOM.test(t)) return { type: 'navigate', screen: 'triage', symptom: true };
     if (screen) return { type: 'navigate', screen };
-    if (MED.test(t)) return { type: 'today' };
+    if (MED.test(t)) return { type: 'schedule' };
     return { type: 'unknown' };
   }
 
@@ -119,6 +133,9 @@
       next: (m, when) => `Your next medicine is ${m}, ${when}.`,
       noNext: 'No more medicines are scheduled.',
       today: (n, list) => n ? `${n} left today: ${list}.` : 'Nothing left for today — all done.',
+      schedule: (list, left) => `Today: ${list}.${left ? '' : ' All taken.'}`,
+      schedNone: 'No medicines are scheduled today.',
+      taken: 'taken',
       adherence: (p, taken, missed) => p == null ? 'No doses recorded yet.'
         : `Your adherence is ${p} percent. ${taken} taken, ${missed} missed.`,
       marked: (list) => `Marked ${list} as taken.`,
@@ -143,6 +160,9 @@
       next: (m, when) => `Aapki agli dawai ${m} hai, ${when}.`,
       noNext: 'Aage koi dawai scheduled nahi hai.',
       today: (n, list) => n ? `Aaj ${n} baaki hain: ${list}.` : 'Aaj ki sab dawaiyan ho gayi hain.',
+      schedule: (list, left) => `Aaj ki dawaiyan: ${list}.${left ? '' : ' Sab le li hain.'}`,
+      schedNone: 'Aaj koi dawai scheduled nahi hai.',
+      taken: 'li',
       adherence: (p, taken, missed) => p == null ? 'Abhi koi dose record nahi hui.'
         : `Aapki adherence ${p} percent hai. ${taken} li, ${missed} chhooti.`,
       marked: (list) => `${list} le li — mark kar diya.`,
@@ -229,6 +249,13 @@
       case 'today': {
         const left = doses.filter((d) => sameDay(at(d), now) && ['pending', 'snoozed'].includes(d.state) && at(d) >= now);
         return reply(s.today(left.length, left.map((d) => `${d.medicine_name} ${hhmm(at(d))}`).join(', ')));
+      }
+      case 'schedule': {
+        const all = doses.filter((d) => sameDay(at(d), now) && d.state !== 'skipped')
+          .sort((a, b) => at(a) - at(b));
+        if (!all.length) return reply(s.schedNone);
+        const list = all.map((d) => `${d.medicine_name} ${hhmm(at(d))}${d.state === 'taken' ? ` (${s.taken})` : ''}`).join(', ');
+        return reply(s.schedule(list, all.some((d) => d.state !== 'taken')));
       }
       case 'adherence': {
         const a = (dash && dash.adherence) || {};

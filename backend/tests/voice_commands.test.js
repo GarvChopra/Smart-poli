@@ -31,6 +31,8 @@ test('"update my details" opens the card editor', () => {
 test('medicine questions get a quick answer, not a screen', () => {
   assert.strictEqual(type('when is my next medicine'), 'next');
   assert.strictEqual(type('agli dawai kab hai'), 'next');
+  for (const q of ['agli dawai batiaye', 'agli davai batao', 'अगली दवाई बताइए', 'agle dawai kab hai']) assert.strictEqual(type(q), 'next', q);
+  for (const q of ['aaj konsi konsi dawai lagi hai', 'aaj konsi konsi dawai leni hai', 'which medicines today', 'aaj ki dawai']) assert.strictEqual(type(q), 'schedule', q);
   assert.strictEqual(type('how many doses are left today'), 'today');
   assert.strictEqual(type('aaj kitni dawai baaki hai'), 'today');
   assert.strictEqual(type('what is my adherence'), 'adherence');
