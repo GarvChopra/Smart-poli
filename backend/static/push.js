@@ -184,3 +184,22 @@ async function renderRoutineCard(mount, patientId) {
     } catch (e) { msg.style.color = 'var(--amber)'; msg.textContent = e.message; }
   });
 }
+
+
+/** Dashboard nudge: shown only while reminders are possible but not yet on for this device. One tap asks Android for
+ * permission and subscribes. Disappears once on, or when notifications are blocked (Settings explains how to unblock). */
+async function renderPushPrompt(mount, patientId) {
+  if (!mount || !patientId || !pushSupported()) return;
+  try {
+    const key = await apiFetch('GET', '/push/public-key');
+    if (!key.configured || Notification.permission === 'denied') return;
+    if (await currentPushSubscription()) return;
+    mount.innerHTML = `
+      <div class="push-prompt"><div><strong>Get dose reminders</strong><div class="reg-meta">So you never miss a medicine.</div></div>
+        <button class="primary small" id="pushPromptBtn">Turn on</button></div>`;
+    mount.querySelector('#pushPromptBtn').addEventListener('click', async () => {
+      try { await enablePushReminders(patientId); mount.innerHTML = ''; }
+      catch (e) { mount.querySelector('.reg-meta').textContent = e.message; }
+    });
+  } catch (e) { /* best effort: Settings still has the full control */ }
+}

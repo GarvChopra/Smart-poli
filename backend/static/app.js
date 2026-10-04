@@ -1283,6 +1283,7 @@ async function renderDashboard() {
       <h2>${t('dashboardHeading')}</h2>
       <button class="ghost small" id="dashWhatsAppBtn"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
     </div>
+    <div id="dashPushPrompt"></div>
     <div id="dashTimingChip"></div>
     ${heroHtml}
     <div class="card" id="todayCard">
@@ -1299,6 +1300,7 @@ async function renderDashboard() {
 
   document.getElementById('dashWhatsAppBtn').addEventListener('click', showWhatsAppPopup);
   loadTimingChip(document.getElementById('dashTimingChip'));
+  renderPushPrompt(document.getElementById('dashPushPrompt'), state.patientId);
   view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(d.id));

@@ -1078,3 +1078,5 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .reg-more { margin-top: 4px; }
 .reg-more > summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); }
 .reg-more .reg-check { margin-top: 8px; font-size: 13px; }
+
+.push-prompt { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--teal-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
