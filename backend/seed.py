@@ -87,6 +87,42 @@ def add_prescription(db, patient, doctor_name, lines, confirm=True):
     return prescription, medicines
 
 
+def fix_demo_timeline(db, now=None, only_demo_accounts=True) -> dict:
+    """
+    Make the demo accounts look like a person mid-course instead of "history, then nothing for two days".
+
+    The seed moves each medicine's first six doses into the past (a taken/missed history). The rest of the
+    generated doses used to stay where they were, so the demo showed "Next dose in 47 h" and an empty
+    "Today's medicines". This:
+      1. shifts each medicine's remaining PENDING doses back by whole days so they start today, and
+      2. settles any of them that are already behind us (counted as taken a few minutes after their time),
+         so nothing is left "pending in the past".
+    It never deletes anything and (by default) only touches patients whose account email ends in
+    @smartpoli.demo, so it is safe to run against a database that also holds real patients.
+    """
+    from clock import local_now, resolve_timezone
+    now = now or local_now(resolve_timezone(None))
+    q = db.query(Medicine).join(Prescription).join(Patient)
+    if only_demo_accounts:
+        q = q.join(User, Patient.user_id == User.id).filter(User.email.like("%@smartpoli.demo"))
+    shifted = settled = 0
+    for med in q.all():
+        pending = sorted((d for d in med.doses if d.state == "pending"), key=lambda d: d.scheduled_at)
+        if not pending:
+            continue
+        gap_days = (pending[0].scheduled_at.date() - now.date()).days
+        if gap_days > 0:
+            for d in pending:
+                d.scheduled_at = d.scheduled_at - timedelta(days=gap_days)
+            shifted += len(pending)
+        for d in pending:
+            if d.scheduled_at < now - timedelta(minutes=15):
+                mark_taken(d, acted_at=d.scheduled_at + timedelta(minutes=10))
+                settled += 1
+    db.commit()
+    return {"doses_shifted": shifted, "doses_settled_as_taken": settled}
+
+
 def seed():
     init_db()
     db = SessionLocal()
@@ -204,6 +240,7 @@ def seed():
         db.add(vikram_link)
 
         db.commit()
+        fix_demo_timeline(db)
         print(f"Seeded 3 demo patients: Ramesh Kumar (id={ramesh.id}), "
               f"Anita Sharma (id={anita.id}), Vikram Singh (id={vikram.id}).")
         print(f"\nDemo logins (password for all: {DEMO_PASSWORD}):")
@@ -217,4 +254,16 @@ def seed():
 
 
 if __name__ == "__main__":
-    seed()
+    import sys
+    if "--realign" in sys.argv:
+        # Re-time the demo accounts' doses in an EXISTING database (no deletes, demo accounts only).
+        import db as _db
+        target = _db.DATABASE_URL.split("@")[-1] if "@" in _db.DATABASE_URL else _db.DATABASE_URL
+        print(f"Realigning demo-account doses in: {target}")
+        _s = _db.SessionLocal()
+        try:
+            print(fix_demo_timeline(_s))
+        finally:
+            _s.close()
+    else:
+        seed()
