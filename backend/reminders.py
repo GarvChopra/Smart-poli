@@ -67,7 +67,7 @@ def build_message(kind: str, dose: Dose, minutes_until: float) -> dict:
             "body": f"Your {at} dose of {name} isn't marked as taken yet. Open SmartPoli to mark it taken or skipped."}
 
 
-def _due_kinds(minutes_until: float, lead: int) -> list[str]:
+def _due_kinds(minutes_until: float, lead: int, soon_on: bool = True, followup_on: bool = True) -> list[str]:
     """Which reminder kinds are currently owed for a dose `minutes_until` away
     (negative = overdue)."""
     kinds = []
@@ -78,11 +78,11 @@ def _due_kinds(minutes_until: float, lead: int) -> list[str]:
         else:
             if SOON_MINUTES < minutes_until <= lead:
                 kinds.append("lead")
-            if 0 < minutes_until <= SOON_MINUTES:
+            if soon_on and 0 < minutes_until <= SOON_MINUTES:
                 kinds.append("soon")
     if -DUE_LATE_GRACE.total_seconds() / 60 < minutes_until <= 0:
         kinds.append("due")
-    if -FOLLOWUP_UNTIL.total_seconds() / 60 < minutes_until <= -FOLLOWUP_AFTER.total_seconds() / 60:
+    if followup_on and -FOLLOWUP_UNTIL.total_seconds() / 60 < minutes_until <= -FOLLOWUP_AFTER.total_seconds() / 60:
         kinds.append("followup")
     return kinds
 
@@ -147,12 +147,17 @@ def _notify(db: Session, patient_id: int, dose: Dose, kind: str, msg: dict, push
     return sent
 
 
-def _patient_prefs(db: Session, patient_id: int, cache: dict) -> tuple[str, int]:
+def _patient_prefs(db: Session, patient_id: int, cache: dict) -> tuple[str, int, bool, bool]:
+    """(timezone, early heads-up minutes, last-heads-up on, follow-up on) for one patient, cached per sweep."""
     if patient_id not in cache:
+        from db import PatientRoutine
         row = db.query(PatientSettings).filter(PatientSettings.patient_id == patient_id).first()
         tz = resolve_timezone(row.timezone if row else None)
         lead = row.reminder_lead_minutes if row and row.reminder_lead_minutes is not None else DEFAULT_LEAD_MINUTES
-        cache[patient_id] = (tz, max(0, min(int(lead), 120)))
+        rr = db.query(PatientRoutine).filter(PatientRoutine.patient_id == patient_id).first()
+        soon_on = True if rr is None or rr.notify_soon is None else bool(rr.notify_soon)
+        follow_on = True if rr is None or rr.notify_followup is None else bool(rr.notify_followup)
+        cache[patient_id] = (tz, max(0, min(int(lead), 120)), soon_on, follow_on)
     return cache[patient_id]
 
 
@@ -173,9 +178,9 @@ def run_reminder_sweep(db: Session, utc_now: Optional[datetime] = None,
     sent_total = 0
     for dose in doses:
         patient_id = dose.medicine.prescription.patient_id
-        tz, lead = _patient_prefs(db, patient_id, prefs)
+        tz, lead, soon_on, follow_on = _patient_prefs(db, patient_id, prefs)
         minutes_until = (dose.scheduled_at - local_now(tz, utc_now)).total_seconds() / 60
-        for kind in _due_kinds(minutes_until, lead):
+        for kind in _due_kinds(minutes_until, lead, soon_on, follow_on):
             sent_total += _notify(db, patient_id, dose, kind, build_message(kind, dose, minutes_until),
                                   push_fn, wa_fn, wa_on)
     try:
@@ -239,7 +244,7 @@ def notify_course_ending(db: Session, utc_now: Optional[datetime] = None,
                for d in med.doses):
             continue                                  # not the last dose of the course
         patient_id = med.prescription.patient_id
-        tz, _ = _patient_prefs(db, patient_id, prefs)
+        tz = _patient_prefs(db, patient_id, prefs)[0]
         now_local = local_now(tz, utc_now)
         days_left = (dose.scheduled_at.date() - now_local.date()).days
         if days_left not in (0, 1) or now_local.hour < COURSE_END_FROM_HOUR:

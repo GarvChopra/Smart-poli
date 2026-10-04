@@ -73,6 +73,22 @@ def test_full_manual_path_end_to_end():
         # 5. Take the next upcoming dose; taken-count must go up by exactly one
         #    and adherence must recompute from taken/(taken+missed+skipped).
         first_dose_id = dash["upcoming_doses"][0]["id"]
+
+        # A dose that is a day away cannot be "taken" now (this used to be accepted)...
+        from datetime import datetime as _dt, timedelta as _td
+        from db import SessionLocal as _SL, Dose as _Dose
+
+        def _move_dose(when):
+            s_ = _SL()
+            s_.query(_Dose).filter_by(id=first_dose_id).update({"scheduled_at": when})
+            s_.commit()
+            s_.close()
+
+        _move_dose(_dt.utcnow() + _td(days=1))
+        r = client.post(f"/doses/{first_dose_id}/take")
+        assert r.status_code == 409 and "Too early" in r.json()["detail"]
+        # ...but once it is due, it can.
+        _move_dose(_dt.utcnow())
         r = client.post(f"/doses/{first_dose_id}/take")
         assert r.status_code == 200
 

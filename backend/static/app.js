@@ -251,6 +251,7 @@ function renderActiveTab() {
   if (state.activeTab === 'settings') {
     renderSettingsCareTeam(); renderSettingsWhatsApp();
     renderNotificationsCard(document.getElementById('settingsNotifications'), state.patientId);
+    renderRoutineCard(document.getElementById('settingsRoutine'), state.patientId);
   }
   renderGlance();
 }
@@ -334,8 +335,6 @@ async function renderGlance() {
 
   const criticalInteractions = dash.interactions.filter(i => i.severity === 'CRITICAL');
   const alertsHtml = [
-    dash.unconfirmed_medicines.length
-      ? `<div class="glance-alert">${dash.unconfirmed_medicines.length} medicine(s) need confirmation</div>` : '',
     criticalInteractions.length
       ? `<div class="glance-alert">${criticalInteractions.length} critical drug interaction(s)</div>` : '',
     dash.prn_medicines.length
@@ -379,31 +378,18 @@ function renderPrescriptions(lastResult) {
   const view = document.getElementById('view-prescriptions');
   view.innerHTML = `
     <h2>${t('prescriptionHeading')}</h2>
-    <p style="color:var(--ink-soft)">Type each medicine on its own line, exactly as written — shorthand and all. Or upload a photo — either way, the same confidence check applies.</p>
+    <p style="color:var(--ink-soft)">Add a medicine in one tap, or type it in.</p>
 
     <div class="card">
-      <div class="card-head">${iconBadge('teal', 'pill')}<h3>Scan a medicine</h3></div>
-      <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">Point your camera at the strip or box so the printed name is clear.
-        SmartPoli suggests what it reads — you confirm it and enter how your doctor told you to take it.</p>
-      <input type="file" id="scanInput" accept="image/*" capture="environment">
-      <div style="margin-top:10px;"><button class="primary" id="scanBtn">Scan medicine</button></div>
-      <div id="scanResult"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Upload a photo</h3></div>
-      <div class="upload-zone">
-        <label for="rxImageInput" style="cursor:pointer;display:block;">
-          ${iconBadge('teal', 'fileText')}
-          <div style="margin-top:8px;font-weight:600;">Drag &amp; drop an image of your prescription</div>
-          <div style="font-size:12.5px;color:var(--ink-soft);margin-top:2px;">Supports JPG, PNG, PDF (max 10MB)</div>
-        </label>
-        <input type="file" id="rxImageInput" accept="image/*" style="margin-top:12px;">
+      <div class="add-actions">
+        <button class="primary add-big" id="scanBtn"><span class="icon">${ICONS.pill}</span>Scan medicine</button>
+        <button class="ghost add-big" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
       </div>
-      <div style="margin-top:12px;">
-        <button class="primary" id="uploadBtn">Read prescription</button>
-      </div>
+      <div class="reg-meta" style="margin-top:8px;">Scan opens the camera — point it at a strip or box. Choose file lets you pick a photo of your prescription from your phone.</div>
+      <input type="file" id="scanInput" accept="image/*" capture="environment" hidden>
+      <input type="file" id="rxImageInput" accept="image/*" hidden>
       <div id="uploadStatus"></div>
+      <div id="scanResult"></div>
     </div>
 
     <div class="card">
@@ -420,17 +406,15 @@ Syrup Crocin 5ml SOS"></textarea>
     <div id="rxResult"></div>
   `;
 
-  document.getElementById('scanBtn').addEventListener('click', async () => {
-    const input = document.getElementById('scanInput');
+  const scanInput = document.getElementById('scanInput');
+  document.getElementById('scanBtn').addEventListener('click', () => scanInput.click());   // opens the camera
+  scanInput.addEventListener('change', async () => {
+    if (!scanInput.files.length) return;
     const out = document.getElementById('scanResult');
-    if (!input.files.length) {
-      out.innerHTML = '<div class="upload-status-banner error">Take or choose a photo of the medicine first.</div>';
-      return;
-    }
     out.innerHTML = '<div class="upload-status-banner loading"><span class="upload-spinner"></span><span>Reading the packaging…</span></div>';
     const form = new FormData();
     form.append('patient_id', state.patientId);
-    form.append('file', input.files[0]);
+    form.append('file', scanInput.files[0]);
     try {
       const auth = getAuth();
       const res = await fetch('/medicines/scan', {
@@ -442,6 +426,8 @@ Syrup Crocin 5ml SOS"></textarea>
       renderScanResult(body);
     } catch (e) {
       out.innerHTML = `<div class="upload-status-banner error">${escHtml(e.message || 'Could not reach the server. Type the medicine in instead.')}</div>`;
+    } finally {
+      scanInput.value = '';
     }
   });
 
@@ -457,26 +443,21 @@ Syrup Crocin 5ml SOS"></textarea>
     renderRxResult(result);
   });
 
-  document.getElementById('uploadBtn').addEventListener('click', async () => {
-    const fileInput = document.getElementById('rxImageInput');
+  const rxInput = document.getElementById('rxImageInput');
+  const chooseBtn = document.getElementById('chooseFileBtn');
+  chooseBtn.addEventListener('click', () => rxInput.click());                              // opens the phone's files
+  rxInput.addEventListener('change', async () => {
+    if (!rxInput.files.length) return;
     const status = document.getElementById('uploadStatus');
-    const btn = document.getElementById('uploadBtn');
     const setStatus = (kind, text) => {
       status.className = kind ? `upload-status-banner ${kind}` : '';
       status.innerHTML = kind === 'loading' ? `<span class="upload-spinner"></span><span>${text}</span>` : text;
     };
-    if (!fileInput.files.length) {
-      setStatus('error', 'Choose a photo first.');
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Reading…';
+    chooseBtn.disabled = true;
     setStatus('loading', 'Reading photo — a full-size phone photo can take up to a minute…');
-
     const form = new FormData();
     form.append('patient_id', state.patientId);
-    form.append('file', fileInput.files[0]);
-
+    form.append('file', rxInput.files[0]);
     try {
       const auth = getAuth();
       dashboardCache = null;  // the photo becomes a draft prescription
@@ -486,7 +467,7 @@ Syrup Crocin 5ml SOS"></textarea>
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        setStatus('error', detail.detail || `Could not read that photo (${res.status}).`);
+        setStatus('error', escHtml(detail.detail || `Could not read that photo (${res.status}).`));
         return;
       }
       const result = await res.json();
@@ -496,8 +477,8 @@ Syrup Crocin 5ml SOS"></textarea>
     } catch (e) {
       setStatus('error', 'Could not reach the server. Use manual entry instead.');
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Read prescription';
+      chooseBtn.disabled = false;
+      rxInput.value = '';
     }
   });
 
@@ -729,10 +710,12 @@ function renderTodaySchedule(dash) {
       actions = `<button class="ghost small" data-missed-help="${d.id}">What should I do?</button>`;
     } else if (minsAway < 0) status = '<span class="today-pill action">Due now</span>';
     else if (minsAway <= 60) status = `<span class="today-pill info">In ${Math.max(1, Math.round(minsAway))} min</span>`;
-    if (open) {
+    if (open && isTakeableNow(d.scheduled_at)) {
       actions = `<button class="ghost small" data-act="take">Take</button>
                  <button class="ghost small" data-act="snooze">Snooze</button>
                  <button class="ghost small" data-act="skip">Skip</button>`;
+    } else if (open && minsAway > 0) {
+      status = `<span class="today-pill muted">Later today</span>`;   // not due yet: nothing to tap
     }
     const hint = open && d.food && d.food !== 'any' ? `<div class="reg-meta">Take ${escHtml(d.food)} food</div>` : '';
     return `
@@ -746,8 +729,9 @@ function renderTodaySchedule(dash) {
         </div>
       </div>`;
   }).join('');
+  const anyMissed = doses.some((d) => d.state === 'missed');
   const done = dash.left_today === 0
-    ? `<div class="today-done">All done for today ✓${next ? ` Next: <strong>${escHtml(next.medicine_name)}</strong>, ${escHtml(shortTime(next.scheduled_at))}.` : ''}</div>` : '';
+    ? `<div class="today-done${anyMissed ? ' has-missed' : ''}">${anyMissed ? 'Nothing more scheduled today.' : 'All done for today ✓'}${next ? ` Next: <strong>${escHtml(next.medicine_name)}</strong>, ${escHtml(shortTime(next.scheduled_at))}.` : ''}</div>` : '';
   return `<div class="dose-calendar"><div class="dose-calendar-day"><div class="dose-calendar-day-body">${rows}</div></div></div>${done}`;
 }
 
@@ -808,6 +792,100 @@ function showTakenPopup(medName, scheduledAt) {
     'Marked as taken');
 }
 
+
+// ---------------------------------------------------------------- small shared helpers
+
+/** A plain "OK" popup for things the patient must notice (a refused tap, a failed download). */
+function showNotice(title, message) {
+  const overlay = showSafetyModal(`
+    <h3>${escHtml(title)}</h3>
+    <div class="sm-headline" style="font-weight:500;">${escHtml(message)}</div>
+    <div class="sm-actions"><button class="primary small" id="noticeOk">OK</button></div>`);
+  overlay.querySelector('#noticeOk').addEventListener('click', () => overlay.remove());
+}
+
+// Same window the server enforces (scheduler.TAKE_EARLY_WINDOW / TAKE_LATE_WINDOW). The server is the
+// real guard; this only decides which buttons to show.
+const TAKE_EARLY_MS = 2 * 3600000;
+const TAKE_LATE_MS = 12 * 3600000;
+function isTakeableNow(iso) {
+  const diff = new Date(iso) - Date.now();
+  return diff <= TAKE_EARLY_MS && diff >= -TAKE_LATE_MS;
+}
+
+/** Mark a dose taken; if it is not due yet the server says so and we show it as a popup. */
+async function takeDoseWithGuard(doseId, medName, scheduledAt) {
+  try {
+    await api('POST', `/doses/${doseId}/take`);
+    showTakenPopup(medName, scheduledAt);
+    return true;
+  } catch (e) {
+    showNotice('Not yet — don’t take this now', e.message || 'This dose is not due yet.');
+    return false;
+  }
+}
+
+/** Download an authenticated file. A plain <a href> sends no login token, which is why
+ * "Export calendar" showed an error page. */
+async function downloadAuthed(path, filename) {
+  const auth = getAuth();
+  const res = await fetch(path, { headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {} });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `Download failed (${res.status})`);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+/** WhatsApp is a popup, not a permanent dashboard card. */
+async function showWhatsAppPopup() {
+  let info = null;
+  try { info = await api('GET', '/whatsapp/available'); } catch (e) { info = null; }
+  const ok = info && info.available && info.link;
+  const overlay = showSafetyModal(`
+    <h3>Reminders on WhatsApp</h3>
+    <div class="sm-sub">Get dose reminders, mark doses taken, or send a prescription photo from WhatsApp.</div>
+    ${ok ? '<div class="reg-meta">Tap send once on the pre-filled “join” message to connect.</div>'
+         : '<div class="sm-never">WhatsApp reminders are not set up on this server yet.</div>'}
+    <div class="sm-actions">
+      ${ok ? '<button class="primary small" id="waOpen">Open WhatsApp</button>' : ''}
+      <button class="ghost small" id="waClose">Close</button>
+    </div>`);
+  overlay.querySelector('#waClose').addEventListener('click', () => overlay.remove());
+  const open = overlay.querySelector('#waOpen');
+  if (open) open.addEventListener('click', () => { window.open(info.link, '_blank', 'noopener'); overlay.remove(); });
+}
+
+/** One quiet line on the dashboard if there is a medicine-timing issue; the detail lives in Safety center. */
+async function loadTimingChip(mount) {
+  if (!mount) return;
+  try {
+    const data = await api('GET', `/patients/${state.patientId}/schedule-conflicts`);
+    const n = data.conflicts.length;
+    if (!n) return;
+    mount.innerHTML = `<button class="chip-link" id="timingChipBtn">⏱ ${n} medicine timing issue${n === 1 ? '' : 's'} to check — review</button>`;
+    mount.querySelector('#timingChipBtn').addEventListener('click', () => document.querySelector('[data-tab=safety]').click());
+  } catch (e) { /* optional hint */ }
+}
+
+function treatmentProgressHtml(dash) {
+  const rows = ((dash && dash.per_medicine) || []).filter(p => p.progress && p.progress.current_day !== null).map(p => `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:13px;">
+        <span>${escHtml(p.name)}</span>
+        <span style="color:var(--ink-soft);">${p.progress.ongoing ? `Day ${p.progress.current_day}` : `Day ${p.progress.current_day} / ${p.progress.total_days}`}</span>
+      </div>
+      <div class="day-progress-track"><div class="day-progress-fill" style="width:${p.progress.ongoing ? 100 : Math.round(p.progress.current_day / p.progress.total_days * 100)}%"></div></div>
+    </div>`).join('');
+  return rows ? `<div class="report-section"><div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Treatment progress</h3></div>${rows}</div>` : '';
+}
 
 // ---------------------------------------------------------------- timing safety UI
 // Everything below renders answers computed by the server's rule engine
@@ -1001,11 +1079,31 @@ function conflictsHtml(data) {
     }) + note;
   }
   const n = data.conflicts.length;
-  return `<div class="alert-summary">${n} thing${n === 1 ? '' : 's'} to check</div>${alertLegendHtml()}`
+  const fixable = data.conflicts.filter((c) => c.proposal).length;
+  const applyAll = fixable > 1
+    ? `<button class="primary small" data-apply-all="1" style="margin:0 0 10px 8px;">Apply all ${fixable} suggestions</button>` : '';
+  return `<div class="alert-summary">${n} thing${n === 1 ? '' : 's'} to check</div>${applyAll}${alertLegendHtml()}`
     + data.conflicts.map(timingAlertHtml).join('') + note;
 }
 
+/** Apply every suggestion, one at a time: after each move the server re-checks, because moving one
+ * dose can change what is suggested for the next. Stops when nothing movable is left. */
+async function applyAllSuggestions() {
+  for (let i = 0; i < 20; i++) {
+    const data = await api('GET', `/patients/${state.patientId}/schedule-conflicts`);
+    const next = data.conflicts.find((c) => c.proposal);
+    if (!next) return;
+    await api('POST', `/doses/${next.proposal.dose_id}/reschedule`, { to: next.proposal.to });
+  }
+}
+
 function wireConflictActions(root) {
+  root.querySelectorAll('[data-apply-all]').forEach((btn) => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Applying…';
+    try { await applyAllSuggestions(); } catch (e) { showNotice('Could not apply', e.message); }
+    dashboardCache = null; renderActiveTab();
+  }));
   root.querySelectorAll('[data-reschedule]').forEach((btn) => btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
@@ -1067,22 +1165,6 @@ async function renderDashboard() {
   view.innerHTML = `<div class="empty">Loading...</div>`;
   const dash = await getDashboard();
 
-  const a = dash.adherence;
-  const pct = a.adherence_percent === null ? '—' : `${a.adherence_percent}%`;
-
-  const unconfirmedHtml = dash.unconfirmed_medicines.length ? `
-    ${alertCardHtml({
-      tone: 'action',
-      icon: 'alertCircle',
-      title: `${dash.unconfirmed_medicines.length} medicine${dash.unconfirmed_medicines.length === 1 ? '' : 's'} need${dash.unconfirmed_medicines.length === 1 ? 's' : ''} your confirmation`,
-      problem: 'SmartPoli could not read the schedule with enough confidence, so no reminders are set for it yet.',
-      action: 'Open the <strong>Prescription</strong> tab, check the line against your prescription and confirm it.',
-    })}
-  ` : '';
-
-  const interactionsHtml = renderInteractionRows(dash.interactions);
-  const foodWarningsHtml = renderFoodWarningRows(dash.food_warnings);
-
   const next = dash.upcoming_doses[0];
   const heroHtml = next ? (() => {
     const diffMs = new Date(next.scheduled_at) - new Date();
@@ -1091,6 +1173,8 @@ async function renderDashboard() {
     const hrs = Math.floor(abs / 3600000);
     const mins = Math.floor((abs % 3600000) / 60000);
     const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    const takeable = isTakeableNow(next.scheduled_at);
+    const takeFrom = new Date(new Date(next.scheduled_at) - TAKE_EARLY_MS).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `
       <div class="card hero-next-dose">
         <div style="display:flex;align-items:center;gap:14px;">
@@ -1103,28 +1187,20 @@ async function renderDashboard() {
         </div>
         <div style="text-align:right;">
           <div class="countdown ${overdue ? 'overdue' : ''}">${overdue ? 'Overdue by ' : 'in '}${label}</div>
-          <button class="primary small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>
+          ${takeable
+            ? `<button class="primary small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>`
+            : `<div class="reg-meta" style="margin-top:8px;">Not due yet · can be taken from ${takeFrom}</div>`}
         </div>
       </div>
     `;
   })() : '';
-
-  const progressHtml = dash.per_medicine.filter(p => p.progress && p.progress.current_day !== null).map(p => `
-    <div style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:13px;">
-        <span>${p.name}</span>
-        <span style="color:var(--ink-soft);">${p.progress.ongoing ? `Day ${p.progress.current_day}` : `Day ${p.progress.current_day} / ${p.progress.total_days}`}</span>
-      </div>
-      <div class="day-progress-track"><div class="day-progress-fill" style="width:${p.progress.ongoing ? 100 : Math.round(p.progress.current_day / p.progress.total_days * 100)}%"></div></div>
-    </div>
-  `).join('');
 
   const prnHtml = dash.prn_medicines.map(m => `
     <div class="dose-row">
       <div><strong>${m.name || m.raw_text}</strong> <span style="color:var(--ink-soft);font-size:12px;">as-needed</span></div>
       <button class="ghost small" data-prn-id="${m.id}">Log a dose</button>
     </div>
-  `).join('') || '<div class="empty">No as-needed medicines.</div>';
+  `).join('');
 
   const todayHtml = renderTodaySchedule(dash);
 
@@ -1133,10 +1209,12 @@ async function renderDashboard() {
   // action item. No catch-up time is suggested — see the note below.
   const dayAgo = Date.now() - 24 * 3600000;
   const recentMissed = (dash.recent_doses || []).filter(d => d.state === 'missed' && new Date(d.scheduled_at) >= dayAgo);
-  const missedHtml = recentMissed.length ? `
+  // Today's own misses already show in "Today's medicines"; this card is only for misses from earlier (still within 24 h).
+  const earlierMissed = recentMissed.filter(d => String(d.scheduled_at).slice(0, 10) !== dash.today);
+  const missedHtml = earlierMissed.length ? `
     <div class="card missed-card">
-      <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Missed recently</h3></div>
-      ${recentMissed.map(d => `
+      <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Missed earlier</h3></div>
+      ${earlierMissed.map(d => `
         <div class="missed-row">
           <span><strong>${escHtml(d.medicine_name)}</strong> · ${new Date(d.scheduled_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>
           <button class="ghost small missed-help" data-missed-help="${d.id}">What should I do?</button>
@@ -1144,61 +1222,27 @@ async function renderDashboard() {
       <div class="missed-note">Don't take a double dose to catch up. If you're unsure whether to take a missed dose now, check the medicine's leaflet or ask your pharmacist or doctor. Your next dose stays as scheduled above.</div>
     </div>` : '';
 
-  const nudgesHtml = (dash.nudges || []).map(n => `
-    <div class="nudge-banner ${n.level}">${n.text}</div>
-  `).join('');
-
   view.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:4px;">
-      <div>
-        <h2>${t('dashboardHeading')}</h2>
-        <p style="color:var(--ink-soft);margin:0;">Stay on track with your medications and health goals.</p>
-      </div>
-      <a href="/patients/${state.patientId}/calendar.ics" class="no-print"><button class="ghost small"><span class="icon">${ICONS.calendar}</span>Export calendar (.ics)</button></a>
+    <div class="dash-head">
+      <h2>${t('dashboardHeading')}</h2>
+      <button class="ghost small" id="dashWhatsAppBtn"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
     </div>
-    ${nudgesHtml}
-    ${unconfirmedHtml}
+    <div id="dashTimingChip"></div>
     ${heroHtml}
     <div class="card" id="todayCard">
       <div class="card-head">${iconBadge('teal', 'calendar')}<h3>Today's medicines</h3></div>
       ${todayHtml}
     </div>
-    <div id="dashWhatsApp"></div>
-    <div class="stat-row" style="margin-bottom:16px;">
-      <div class="stat">${iconBadge('teal', 'chartBar')}<div><div class="num">${pct}</div><div class="label">Adherence</div></div></div>
-      <div class="stat">${iconBadge('blue', 'pill')}<div><div class="num">${a.taken}</div><div class="label">Taken</div></div></div>
-      <div class="stat">${iconBadge('blue', 'clock')}<div><div class="num">${dash.left_today}</div><div class="label">Left today</div></div></div>
-    </div>
     ${missedHtml}
-    <div class="card" id="dashConflictsCard">
-      <div class="card-head">${iconBadge('amber', 'clock')}<h3>Medicine timing</h3></div>
-      <div id="dashConflicts" class="empty">Checking your schedule…</div>
-    </div>
-    ${progressHtml ? `
+    ${dash.prn_medicines.length ? `
     <div class="card">
-      <div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Treatment progress</h3></div>
-      ${progressHtml}
+      <div class="card-head">${iconBadge('teal', 'pill')}<h3>As-needed</h3></div>
+      ${prnHtml}
     </div>` : ''}
-    <div class="two-col">
-      ${dash.interactions.length ? `
-      <div class="card">
-        <div class="card-head">${iconBadge('amber', 'warning')}<h3>Drug interactions</h3></div>
-        ${interactionsHtml}
-      </div>` : ''}
-      ${dash.food_warnings.length ? `
-      <div class="card">
-        <div class="card-head">${iconBadge('amber', 'utensils')}<h3>Food &amp; substance warnings</h3></div>
-        ${foodWarningsHtml}
-      </div>` : ''}
-      <div class="card">
-        <div class="card-head">${iconBadge('teal', 'pill')}<h3>As-needed (PRN / SOS)</h3></div>
-        ${prnHtml}
-      </div>
-    </div>
   `;
 
-  renderDashboardWhatsApp();
-  loadConflictsInto(document.getElementById('dashConflicts'));
+  document.getElementById('dashWhatsAppBtn').addEventListener('click', showWhatsAppPopup);
+  loadTimingChip(document.getElementById('dashTimingChip'));
   view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(d.id));
@@ -1207,8 +1251,7 @@ async function renderDashboard() {
   const heroTakeBtn = view.querySelector('[data-hero-take]');
   if (heroTakeBtn) {
     heroTakeBtn.addEventListener('click', async () => {
-      await api('POST', `/doses/${heroTakeBtn.dataset.heroTake}/take`);
-      showTakenPopup(next.medicine_name, next.scheduled_at);
+      await takeDoseWithGuard(heroTakeBtn.dataset.heroTake, next.medicine_name, next.scheduled_at);
       renderDashboard();
       renderGlance();
     });
@@ -1227,15 +1270,18 @@ async function renderDashboard() {
     row.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const act = btn.dataset.act;
-        if (act === 'take') {
-          await api('POST', `/doses/${doseId}/take`);
-          showTakenPopup(row.dataset.medName, row.dataset.scheduledAt);
-        }
-        else if (act === 'snooze') await api('POST', `/doses/${doseId}/snooze`);
-        else if (act === 'skip') {
-          const reason = prompt('Reason for skipping this dose?');
-          if (!reason) return;
-          await api('POST', `/doses/${doseId}/skip`, { reason });
+        try {
+          if (act === 'take') {
+            await takeDoseWithGuard(doseId, row.dataset.medName, row.dataset.scheduledAt);
+          } else if (act === 'snooze') {
+            await api('POST', `/doses/${doseId}/snooze`);
+          } else if (act === 'skip') {
+            const reason = prompt('Reason for skipping this dose?');
+            if (!reason) return;
+            await api('POST', `/doses/${doseId}/skip`, { reason });
+          }
+        } catch (e) {
+          showNotice('Not possible right now', e.message);
         }
         renderDashboard();
         renderGlance();
@@ -1443,6 +1489,7 @@ async function renderReport() {
   const view = document.getElementById('view-report');
   view.innerHTML = `<div class="empty">Loading...</div>`;
   const r = await api('GET', `/patients/${state.patientId}/report`);
+  const dashForProgress = await getDashboard().catch(() => null);
 
   const medsRows = r.prescriptions.flatMap(p => p.medicines).map(m => `
     <tr>
@@ -1500,6 +1547,8 @@ async function renderReport() {
         </div>
       </div>
 
+      ${treatmentProgressHtml(dashForProgress)}
+
       <div class="report-section">
         <div class="card-head">${iconBadge('amber', 'warning')}<h3>Drug interactions</h3></div>
         ${renderInteractionRows(r.interactions)}
@@ -1529,7 +1578,8 @@ async function renderReport() {
 
       <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
         <button class="primary" onclick="window.print()">Print / Save as PDF (browser)</button>
-        <a href="/patients/${state.patientId}/report/pdf"><button class="ghost">Download PDF report</button></a>
+        <button class="ghost" onclick="downloadAuthed('/patients/${state.patientId}/report/pdf', 'smartpoli-report.pdf').catch(e => showNotice('Download failed', e.message))">Download PDF report</button>
+        <button class="ghost" onclick="downloadAuthed('/patients/${state.patientId}/calendar.ics', 'smartpoli-medicines.ics').catch(e => showNotice('Export failed', e.message))">Export calendar (.ics)</button>
       </div>
 
       <footer class="disclaimer">${r.disclaimer}</footer>
@@ -1634,30 +1684,6 @@ async function renderSettingsCareTeam() {
   document.getElementById('genCaregiverCodeBtn').addEventListener('click', () => generateLinkCode('caregiver'));
   document.getElementById('genDoctorCodeBtn').addEventListener('click', () => generateLinkCode('doctor'));
   await renderCareTeamLists();
-}
-
-// Compact dashboard entry point to the same WhatsApp bot the Settings card
-// links to. Stays empty (never breaks the dashboard) if WhatsApp isn't
-// configured or the lookup fails.
-async function renderDashboardWhatsApp() {
-  const mount = document.getElementById('dashWhatsApp');
-  if (!mount) return;
-  try {
-    const { available, link } = await api('GET', '/whatsapp/available');
-    if (!available || !link) return;
-    mount.innerHTML = `
-      <div class="card dash-whatsapp">
-        <div style="display:flex;align-items:center;gap:12px;">
-          ${iconBadge('teal', 'messageCircle')}
-          <div style="flex:1;min-width:160px;">
-            <strong>Get dose reminders on WhatsApp</strong>
-            <div style="color:var(--ink-soft);font-size:12.5px;">Reminders, mark doses taken, send a prescription photo. Tap send once on the pre-filled "join" message to connect.</div>
-          </div>
-          <button class="primary small" id="dashWhatsAppBtn">Open WhatsApp</button>
-        </div>
-      </div>`;
-    document.getElementById('dashWhatsAppBtn').addEventListener('click', () => window.open(link, '_blank', 'noopener'));
-  } catch (e) { /* optional entry point — leave the slot empty */ }
 }
 
 async function renderSettingsWhatsApp() {

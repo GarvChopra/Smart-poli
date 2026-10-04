@@ -27,7 +27,7 @@ from db import AuditLog, Dose, Medicine, Prescription, SymptomCheck, User, Voice
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses
-from scheduler import mark_taken, compute_adherence
+from scheduler import mark_taken, compute_adherence, TAKE_EARLY_WINDOW, TAKE_LATE_WINDOW
 from serializers import emergency_card_data
 from triage import load_ruleset, evaluate_check
 from triage_service import record_symptom_check
@@ -39,8 +39,8 @@ INTERACTION_RULESET = load_interaction_ruleset()
 FOOD_RULESET = load_food_ruleset()
 
 SCREENS = ("dashboard", "prescriptions", "safety", "triage", "report", "timeline", "emergency", "settings")
-TAKE_WINDOW_BEFORE = timedelta(hours=12)
-TAKE_WINDOW_AFTER = timedelta(hours=2)
+TAKE_WINDOW_BEFORE = TAKE_LATE_WINDOW      # how far back a dose can still be marked taken (shared with the buttons)
+TAKE_WINDOW_AFTER = TAKE_EARLY_WINDOW      # how far ahead (2 h): a dose that is a day away is not "due"
 
 
 @dataclass

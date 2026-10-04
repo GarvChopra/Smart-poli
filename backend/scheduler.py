@@ -88,6 +88,32 @@ def mark_taken(dose: Dose, acted_at: Optional[datetime] = None) -> Dose:
 
 UNDO_WINDOW = timedelta(minutes=10)
 
+# A dose can be marked taken from 2 h before its time until 12 h after it - the same window the
+# voice assistant has always used. Without this, the "Take" button accepted a dose that was a
+# day (or a month) away, so tapping repeatedly "took" the whole course. The late side keeps the
+# recorded time honest (a dose from three days ago cannot be stamped "taken now").
+TAKE_EARLY_WINDOW = timedelta(hours=2)
+TAKE_LATE_WINDOW = timedelta(hours=12)
+
+
+def take_window_error(dose: Dose, now: datetime) -> Optional[str]:
+    """None if the dose may be marked taken at `now` (patient-local), else a plain-language reason."""
+    if dose.scheduled_at > now + TAKE_EARLY_WINDOW:
+        opens = dose.scheduled_at - TAKE_EARLY_WINDOW
+
+        def _when(dt: datetime) -> str:
+            gap = (dt.date() - now.date()).days
+            if gap <= 0:
+                return dt.strftime("%H:%M")
+            return f"tomorrow {dt.strftime('%H:%M')}" if gap == 1 else f"{dt.strftime('%d %b')} {dt.strftime('%H:%M')}"
+
+        return (f"Too early: this dose is for {_when(dose.scheduled_at)}. "
+                f"You can mark it taken from {_when(opens)}.")
+    if dose.scheduled_at < now - TAKE_LATE_WINDOW:
+        return ("This dose is too old to mark as taken now. If you did take it, tell your doctor or "
+                "pharmacist rather than recording a wrong time.")
+    return None
+
 
 def undo_taken(dose: Dose, now: Optional[datetime] = None) -> Dose:
     """Voice matching can pick the wrong dose, so a just-marked 'taken' can

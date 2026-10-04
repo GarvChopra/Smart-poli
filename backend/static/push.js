@@ -132,3 +132,55 @@ async function renderNotificationsCard(mount, patientId) {
     catch (err) { status.textContent = 'Could not save that.'; }
   });
 }
+
+
+/** Settings card: when the patient's day actually happens, and which optional reminders they want. */
+async function renderRoutineCard(mount, patientId) {
+  if (!mount) return;
+  let r;
+  try { r = await apiFetch('GET', `/patients/${patientId}/routine`); } catch (e) { mount.innerHTML = ''; return; }
+  const slots = ['morning', 'afternoon', 'evening', 'night', 'bedtime'];
+  const rows = slots.map((slot) => `
+    <label class="routine-row"><span>${escHtml(r.labels[slot])}</span>
+      <input type="time" data-slot="${slot}" value="${escHtml(r.times[slot])}"></label>`).join('');
+  mount.innerHTML = `
+    <div class="card" id="routineCard">
+      <div class="card-head">${iconBadge('teal', 'clock')}<h3>My daily routine &amp; reminders</h3></div>
+      <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">Your medicines are timed around <em>your</em> day, not a fixed clock.
+        Medicines to take <strong>before food</strong> are placed 30 minutes earlier. Medicines written with an exact time or
+        “every 8 hours” keep that time.</p>
+      ${rows}
+      <div style="margin-top:12px;font-weight:600;font-size:13.5px;">Reminders</div>
+      <label class="check-row"><input type="checkbox" id="rtSoon" ${r.notify_soon ? 'checked' : ''}> A last reminder 10 minutes before each dose</label>
+      <label class="check-row"><input type="checkbox" id="rtFollow" ${r.notify_followup ? 'checked' : ''}> Ask me if I haven’t marked a dose 15 minutes after</label>
+      <div class="reg-meta" style="margin-top:6px;">The early heads-up time is set in “Dose reminders” above. The reminder at the dose time is always sent.</div>
+      <div id="rtMsg" style="font-size:13px;margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="primary small" id="rtSave">Save</button>
+        <button class="ghost small" id="rtApply">Save &amp; move my current medicines</button>
+      </div>
+      ${r.is_saved ? '' : '<div class="reg-meta" style="margin-top:8px;">You haven’t saved a routine yet, so standard times are being used.</div>'}
+    </div>`;
+
+  const msg = mount.querySelector('#rtMsg');
+  const collect = () => {
+    const body = { notify_soon: mount.querySelector('#rtSoon').checked, notify_followup: mount.querySelector('#rtFollow').checked };
+    mount.querySelectorAll('input[data-slot]').forEach((i) => { body[i.dataset.slot] = i.value; });
+    return body;
+  };
+  const save = async () => apiFetch('PUT', `/patients/${patientId}/routine`, collect());
+  mount.querySelector('#rtSave').addEventListener('click', async () => {
+    try { await save(); msg.style.color = 'var(--teal-dark)'; msg.textContent = 'Saved. New medicines will follow this routine.'; }
+    catch (e) { msg.style.color = 'var(--amber)'; msg.textContent = e.message; }
+  });
+  mount.querySelector('#rtApply').addEventListener('click', async () => {
+    try {
+      await save();
+      const res = await apiFetch('POST', `/patients/${patientId}/routine/apply`);
+      msg.style.color = 'var(--teal-dark)';
+      msg.textContent = res.doses_moved
+        ? `Saved. Moved ${res.doses_moved} upcoming dose${res.doses_moved === 1 ? '' : 's'} (${res.medicines_changed} medicine${res.medicines_changed === 1 ? '' : 's'}) to your routine.`
+        : 'Saved. Your current medicines already match this routine.';
+    } catch (e) { msg.style.color = 'var(--amber)'; msg.textContent = e.message; }
+  });
+}

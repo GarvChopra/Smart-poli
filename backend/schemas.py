@@ -186,3 +186,13 @@ class PushUnsubscribeRequest(BaseModel):
 
 class RescheduleDose(BaseModel):
     to: str = Field(..., max_length=40)   # ISO local datetime, e.g. 2026-10-05T14:00:00
+
+
+class RoutineUpdate(BaseModel):
+    morning: str = Field(..., max_length=5)
+    afternoon: str = Field(..., max_length=5)
+    evening: str = Field(..., max_length=5)
+    night: str = Field(..., max_length=5)
+    bedtime: str = Field(..., max_length=5)
+    notify_soon: bool = True
+    notify_followup: bool = True

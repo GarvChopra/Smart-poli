@@ -8,7 +8,7 @@ Medicine, Dose or report (CLAUDE.md section 6: "One model.").
 import base64
 import json
 
-from verification import verification_status
+from verification import verification_status, needs_patient_review
 from datetime import datetime
 from typing import Optional
 
@@ -136,7 +136,7 @@ def gather_dashboard_data(db: Session, patient_id: int, interaction_ruleset: dic
         ],
         "unconfirmed_medicines": [
             serialize_medicine(m) for pres in prescriptions for m in pres.medicines
-            if m.status == "needs_confirmation"
+            if needs_patient_review(m)
         ],
         "interactions": check_interactions(interaction_ruleset, active_names),
         "food_warnings": check_food_warnings(food_ruleset, active_names),
@@ -161,8 +161,6 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
 
     all_doses = [d for pres in prescriptions for m in pres.medicines for d in m.doses]
     missed = [d for d in all_doses if d.state == "missed"]
-    unconfirmed = [m for pres in prescriptions for m in pres.medicines if m.status == "needs_confirmation"]
-
     adherence = compute_adherence(all_doses)
 
     active_names = [m.name for pres in prescriptions for m in pres.medicines if m.status != "needs_confirmation" and m.name]
@@ -174,23 +172,24 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
         alerts.append(f"Adherence is {adherence['adherence_percent']}% — below the 80% watch line.")
     if any(c.severity == "EMERGENCY" for c in checks):
         alerts.append("At least one symptom check was graded EMERGENCY.")
-    if unconfirmed:
-        alerts.append(f"{len(unconfirmed)} medicine(s) are unconfirmed and were never scheduled.")
     if any(i["severity"] == "CRITICAL" for i in interactions):
         alerts.append("A critical drug interaction was found — see Drug Interactions below.")
 
     return {
         "patient": {"id": patient.id, "name": patient.name, "age": patient.age, "sex": patient.sex},
         "generated_at": datetime.utcnow().isoformat(),
+        # Only medicines that were actually read and scheduled belong in a care report. Abandoned
+        # drafts (every Decode / scan / photo makes one) used to be listed here as "needs confirmation".
         "prescriptions": [
             {
                 "id": pres.id,
                 "doctor_name": pres.doctor_name,
                 "issued_date": pres.issued_date,
                 "status": pres.status,
-                "medicines": [serialize_medicine(m) for m in pres.medicines],
+                "medicines": [serialize_medicine(m) for m in pres.medicines if m.status != "needs_confirmation"],
             }
             for pres in prescriptions
+            if any(m.status != "needs_confirmation" for m in pres.medicines)
         ],
         "adherence": adherence,
         "interactions": interactions,

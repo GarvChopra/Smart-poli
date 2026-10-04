@@ -308,6 +308,24 @@ class PatientSettings(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PatientRoutine(Base):
+    """When this patient's mornings / afternoons / evenings / nights / bedtimes are, plus which optional
+    reminders they want. A separate table (not columns on patient_settings) because init_db() can create
+    tables on Postgres but cannot alter existing ones. No row = standard times and all reminders on."""
+    __tablename__ = "patient_routine"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, unique=True, index=True)
+    morning = Column(String, nullable=True)       # "HH:MM"
+    afternoon = Column(String, nullable=True)
+    evening = Column(String, nullable=True)
+    night = Column(String, nullable=True)
+    bedtime = Column(String, nullable=True)
+    notify_soon = Column(Boolean, nullable=False, default=True)       # the 10-minute-before heads-up
+    notify_followup = Column(Boolean, nullable=False, default=True)   # "did you take it?" 15 minutes after
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PushSubscription(Base):
     """A browser/TWA Web Push endpoint for one patient (RFC 8030 / VAPID).
     `endpoint` is unique: re-subscribing the same device updates the row."""

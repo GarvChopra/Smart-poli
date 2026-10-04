@@ -360,7 +360,9 @@ def test_heads_up_can_be_switched_off_or_changed_per_patient():
             db.close()
 
 
-def test_snoozing_re_arms_the_due_and_follow_up_reminders_for_the_new_time():
+def test_snoozing_re_arms_the_due_and_follow_up_reminders_for_the_new_time(monkeypatch):
+    import main
+    monkeypatch.setattr(main, "patient_now", lambda db, patient_id, utc_now=None: local(8, 0))
     with TestClient(app) as client:
         pid, _ = new_patient(client)
         set_tz(client, pid, IST)

@@ -192,3 +192,58 @@ def test_new_tables_are_added_to_an_existing_database_without_touching_its_data(
         assert rows == [("taken", "Dolo", "Old Patient", 61)]
     engine.dispose()
     os.unlink(tmp.name)
+
+
+# ---------------------------------------------------------------- abandoned drafts no longer pile up as "N need confirmation"
+
+def test_old_abandoned_drafts_stop_counting_but_recent_ones_and_left_out_lines_do():
+    from datetime import datetime, timedelta
+    from verification import needs_patient_review, STALE_DRAFT_AFTER
+
+    class P:
+        def __init__(self, status, age_days):
+            self.status = status
+            self.created_at = datetime.utcnow() - timedelta(days=age_days)
+
+    class M:
+        def __init__(self, status, pres):
+            self.status, self.prescription = status, pres
+
+    assert needs_patient_review(M("needs_confirmation", P("draft", 0)))
+    assert needs_patient_review(M("needs_confirmation", P("draft", 2)))
+    assert not needs_patient_review(M("needs_confirmation", P("draft", 4)))          # abandoned long ago
+    assert needs_patient_review(M("needs_confirmation", P("confirmed", 30)))         # was left out of a confirmed schedule
+    assert not needs_patient_review(M("verified", P("draft", 0)))
+    assert STALE_DRAFT_AFTER == timedelta(days=3)
+
+
+def test_dashboard_and_report_do_not_scream_about_seventy_old_drafts():
+    from datetime import datetime, timedelta
+    from db import Prescription
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        for _ in range(3):
+            client.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650mg 1-?-1"]})
+        db = SessionLocal()
+        try:
+            old = db.query(Prescription).filter_by(patient_id=pid).first()
+            old.created_at = datetime.utcnow() - timedelta(days=10)
+            db.commit()
+        finally:
+            db.close()
+        dash = client.get(f"/patients/{pid}/dashboard").json()
+        assert len(dash["unconfirmed_medicines"]) == 2                      # the 10-day-old draft no longer counts
+        report = client.get(f"/patients/{pid}/report").json()
+        assert not any("unconfirmed" in a or "never scheduled" in a for a in report["alerts"])
+
+
+def test_care_report_lists_only_scheduled_medicines_not_abandoned_drafts():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        client.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650mg 1-?-1"]})        # an abandoned draft
+        good = client.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650mg 1-0-1 PC x2d"]}).json()
+        client.post(f"/prescriptions/{good['prescription_id']}/confirm")
+        report = client.get(f"/patients/{pid}/report").json()
+        meds = [m for p in report["prescriptions"] for m in p["medicines"]]
+        assert meds and all(m["status"] != "needs_confirmation" for m in meds)
+        assert all(p["medicines"] for p in report["prescriptions"])           # no empty prescription shells

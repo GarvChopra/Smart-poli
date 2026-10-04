@@ -13,6 +13,7 @@ found in a single pass, never down.
 
 from datetime import datetime, timedelta
 
+from verification import needs_patient_review
 from db import SymptomCheck, Dose, Medicine, Prescription, AuditLog, MedicineCorrection
 
 _LEVELS = ["routine", "medium", "high", "emergency"]
@@ -32,7 +33,7 @@ def compute_priority(db, patient_id: int) -> dict:
     medicines = [m for p in prescriptions for m in p.medicines]
     all_doses = [d for m in medicines for d in m.doses]
 
-    unconfirmed = [m for m in medicines if m.status == "needs_confirmation"]
+    unconfirmed = [m for m in medicines if needs_patient_review(m)]
     cutoff = datetime.utcnow() - timedelta(days=7)
     missed_recent = sum(1 for d in all_doses if d.state == "missed" and d.acted_at and d.acted_at >= cutoff)
     ever_emergency = db.query(SymptomCheck).filter(
@@ -146,7 +147,7 @@ def compute_doctor_brief(db, patient_id: int) -> dict:
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
     medicines = [m for p in prescriptions for m in p.medicines]
     active_medicines = [m for m in medicines if m.status != "needs_confirmation" and not m.is_prn]
-    unconfirmed = [m for m in medicines if m.status == "needs_confirmation"]
+    unconfirmed = [m for m in medicines if needs_patient_review(m)]
     all_doses = [d for m in medicines for d in m.doses]
 
     taken = sum(1 for d in all_doses if d.state == "taken")

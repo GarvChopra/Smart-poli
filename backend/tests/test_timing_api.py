@@ -395,3 +395,68 @@ def test_a_day_with_nothing_scheduled_returns_an_empty_today_not_the_whole_cours
         d = client.get(f"/patients/{pid}/dashboard").json()
         assert d["today_doses"] == [] and d["left_today"] == 0
         assert d["upcoming_doses"]                         # still available so the screen can say "next dose: …"
+
+
+# ---------------------------------------------------------------- "Mark taken" must respect when a dose is due
+
+def test_a_dose_a_day_away_cannot_be_marked_taken_and_nothing_changes():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        now = clock.local_now("UTC").replace(second=0, microsecond=0)
+        _, (soon, tomorrow, next_week) = add_medicine(
+            pid, "Metformin", [now + timedelta(hours=1), now + timedelta(hours=24), now + timedelta(days=7)])
+        r = client.post(f"/doses/{tomorrow}/take")
+        assert r.status_code == 409 and r.json()["detail"].startswith("Too early: this dose is for")
+        assert "You can mark it taken from" in r.json()["detail"] and "tomorrow" in r.json()["detail"]
+        assert dose_row(tomorrow)[0] == "pending" and dose_row(tomorrow)[2] is None
+        assert client.post(f"/doses/{next_week}/take").status_code == 409
+        assert "dose_taken" not in audit_actions(pid)
+        # tapping repeatedly cannot chew through the course: only the dose that is due goes through
+        assert client.post(f"/doses/{soon}/take").status_code == 200
+        assert client.post(f"/doses/{tomorrow}/take").status_code == 409
+        assert dose_row(tomorrow)[0] == "pending"
+
+
+def test_the_take_window_edges():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        now = clock.local_now("UTC").replace(second=0, microsecond=0)
+        _, (early_ok, early_no, late_ok, late_no) = add_medicine(
+            pid, "Metformin", [now + timedelta(hours=1, minutes=59), now + timedelta(hours=2, minutes=30),
+                               now - timedelta(hours=11), now - timedelta(hours=13)])
+        assert client.post(f"/doses/{early_ok}/take").status_code == 200       # up to ~2 h early
+        assert client.post(f"/doses/{early_no}/take").status_code == 409
+        assert client.post(f"/doses/{late_ok}/take").status_code == 200        # a late tap still records the real time
+        too_old = client.post(f"/doses/{late_no}/take")
+        assert too_old.status_code == 409 and "too old" in too_old.json()["detail"]
+
+
+def test_a_dose_that_is_not_due_cannot_be_snoozed_either():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        now = clock.local_now("UTC").replace(second=0, microsecond=0)
+        _, (far, due) = add_medicine(pid, "Metformin", [now + timedelta(hours=24), now + timedelta(minutes=5)])
+        assert client.post(f"/doses/{far}/snooze").status_code == 409
+        assert client.post(f"/doses/{due}/snooze").status_code == 200
+
+
+def test_voice_and_buttons_share_one_take_window():
+    import scheduler
+    import voice_tools
+    assert voice_tools.TAKE_WINDOW_AFTER == scheduler.TAKE_EARLY_WINDOW == timedelta(hours=2)
+    assert voice_tools.TAKE_WINDOW_BEFORE == scheduler.TAKE_LATE_WINDOW == timedelta(hours=12)
+
+
+def test_the_too_early_message_names_the_day_the_dose_is_for():
+    import scheduler
+    from types import SimpleNamespace
+    now = datetime(2026, 10, 5, 20, 0)
+    dose = lambda dt: SimpleNamespace(scheduled_at=dt)  # noqa: E731
+    assert scheduler.take_window_error(dose(datetime(2026, 10, 6, 1, 46)), now) == \
+        "Too early: this dose is for tomorrow 01:46. You can mark it taken from 23:46."
+    assert scheduler.take_window_error(dose(datetime(2026, 10, 6, 20, 0)), now) == \
+        "Too early: this dose is for tomorrow 20:00. You can mark it taken from tomorrow 18:00."
+    assert scheduler.take_window_error(dose(datetime(2026, 10, 9, 8, 0)), now).startswith("Too early: this dose is for 09 Oct 08:00.")
+    assert scheduler.take_window_error(dose(datetime(2026, 10, 5, 21, 30)), now) is None            # 1.5 h early: fine
+    assert scheduler.take_window_error(dose(datetime(2026, 10, 5, 22, 30)), now) == \
+        "Too early: this dose is for 22:30. You can mark it taken from 20:30."

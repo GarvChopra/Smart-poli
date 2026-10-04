@@ -27,6 +27,27 @@ import json
 CATALOGUE_EXACT = 0.95
 CATALOGUE_APPROX = 0.85
 
+from datetime import datetime, timedelta
+from typing import Optional
+
+# A line the patient never confirmed stops counting after this long. Every Decode / scan / photo
+# creates a draft prescription; abandoned ones used to pile up forever and the dashboard read
+# "70 medicines need your confirmation".
+STALE_DRAFT_AFTER = timedelta(days=3)
+
+
+def needs_patient_review(m, now: Optional[datetime] = None) -> bool:
+    """True for a medicine line that still genuinely waits for the patient: needs confirmation AND
+    either belongs to a confirmed prescription (it was left out of the schedule) or is a recent draft."""
+    if m.status != "needs_confirmation":
+        return False
+    pres = getattr(m, "prescription", None)
+    if pres is None or pres.status == "confirmed":
+        return True
+    created = getattr(pres, "created_at", None)
+    return created is None or (now or datetime.utcnow()) - created <= STALE_DRAFT_AFTER
+
+
 NOTE = ("Confirming checks that this entry matches what is written on the prescription. It does not mean the "
         "prescription is clinically appropriate for you - ask your doctor or pharmacist about that.")
 

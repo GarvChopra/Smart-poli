@@ -33,6 +33,10 @@ Mark each line PASS / FAIL / N/A with the device, Android version and date.
 - [ ] Skip needs a reason. Snooze 3× then it returns to pending. Undo works only within 10 minutes.
 - [ ] A dose >2 h overdue becomes **Missed** (check after waiting, or via the cron call), sits in "Missed recently", and the guidance popup opens once.
 - [ ] Popup: states "never take a double dose", shows the label sentence + source link, and for warfarin/insulin shows **no** catch-up time.
+- [ ] Try to mark a dose that is hours/days away: **no button** on the list, and if forced you get the popup "Not yet — don't take this now … from HH:MM". Tapping Take many times never takes more than the due dose.
+- [ ] Prescription tab shows only **Scan medicine**, **Choose file**, **type it in**. Scan opens the camera; Choose file opens the phone's files.
+- [ ] Settings → My daily routine: change the morning time, "Save & move my current medicines" → upcoming doses move; today's past/taken ones do not; repeat → "already match". Turn off the 10-min and follow-up reminders → they stop; the at-dose-time reminder still arrives.
+- [ ] Care report: Export calendar and Download PDF both download a file (no error page); no "needs confirmation" rows or alerts.
 - [ ] Dashboard shows **only today's** medicines (taken / missed / due / upcoming); no 30-day list; "Left today" tile. After midnight (or changing the phone date) the next day's doses appear as the new "today".
 - [ ] Alerts: each one has a plain title, "What's the problem", "What to do", and (for timing) the gap bar; colours are amber / yellow / blue / green - nothing is emergency-red; the legend is visible. Ask someone who has not seen the app to say what each alert wants them to do.
 

@@ -16,6 +16,7 @@ from db import log_audit, Prescription, Medicine
 from parser import parse_medicine_line, compute_status
 from scheduler import generate_doses, SchedulingBlocked
 from clock import patient_now
+import routine
 
 
 def create_prescription_from_lines(
@@ -98,6 +99,7 @@ def confirm_prescription_doses(db: Session, prescription: Prescription, actor: s
             blocked.append(medicine.id)
             continue
         try:
+            routine.apply_to_new_medicine(db, medicine, prescription.patient_id)
             doses = generate_doses(medicine, start_at=local_start, skip_past=True)
         except SchedulingBlocked:
             blocked.append(medicine.id)

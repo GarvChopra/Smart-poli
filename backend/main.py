@@ -46,6 +46,7 @@ from prescription_service import create_prescription_from_lines, confirm_prescri
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
     mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, undo_taken,
+    take_window_error, TAKE_EARLY_WINDOW,
 )
 from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
@@ -62,7 +63,7 @@ from schemas import (
     PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
-    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose,
+    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
@@ -77,6 +78,7 @@ from auth import (
 )
 from nudges import compute_nudges
 from clock import patient_now, is_valid_timezone, patient_timezone
+from verification import needs_patient_review
 from safety import build_safety_center
 from ics_export import build_ics
 from emergency_tokens import patient_id_for_token, rotate_token
@@ -89,6 +91,7 @@ import whatsapp_router
 import whatsapp_bot
 import reminders
 import regulatory
+import routine
 import safety_service
 import safety_engine
 import webpush_service
@@ -549,6 +552,11 @@ def take_dose(dose_id: int, user: User = Depends(require_dose_write_access), db:
     patient_id = _dose_patient_id(dose)
     previous_state, scheduled = dose.state, dose.scheduled_at
     now = patient_now(db, patient_id)
+    if dose.state == "taken":
+        return serialize_dose(dose)                      # idempotent: a repeat tap changes nothing
+    too_far = take_window_error(dose, now)
+    if too_far:
+        raise HTTPException(409, too_far)
     changed = (db.query(Dose).filter(Dose.id == dose_id, Dose.state != "taken")
                .update({"state": "taken", "acted_at": now}, synchronize_session=False))
     db.commit()
@@ -607,6 +615,8 @@ def snooze_dose(dose_id: int, user: User = Depends(require_dose_write_access), d
     dose = get_dose_or_404(db, dose_id)
     if dose.state in ("taken", "skipped", "missed"):
         raise HTTPException(409, f"A dose that is already {dose.state} cannot be snoozed.")
+    if dose.scheduled_at > patient_now(db, _dose_patient_id(dose)) + TAKE_EARLY_WINDOW:
+        raise HTTPException(409, "This dose is not due yet, so there is nothing to snooze.")
     snooze(dose)
     # The new time needs its own 'due' / follow-up reminders; the heads-up stays as sent.
     db.query(ReminderLog).filter(ReminderLog.dose_id == dose.id, ReminderLog.kind.in_(("due", "followup"))).delete(
@@ -707,6 +717,59 @@ def put_patient_settings(patient_id: int, body: PatientSettingsUpdate,
     if changed:
         log_audit(db, patient_id, f"patient:{user.id}", "settings_updated", "; ".join(changed))
     return get_patient_settings(patient_id, user, db)
+
+
+@app.get("/patients/{patient_id}/routine")
+def get_patient_routine(patient_id: int, user: User = Depends(require_patient_read_access),
+                        db: Session = Depends(get_db_session)):
+    """When this patient's morning / afternoon / evening / night / bedtime doses happen, and their reminder options."""
+    get_patient_or_404(db, patient_id)
+    return routine.get_routine(db, patient_id)
+
+
+@app.put("/patients/{patient_id}/routine")
+def put_patient_routine(patient_id: int, body: RoutineUpdate, user: User = Depends(require_patient_write_access),
+                        db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    times = {s_: getattr(body, s_) for s_ in ("morning", "afternoon", "evening", "night", "bedtime")}
+    problem = routine.validate_times(times)
+    if problem:
+        raise HTTPException(422, problem)
+    from db import PatientRoutine
+    row = routine.routine_row(db, patient_id)
+    if row is None:
+        row = PatientRoutine(patient_id=patient_id)
+        db.add(row)
+    before = routine.get_routine(db, patient_id)
+    for s_, v in times.items():
+        setattr(row, s_, v)
+    row.notify_soon, row.notify_followup = body.notify_soon, body.notify_followup
+    db.commit()
+    after = routine.get_routine(db, patient_id)
+    if before["times"] != after["times"] or before["notify_soon"] != after["notify_soon"] \
+            or before["notify_followup"] != after["notify_followup"]:
+        log_audit(db, patient_id, f"patient:{user.id}", "routine_updated",
+                  json.dumps({"times": after["times"], "notify_soon": after["notify_soon"],
+                              "notify_followup": after["notify_followup"]}))
+    return after
+
+
+@app.post("/patients/{patient_id}/routine/apply")
+def apply_patient_routine(patient_id: int, user: User = Depends(require_patient_write_access),
+                          db: Session = Depends(get_db_session)):
+    """Move this patient's current, untouched FUTURE doses to their saved routine. Doses already taken,
+    skipped, missed, or moved for a spacing rule are left alone. Safe to repeat."""
+    get_patient_or_404(db, patient_id)
+    if routine.routine_row(db, patient_id) is None:
+        raise HTTPException(409, "Save your daily routine first.")
+    result = routine.move_pending_doses(db, patient_id, patient_now(db, patient_id))
+    if result["doses_moved"] or result["medicines_changed"]:
+        log_audit(db, patient_id, f"patient:{user.id}", "routine_applied", json.dumps(result))
+        try:
+            reminders.notify_new_conflicts(db, patient_id)      # new times can change which medicines are close together
+        except Exception:
+            logger.exception("conflict notice after routine apply failed")
+    return result
 
 
 @app.get("/push/public-key")
@@ -863,7 +926,7 @@ def dashboard(patient_id: int, user: User = Depends(require_patient_read_access)
         ],
         "unconfirmed_medicines": [
             serialize_medicine(m) for pres in prescriptions for m in pres.medicines
-            if m.status == "needs_confirmation"
+            if needs_patient_review(m)
         ],
         "interactions": check_interactions(
             INTERACTION_RULESET,

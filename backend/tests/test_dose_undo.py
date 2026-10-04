@@ -16,6 +16,13 @@ def _patient_with_dose(client):
     pres = client.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650mg 1-0-1 PC x5d"]}).json()
     client.post(f"/prescriptions/{pres['prescription_id']}/confirm")
     dose_id = client.get(f"/patients/{pid}/dashboard").json()["upcoming_doses"][0]["id"]
+    # "Take" only works for a dose that is due, so make the first one due right now.
+    db = SessionLocal()
+    try:
+        db.query(Dose).filter_by(id=dose_id).update({"scheduled_at": datetime.utcnow()})
+        db.commit()
+    finally:
+        db.close()
     return pid, dose_id
 
 

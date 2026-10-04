@@ -984,3 +984,20 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .today-pill.info { background: var(--blue-soft); color: var(--blue); }
 .dose-calendar-slot.is-done { opacity: 0.72; }
 .today-done { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--teal-soft); color: var(--teal-dark); font-size: 13.5px; font-weight: 600; }
+
+
+/* ---------------------------------------------------------------- simple prescription tab + calm dashboard header */
+.add-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.add-big { flex: 1 1 170px; padding: 18px 14px; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.add-big .icon { display: inline-flex; width: 20px; height: 20px; }
+.add-big .icon svg { width: 100%; height: 100%; }
+.dash-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.dash-head h2 { margin: 0; }
+.chip-link { display: block; width: 100%; text-align: left; margin-bottom: 12px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid #E7B25B; background: #FFF8EC; color: var(--amber); font-weight: 600; font-size: 13.5px; cursor: pointer; }
+
+.routine-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.routine-row input[type="time"] { width: auto; min-width: 110px; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin-top: 8px; }
+.check-row input[type="checkbox"] { width: 18px; height: 18px; flex: none; accent-color: var(--teal); }
+
+.today-done.has-missed { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--line); font-weight: 500; }
