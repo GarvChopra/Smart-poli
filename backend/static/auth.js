@@ -29,15 +29,15 @@ function clearAuth() {
 }
 
 function landingPageFor(role) {
-  if (role === 'doctor') return '/static/doctor.html';
-  if (role === 'caregiver') return '/static/caregiver.html';
-  return '/static/index.html';
+  if (role === 'doctor') return '/doctor';
+  if (role === 'caregiver') return '/caregiver';
+  return '/';
 }
 
-/** `?next=` after login (e.g. the voice page) — only same-site /static/
+/** `?next=` after login (e.g. the voice page) — only the app's own
  * pages, never another origin, so the login page can't be an open redirect. */
 function safeNextPath(raw) {
-  return typeof raw === 'string' && /^\/static\/[A-Za-z0-9_-]+\.html(?:[?#][^\s]*)?$/.test(raw) ? raw : null;
+  return typeof raw === 'string' && /^\/(?:voice|doctor|caregiver)?(?:[?#][^\s]*)?$/.test(raw) ? raw : null;
 }
 
 function landingAfterLogin(role, search) {
@@ -48,7 +48,7 @@ function landingAfterLogin(role, search) {
 /**
  * WhatsApp magic link support (whatsapp_bot.py's web_dashboard_link()): a
  * WhatsApp-only patient never sets a password, so instead of a login form
- * they get a link like /static/index.html?token=<jwt>. This consumes that
+ * they get a link like /?token=<jwt>. This consumes that
  * token into normal localStorage auth before requireRole() ever runs, then
  * strips it from the URL so it doesn't linger in browser history.
  *
@@ -85,7 +85,7 @@ function landingAfterLogin(role, search) {
 function requireRole(expectedRole) {
   const auth = getAuth();
   if (!auth || !auth.token || !auth.user) {
-    window.location.href = '/static/login.html';
+    window.location.href = '/login';
     return null;
   }
   if (auth.user.role !== expectedRole) {
@@ -110,7 +110,7 @@ async function logout() {
     }
   } catch (e) { /* offline or already expired: still log out locally */ }
   clearAuth();
-  window.location.href = '/static/login.html';
+  window.location.href = '/login';
 }
 
 /** Same shape as the old local api() helper each page used to define, but
@@ -127,7 +127,7 @@ async function apiFetch(method, path, body) {
   const res = await fetch(path, opts);
   if (res.status === 401) {
     clearAuth();
-    window.location.href = '/static/login.html';
+    window.location.href = '/login';
     throw new Error('Session expired — please log in again.');
   }
   if (!res.ok) {

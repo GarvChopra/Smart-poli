@@ -552,4 +552,4 @@ def web_dashboard_link(user: User) -> str:
     already issues for a normal login, just delivered over chat instead of
     a login form."""
     token = create_token(user)
-    return f"{PUBLIC_BASE_URL}/static/index.html?token={token}"
+    return f"{PUBLIC_BASE_URL}/?token={token}"

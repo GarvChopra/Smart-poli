@@ -275,9 +275,9 @@ def test_voice_available(monkeypatch):
 def test_short_voice_link_redirects():
     with TestClient(app) as client:
         r = client.get("/voice", follow_redirects=False)
-        assert r.status_code in (302, 307)
-        assert r.headers["location"] == "/static/voice.html"
-        assert client.get("/static/voice.html").status_code == 200
+        assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+        r = client.get("/static/voice.html", follow_redirects=False)
+        assert r.status_code == 308 and r.headers["location"] == "/voice"
         assert client.get("/static/manifest.webmanifest").status_code == 200
 
 

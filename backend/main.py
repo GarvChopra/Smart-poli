@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 # backend/ itself — matches .env.example's location and CLAUDE.md section 13.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from web_security import SecurityHeadersMiddleware, not_found_handler, rate_limit
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,8 +103,12 @@ import webpush_service
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# The interactive API docs map every endpoint for an attacker, so they are off unless SMARTPOLI_ENABLE_DOCS=1.
+_DOCS_ON = os.getenv("SMARTPOLI_ENABLE_DOCS") == "1"
 app = FastAPI(title="SmartPoli API", version="1.0.0",
-              description="Prescription decoder, adherence scheduler, symptom triage and care report.")
+              description="Prescription decoder, adherence scheduler, symptom triage and care report.",
+              docs_url="/docs" if _DOCS_ON else None, redoc_url="/redoc" if _DOCS_ON else None,
+              openapi_url="/openapi.json" if _DOCS_ON else None)
 
 _default_origins = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("SMARTPOLI_ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()]
@@ -111,9 +117,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Accept-Language"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_exception_handler(StarletteHTTPException, not_found_handler)
 
 RULESET = load_ruleset()
 INTERACTION_RULESET = load_interaction_ruleset()
@@ -124,12 +132,47 @@ app.include_router(caregiver_router.router)
 app.include_router(doctor_router.router)
 app.include_router(whatsapp_router.router)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+class PublicStaticFiles(StaticFiles):
+    """/static serves only the front-end's own assets: an allow-list of extensions, no dotfiles, no source maps,
+    no server-side files, and no directory listing. The HTML pages are NOT served from here - they live at clean
+    routes (/, /login, /voice, /caregiver, /doctor) - so a /static/*.html request is redirected to its clean URL."""
+
+    ALLOWED = {".js", ".css", ".png", ".svg", ".webmanifest", ".ico", ".jpg", ".jpeg", ".webp", ".woff", ".woff2"}
+
+    async def get_response(self, path, scope):
+        name = path.rsplit("/", 1)[-1]
+        ext = os.path.splitext(name)[1].lower()
+        if name.startswith(".") or ".." in path or ext not in self.ALLOWED:
+            raise HTTPException(404, "Not found")
+        return await super().get_response(path, scope)
 
 
-@app.get("/", include_in_schema=False)
-def serve_frontend():
-    return FileResponse("static/index.html")
+# One explicit route table for the pages: only these URLs return an HTML page.
+PAGES = {"/": "index.html", "/login": "login.html", "/voice": "voice.html",
+         "/caregiver": "caregiver.html", "/doctor": "doctor.html"}
+
+
+def _page_route(file_name: str):
+    def serve():
+        return FileResponse(f"static/{file_name}", headers={"Cache-Control": "no-cache"})
+    return serve
+
+
+for _path, _file in PAGES.items():
+    app.add_api_route(_path, _page_route(_file), methods=["GET"], include_in_schema=False)
+
+
+@app.get("/static/{name}.html", include_in_schema=False)
+def legacy_static_page(name: str, request: Request):
+    """Old links (/static/index.html, ...) keep working: redirect to the clean URL, keeping ?query and #hash-less."""
+    target = "/" if name == "index" else f"/{name}"
+    if target not in PAGES:
+        raise HTTPException(404, "Not found")
+    q = request.url.query
+    return RedirectResponse(target + (f"?{q}" if q else ""), status_code=308)
+
+
+app.mount("/static", PublicStaticFiles(directory="static"), name="static")
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
@@ -138,6 +181,13 @@ def app_manifest():
     Android Trusted Web Activity read. The older /static/manifest.webmanifest
     belongs to the voice page only."""
     return FileResponse("static/app.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/sw-voice.js", include_in_schema=False)
+def sw_voice():
+    """Voice page's service worker, served from the root so its scope can be /voice."""
+    return FileResponse("static/sw-voice.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/voice"})
 
 
 @app.get("/sw-push.js", include_in_schema=False)
@@ -330,7 +380,6 @@ def create_prescription(body: PrescriptionCreate, user: User = Depends(get_curre
                          db: Session = Depends(get_db_session)):
     """Manual path: raw lines in, parsed+confidence-scored Medicine rows out. Nothing scheduled yet.
     Only the owning patient may add a prescription to their own record."""
-    get_patient_or_404(db, body.patient_id)
     if not has_write_access(db, user, body.patient_id):
         raise HTTPException(403, "Only the patient can add a prescription to their own record.")
     prescription, medicines = _create_prescription_from_lines(
@@ -1058,7 +1107,7 @@ def triage_llm_available():
 
 
 @app.post("/triage/interpret-free-text")
-def triage_interpret_free_text(body: FreeTextTriageRequest):
+def triage_interpret_free_text(body: FreeTextTriageRequest, _rl=Depends(rate_limit("triage-llm", 10, 60))):
     """
     Optional LLM assist: free text -> candidate symptom_ids + answers, for
     the user to review before anything is submitted. Never returns a
@@ -1081,7 +1130,7 @@ def get_symptom_questions(symptom_id: str, lang: str = "en"):
 
 
 @app.post("/triage/next-question")
-def get_next_question(body: NextQuestionRequest):
+def get_next_question(body: NextQuestionRequest, _rl=Depends(rate_limit("triage", 60, 60))):
     if body.symptom_id not in RULESET["symptoms"]:
         raise HTTPException(404, f"Unknown symptom {body.symptom_id}")
     q = next_question(RULESET, body.symptom_id, body.answers, body.current_severity)
@@ -1089,7 +1138,7 @@ def get_next_question(body: NextQuestionRequest):
 
 
 @app.post("/triage/preview")
-def triage_preview(body: TriageCheckRequest, lang: str = "en"):
+def triage_preview(body: TriageCheckRequest, lang: str = "en", _rl=Depends(rate_limit("triage", 60, 60))):
     """Same evaluation as /triage/check but never persisted — used by the
     question-by-question UI to decide whether to keep asking (rule 2:
     stop once EMERGENCY) without writing a SymptomCheck row per keystroke."""
@@ -1128,12 +1177,6 @@ def _local_now(client_time: Optional[str]) -> datetime:
         return datetime.fromisoformat(client_time).replace(tzinfo=None) if client_time else datetime.now()
     except ValueError:
         return datetime.now()
-
-
-@app.get("/voice", include_in_schema=False)
-def voice_page():
-    """Short link citizens can open on a phone: straight to the voice page."""
-    return RedirectResponse("/static/voice.html")
 
 
 @app.delete("/patients/{patient_id}/voice/history")
@@ -1376,7 +1419,7 @@ _PUBLIC_HEADERS = {"Referrer-Policy": "no-referrer"}
 
 
 @app.get("/emergency/{token}", response_class=HTMLResponse, include_in_schema=False)
-def emergency_card_page(token: str, db: Session = Depends(get_db_session)):
+def emergency_card_page(token: str, db: Session = Depends(get_db_session), _rl=Depends(rate_limit("emergency", 60, 60))):
     """Public, standalone, no-login card — what a QR scan opens. Addressed by
     a random revocable token (emergency_tokens.py), never the patient id;
     shows only what the patient chose to share (emergency_page.py)."""
@@ -1388,7 +1431,7 @@ def emergency_card_page(token: str, db: Session = Depends(get_db_session)):
 
 
 @app.get("/emergency/{token}/photo", include_in_schema=False)
-def emergency_card_public_photo(token: str, db: Session = Depends(get_db_session)):
+def emergency_card_public_photo(token: str, db: Session = Depends(get_db_session), _rl=Depends(rate_limit("emergency", 60, 60))):
     patient_id = patient_id_for_token(db, token)
     photo = card_photo(db, patient_id) if patient_id is not None else None
     if not photo or not card_profile(db, patient_id)["share"]["photo"]:

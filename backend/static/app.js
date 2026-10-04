@@ -1801,7 +1801,7 @@ async function renderCareTeamLists() {
 // here with #tab=<name>, plus &edit=1 to open the card editor ("update my details").
 
 document.getElementById('voiceBtn').addEventListener('click', () => {
-  window.location.href = '/static/voice.html';
+  window.location.href = '/voice';
 });
 
 function openTabFromHash() {
@@ -1815,7 +1815,7 @@ function openTabFromHash() {
 // ---------------------------------------------------------------- boot
 
 (async function boot() {
-  if (!currentUser) return; // requireRole() already redirected to /static/login.html
+  if (!currentUser) return; // requireRole() already redirected to /login
   renderSessionChip();
   applyA11yMode();
   injectNavIcons();

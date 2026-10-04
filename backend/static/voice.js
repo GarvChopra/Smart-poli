@@ -168,7 +168,7 @@ function onReply(res) {
 function onDoneSpeaking(res) {
   const nav = (res.actions || []).find(a => a.type === 'navigate');
   if (nav) {
-    window.location.href = `/static/index.html#tab=${encodeURIComponent(nav.screen)}${nav.edit ? '&edit=1' : ''}`;
+    window.location.href = `/#tab=${encodeURIComponent(nav.screen)}${nav.edit ? '&edit=1' : ''}`;
   }
   if ((res.actions || []).some(a => a.type === 'stop')) VX.engine?.pause();
 }
@@ -285,7 +285,7 @@ function helpCard() {
     <h3>${tx('emTitle')}</h3>
     <p>${tx('emText')}</p>
     <a class="vx-help-call" href="tel:112">${tx('emCall')}</a>
-    <div class="vx-card-actions">${contact}<a class="vx-btn" href="/static/index.html#tab=triage">${tx('emSymptom')}</a></div>
+    <div class="vx-card-actions">${contact}<a class="vx-btn" href="/#tab=triage">${tx('emSymptom')}</a></div>
     <button type="button" class="vx-link" data-resume>${tx('emResume')}</button>`, 'vx-help');
   card.querySelector('[data-resume]').addEventListener('click', () => VX.engine?.resume());
   card.querySelector('.vx-help-call').focus({ preventScroll: true });
@@ -374,7 +374,7 @@ function onOrbTap() {
 async function boot() {
   const auth = getAuth();
   if (!auth || !auth.token || !auth.user) {
-    window.location.href = '/static/login.html?next=' + encodeURIComponent('/static/voice.html');
+    window.location.href = '/login?next=' + encodeURIComponent('/voice');
     return;
   }
   if (auth.user.role !== 'patient') { window.location.href = landingPageFor(auth.user.role); return; }
@@ -409,7 +409,7 @@ async function boot() {
   try {
     const patients = await apiFetch('GET', '/patients');
     if (!patients.length) {
-      showNote(`${esc(tx('noPatient'))} <a class="vx-btn" href="/static/index.html">${esc(tx('openApp'))}</a>`);
+      showNote(`${esc(tx('noPatient'))} <a class="vx-btn" href="/">${esc(tx('openApp'))}</a>`);
       $('startScreen').hidden = true;
       return;
     }
@@ -423,7 +423,7 @@ async function boot() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/static/sw-voice.js', { scope: '/static/' }).catch(() => {});
+    navigator.serviceWorker.register('/sw-voice.js', { scope: '/voice' }).catch(() => {});
   }
 }
 

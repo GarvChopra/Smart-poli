@@ -8,6 +8,7 @@ this still runs with an empty .env (CLAUDE.md section 14).
 import time
 from typing import Optional
 
+from web_security import rate_limit
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -51,7 +52,7 @@ def _serialize_user(user: User, db: Session) -> dict:
 
 
 @router.post("/register")
-def register(body: RegisterRequest, db: Session = Depends(get_db_session)):
+def register(body: RegisterRequest, db: Session = Depends(get_db_session), _rl=Depends(rate_limit("register", 10, 3600))):
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(400, "A valid email is required.")
