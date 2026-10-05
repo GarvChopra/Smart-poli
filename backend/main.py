@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -29,6 +30,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 from web_security import SecurityHeadersMiddleware, not_found_handler, rate_limit
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
@@ -124,6 +126,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Accept-Language"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=600)          # app.js / style.css shrink about 4x on a slow phone connection
 app.add_exception_handler(StarletteHTTPException, not_found_handler)
 
 RULESET = load_ruleset()
@@ -155,9 +158,36 @@ PAGES = {"/": "index.html", "/login": "login.html", "/voice": "voice.html", "/in
          "/caregiver": "caregiver.html", "/doctor": "doctor.html"}
 
 
+def _static_version() -> str:
+    """Changes whenever the app's files change: the deploy's commit if Render gives us one, else a hash of file times."""
+    commit = os.getenv("RENDER_GIT_COMMIT")
+    if commit:
+        return commit[:10]
+    import hashlib
+    h = hashlib.sha1()
+    for root, _, files in os.walk("static"):
+        for f in sorted(files):
+            p = os.path.join(root, f)
+            h.update(f"{p}:{os.path.getmtime(p):.0f}".encode())
+    return h.hexdigest()[:10]
+
+
+STATIC_VERSION = _static_version()
+_ASSET_URL = re.compile(r'(["\'])(/static/[A-Za-z0-9_\-.]+\.(?:js|css))\1')
+_page_cache: dict = {}
+
+
+def _versioned_html(file_name: str) -> str:
+    """The page with ?v=<version> on every /static script and stylesheet (cached in memory; files do not change at runtime)."""
+    if file_name not in _page_cache:
+        text = open(f"static/{file_name}", encoding="utf-8").read()
+        _page_cache[file_name] = _ASSET_URL.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={STATIC_VERSION}{m.group(1)}", text)
+    return _page_cache[file_name]
+
+
 def _page_route(file_name: str):
     def serve():
-        return FileResponse(f"static/{file_name}", headers={"Cache-Control": "no-cache"})
+        return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": "no-cache"})
     return serve
 
 
@@ -222,6 +252,18 @@ def asset_links():
 reminder_scheduler = BackgroundScheduler()
 
 
+_last_external_sweep = [0.0]
+
+
+def _in_process_sweep_job():
+    """The built-in timer is only a fallback: when the external scheduler (cron-job.org) has just run the sweep, skip -
+    two sweeps a minute against the remote database is wasted work on a small server."""
+    import time as _time
+    if _time.time() - _last_external_sweep[0] < 150:
+        return
+    _reminder_sweep_job()
+
+
 def _reminder_sweep_job():
     """
     The proactive half of Feature 2's reminders (CLAUDE.md section 9): runs
@@ -283,6 +325,8 @@ def internal_reminder_sweep(x_cron_secret: Optional[str] = Header(None)):
     secret = os.getenv("SMARTPOLI_CRON_SECRET", "")
     if not secret or not x_cron_secret or not hmac.compare_digest(secret.encode(), x_cron_secret.encode()):
         raise HTTPException(404, "Not Found")
+    import time as _time
+    _last_external_sweep[0] = _time.time()
     _reminder_sweep_job()
     return {"ok": True}
 
@@ -305,7 +349,7 @@ def on_startup():
         # sweeping the shared test database would make them flaky.
         logger.info("SmartPoli API up. Background reminder sweep disabled (SMARTPOLI_DISABLE_SCHEDULER=1).")
         return
-    reminder_scheduler.add_job(_reminder_sweep_job, "interval", minutes=1, id="reminder_sweep",
+    reminder_scheduler.add_job(_in_process_sweep_job, "interval", minutes=1, id="reminder_sweep",
                                max_instances=1, coalesce=True, replace_existing=True)
     if not reminder_scheduler.running:
         reminder_scheduler.start()

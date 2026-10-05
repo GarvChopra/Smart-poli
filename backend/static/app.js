@@ -2186,5 +2186,5 @@ function openTabFromHash() {
   // Straight to the tab in the URL (#tab=… from the voice page); rendering the
   // dashboard first and then switching would load both.
   if (!openTabFromHash()) renderActiveTab();
-  showOpenWarnings();
+  setTimeout(showOpenWarnings, 3500);            // after the screen is up: the check makes many database calls
 })();

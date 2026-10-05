@@ -30,6 +30,20 @@ _CSP = ("default-src 'self'; "
         "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 
 
+_STATIC_ASSET_EXT = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".woff", ".woff2")
+
+
+def cache_policy(path: str, versioned: bool) -> str:
+    """API answers are private (never cached). The pages carry a version in every script/style URL (?v=...), so those
+    files can be cached for a year and a new deploy still reaches every phone at once (the version changes). A script or
+    style requested WITHOUT a version is re-checked each time; images may be kept for a day."""
+    if not path.startswith("/static/"):
+        return "no-store"
+    if versioned:
+        return "public, max-age=31536000, immutable"
+    return "public, max-age=86400" if path.lower().endswith(_STATIC_ASSET_EXT) else "no-cache"
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -44,9 +58,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # Private pages and API answers must not be kept by shared caches or the back button.
         if "cache-control" not in h:
-            # API answers are private: never cached. App files (/static) are re-validated on every open (a cheap 304 when
-            # unchanged) so a phone never keeps running an old version of the app after an update.
-            h["Cache-Control"] = "no-cache" if request.url.path.startswith("/static/") else "no-store"
+            h["Cache-Control"] = cache_policy(request.url.path, "v" in request.query_params)
         return response
 
 

@@ -87,3 +87,36 @@ def test_install_page_assets_and_login_link(client):
 def test_app_files_are_revalidated_and_api_answers_are_never_cached(client):
     assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
     assert client.get("/auth/me").headers["cache-control"] == "no-store"
+
+
+def test_pages_carry_a_version_so_app_files_can_be_cached_for_a_year(client):
+    import re
+    html = client.get("/").text
+    versions = set(re.findall(r'/static/[\w\-.]+\.(?:js|css)\?v=(\w+)', html))
+    assert len(versions) == 1 and "/static/app.js?v=" in html and "/static/style.css?v=" in html
+    v = versions.pop()
+    r = client.get(f"/static/app.js?v={v}")
+    assert r.status_code == 200 and "immutable" in r.headers["cache-control"]
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"          # unversioned: re-checked each time
+    assert "max-age=86400" in client.get("/static/app-icon-192.png").headers["cache-control"]
+    for page in ("/login", "/voice", "/install", "/doctor", "/caregiver"):
+        assert "?v=" in client.get(page).text, page
+
+
+def test_responses_are_gzip_compressed(client):
+    r = client.get("/static/app.js", headers={"accept-encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    assert client.get("/static/app.js", headers={"accept-encoding": "identity"}).headers.get("content-encoding") is None
+
+
+def test_the_builtin_sweep_skips_when_the_external_one_just_ran(monkeypatch):
+    import time
+    import main
+    calls = []
+    monkeypatch.setattr(main, "_reminder_sweep_job", lambda: calls.append(1))
+    main._last_external_sweep[0] = time.time()
+    main._in_process_sweep_job()
+    assert calls == []
+    main._last_external_sweep[0] = time.time() - 1000
+    main._in_process_sweep_job()
+    assert calls == [1]

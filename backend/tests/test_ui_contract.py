@@ -237,3 +237,7 @@ def test_every_warning_popup_lets_the_person_remove_a_medicine():
 def test_open_warnings_wait_for_combinations_still_being_looked_up():
     body = fn_body("showOpenWarnings")
     assert "data.pending" in body and "waitMs" in body
+
+
+def test_open_warning_check_runs_after_the_screen_is_up():
+    assert "setTimeout(showOpenWarnings" in JS
