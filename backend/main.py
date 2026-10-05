@@ -500,6 +500,29 @@ def medicine_pair_check(medicine_id: int, user: User = Depends(require_medicine_
             "note": "SmartPoli only knows the combinations its sources cover. No warning is not proof two medicines are safe together."}
 
 
+@app.get("/prescriptions/{prescription_id}/pair-check")
+def prescription_pair_check(prescription_id: int, user: User = Depends(require_prescription_write_access),
+                            db: Session = Depends(get_db_session)):
+    """Same 'keep these apart' check as for one new medicine, for every medicine of a typed / photographed prescription."""
+    prescription = get_prescription_or_404(db, prescription_id)
+    now = patient_now(db, prescription.patient_id)
+    return {"warnings": pair_check.warnings_for_prescription(db, prescription, now),
+            "note": "SmartPoli only knows the combinations its sources cover. No warning is not proof two medicines are safe together."}
+
+
+@app.get("/patients/{patient_id}/pair-check")
+def patient_pair_check(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+                       db: Session = Depends(get_db_session)):
+    """Safety center: every pair among the patient's medicines that should be kept apart, from the cache. Pairs not yet
+    looked up are fetched in the background (`pending`) and show up on the next call."""
+    get_patient_or_404(db, patient_id)
+    out = pair_check.warnings_for_patient(db, patient_id, patient_now(db, patient_id))
+    if out["pending"] and gap_ai.is_enabled():
+        background.add_task(gap_ai.warm_patient, patient_id)
+    out["note"] = "SmartPoli only knows the combinations its sources cover. No warning is not proof two medicines are safe together."
+    return out
+
+
 @app.post("/medicines/{medicine_id}/shift")
 def shift_medicine_times(medicine_id: int, body: ShiftMedicine, user: User = Depends(require_medicine_write_access),
                          db: Session = Depends(get_db_session)):

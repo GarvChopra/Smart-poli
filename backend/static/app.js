@@ -329,6 +329,10 @@ async function renderSafetyCenter() {
       <div id="safetyConflicts" class="empty">Checking your schedule…</div>
     </div>
     <div class="card">
+      <div class="card-head">${iconBadge('amber', 'warning')}<h3>Medicines that shouldn’t be taken together</h3></div>
+      <div id="safetyCombos" class="empty">Checking…</div>
+    </div>
+    <div class="card">
       <div class="card-head">${iconBadge('teal', 'shield')}<h3>Check sources</h3></div>
       <p style="color:var(--ink-soft);font-size:13px;margin-top:0;">Checks your medicines against official lists (India CDSCO, US FDA).</p>
       <div id="safetyRegulatory"><button class="primary small" id="regCheckBtn">Check now</button></div>
@@ -347,6 +351,7 @@ async function renderSafetyCenter() {
   `;
   loadConflictsInto(document.getElementById('safetyConflicts'));
   loadMedicineInfoInto(view);
+  loadCombinationCheckInto(document.getElementById('safetyCombos'));
   document.getElementById('regCheckBtn').addEventListener('click', async () => {
     const mount = document.getElementById('safetyRegulatory');
     mount.innerHTML = '<div class="empty">Checking…</div>';
@@ -629,14 +634,51 @@ async function afterMedicineAdded(med, out, when, sos) {
     <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
   warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderPrescriptions(); renderGlance(); });
   wireConflictActions(warn);
-  warn.querySelectorAll('[data-shift]').forEach((btn) => btn.addEventListener('click', async () => {
+  wireShiftButtons(warn);
+}
+
+/** "Move X to <time>" buttons on keep-apart warnings: shift every upcoming dose of that medicine, then say so. */
+function wireShiftButtons(root, onMoved) {
+  root.querySelectorAll('[data-shift]').forEach((btn) => btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
       await api('POST', `/medicines/${btn.dataset.shift}/shift`, { minutes: Number(btn.dataset.minutes) });
       dashboardCache = null;
       btn.outerHTML = `<div class="wz-moved">Moved to ${escHtml(btn.dataset.times)} ✓</div>`;
+      if (onMoved) onMoved();
     } catch (e) { btn.disabled = false; showNotice('Could not move it', e.message); }
   }));
+}
+
+/** After a typed / photographed prescription is confirmed: the same "please check this" popup, only if something clashes. */
+async function checkPrescriptionCombinations(prescriptionId) {
+  let warnings = [];
+  try { warnings = (await api('GET', `/prescriptions/${prescriptionId}/pair-check`)).warnings || []; } catch (e) { return; }
+  if (!warnings.length) return;
+  const warn = showSafetyModal(`
+    <h3>⚠ Please check this</h3>
+    <div class="sm-headline" style="font-weight:500;">Some of your medicines should not be taken together:</div>
+    ${warnings.map(pairWarningHtml).join('')}
+    <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
+    <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
+  warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderActiveTab(); });
+  wireShiftButtons(warn);
+}
+
+/** Safety center card: every pair among the person's medicines that should be kept apart. */
+async function loadCombinationCheckInto(mount) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!document.body.contains(mount)) return;
+    const data = await api('GET', `/patients/${state.patientId}/pair-check`).catch(() => null);
+    if (!data) { mount.innerHTML = '<div class="empty">Could not check right now.</div>'; return; }
+    const warn = data.warnings.length ? data.warnings.map(pairWarningHtml).join('')
+      : '<div class="mi-ok">✓ No known clash between your medicines.</div>';
+    mount.innerHTML = `${warn}${data.pending ? '<div class="reg-meta"><span class="upload-spinner"></span> Still checking some combinations…</div>' : ''}
+      <div class="reg-meta" style="margin-top:6px;">${escHtml(data.note)}</div>`;
+    wireShiftButtons(mount, () => loadCombinationCheckInto(mount));
+    if (!data.pending) return;
+    await waitMs(attempt === 0 ? 7000 : 10000);
+  }
 }
 
 function scanFailedPopup() {
@@ -913,6 +955,7 @@ function renderRxResult(result) {
         ${summary.prn.length ? `${summary.prn.length} marked as-needed (no fixed schedule).` : ''}
         ${summary.blocked_needs_confirmation.length ? `<br><strong>${summary.blocked_needs_confirmation.length} still need confirmation before they can be scheduled.</strong>` : ''}
       </div>`;
+    if (summary.scheduled.length) checkPrescriptionCombinations(result.prescription_id);
   });
 }
 

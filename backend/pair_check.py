@@ -115,3 +115,74 @@ def warnings_for_new_medicine(db, medicine, now_local: datetime, pair_fn=None) -
                            if shift else None),
         })
     return out
+
+
+def _warning(new_name, other_name, required, close, ans, medicine_id, new_doses, shift):
+    basis = ans.get("basis") or "ai_estimate"
+    return {
+        "kind": "pair_gap", "medicines": [new_name, other_name], "required_hours": required, "closest_hours": round(close, 2),
+        "message": (f"{new_name} and {other_name} work less well, or can cause problems, when taken close together. "
+                    f"Keep them about {required:g} hour{'s' if required != 1 else ''} apart."),
+        "applies_when": ans.get("applies_when"), "source": basis, "source_label": SOURCE_LABEL.get(basis, SOURCE_LABEL["ai_estimate"]),
+        "quote": ans.get("quote"), "confidence": ans.get("confidence"),
+        "suggestion": ({"medicine_id": medicine_id, "medicine": new_name, "shift_minutes": shift,
+                        "new_times": sorted({(d + timedelta(minutes=shift)).strftime("%H:%M") for d in new_doses})}
+                       if shift else None),
+    }
+
+
+def _is_real_problem(ans) -> bool:
+    if not ans or not ans.get("hours"):
+        return False
+    return not (float(ans["hours"]) < MIN_REQUIRED_HOURS or (ans.get("basis") == "ai_estimate" and ans.get("confidence") == "low"))
+
+
+def warnings_for_prescription(db, prescription, now_local: datetime, pair_fn=None, max_medicines: int = 4) -> list:
+    """Warnings for every medicine of one prescription against everything the patient takes (a typed or photographed
+    prescription adds several at once). A pair that appears from both sides is reported once."""
+    from db import Medicine
+    out, seen = [], set()
+    meds = [m for m in db.query(Medicine).filter(Medicine.prescription_id == prescription.id).all()
+            if m.status != "needs_confirmation" and not m.is_prn][:max_medicines]
+    for m in meds:
+        for w in warnings_for_new_medicine(db, m, now_local, pair_fn):
+            key = frozenset(x.lower() for x in w["medicines"])
+            if key not in seen:
+                seen.add(key)
+                out.append(w)
+    return out
+
+
+def warnings_for_patient(db, patient_id: int, now_local: datetime, pair_fn=None, max_medicines: int = 8) -> dict:
+    """Every pair among the patient's medicines, from the cache only (pair_fn default never calls the network):
+    {'warnings': [...], 'pending': number of pairs not looked up yet}. The medicine added LATER is the one suggested to move."""
+    from db import Medicine, Prescription
+    pair_fn = pair_fn or (lambda s, a, b: gap_ai.pair_gap(s, a, b, allow_network=False))
+    meds, seen = [], set()
+    for m in (db.query(Medicine).join(Prescription, Medicine.prescription_id == Prescription.id)
+              .filter(Prescription.patient_id == patient_id, Medicine.status != "needs_confirmation", Medicine.is_prn.is_(False))
+              .order_by(Medicine.id).all()):
+        g = (gap_ai.canonical_name(m.name or m.raw_text) or "").lower()
+        if g and g not in seen:
+            seen.add(g)
+            meds.append(m)
+    meds = meds[:max_medicines]
+    doses = {m.id: _pending_doses(db, m.id, now_local) for m in meds}
+    out, pending = [], 0
+    for i, a in enumerate(meds):
+        for b in meds[i + 1:]:
+            if not doses[a.id] or not doses[b.id]:
+                continue
+            ans = pair_fn(db, a.name or a.raw_text, b.name or b.raw_text)
+            if ans is None:
+                pending += 1
+                continue
+            if not _is_real_problem(ans):
+                continue
+            required = float(ans["hours"])
+            close = closest_hours(doses[a.id], doses[b.id])
+            if close is None or close >= required:
+                continue
+            shift = suggest_shift(doses[b.id], doses[a.id], required)
+            out.append(_warning(b.name or b.raw_text, a.name or a.raw_text, required, close, ans, b.id, doses[b.id], shift))
+    return {"warnings": out, "pending": pending}

@@ -107,3 +107,59 @@ def test_only_real_problems_interrupt_small_gaps_and_unsure_answers_are_ignored(
         monkeypatch.setattr(gap_ai, "pair_gap", lambda *a, **k: {"hours": 3, "basis": "ai_estimate", "quote": None,
                                                                  "applies_when": None, "confidence": "medium"})
         assert len(client.get(f"/medicines/{iron}/pair-check").json()["warnings"]) == 1   # a confident answer does warn
+
+
+# ---------------------------------------------------------------- typed prescriptions and the Safety center
+
+def _typed(client, pid, lines):
+    pres = client.post("/prescriptions", json={"patient_id": pid, "lines": lines}).json()
+    assert client.post(f"/prescriptions/{pres['prescription_id']}/confirm").status_code == 200
+    return pres["prescription_id"]
+
+
+def test_a_typed_prescription_with_a_clashing_pair_is_flagged_once(monkeypatch):
+    monkeypatch.setattr(gap_ai, "pair_gap", _fake_pair(2.0))
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        rx = _typed(client, pid, ["Tab Calcium carbonate 500mg 1-0-0 x5d", "Tab Ferrous sulfate 200mg 1-0-0 x5d"])
+        out = client.get(f"/prescriptions/{rx}/pair-check").json()
+        assert len(out["warnings"]) == 1                                  # A-vs-B and B-vs-A are one warning, not two
+        assert {m.lower() for m in out["warnings"][0]["medicines"]} == {"calcium carbonate", "ferrous sulfate"}
+
+
+def test_a_typed_prescription_of_unrelated_medicines_is_silent(monkeypatch):
+    monkeypatch.setattr(gap_ai, "pair_gap", lambda *a, **k: {"hours": None, "basis": "none", "quote": None, "applies_when": None, "confidence": "high"})
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        rx = _typed(client, pid, ["Tab Telmisartan 40mg 1-0-0 x5d", "Tab Vitamin D3 60000IU 1-0-0 x5d"])
+        assert client.get(f"/prescriptions/{rx}/pair-check").json()["warnings"] == []
+
+
+def test_the_safety_center_check_reads_the_cache_reports_pending_and_flags_real_clashes(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        _add(client, pid, "Calcium carbonate", "09:00")
+        _add(client, pid, "Ferrous sulfate", "09:00")
+        monkeypatch.setattr(gap_ai, "pair_gap", lambda *a, **k: None)                  # nothing cached yet
+        monkeypatch.setattr(gap_ai, "warm_patient", lambda *a, **k: {})
+        out = client.get(f"/patients/{pid}/pair-check").json()
+        assert out["warnings"] == [] and out["pending"] == 1
+        monkeypatch.setattr(gap_ai, "pair_gap", _fake_pair(2.0))                       # now it is cached
+        out = client.get(f"/patients/{pid}/pair-check").json()
+        assert out["pending"] == 0 and len(out["warnings"]) == 1
+        w = out["warnings"][0]
+        assert w["medicines"][0].lower() == "ferrous sulfate"                          # the later-added one is the one to move
+        assert w["suggestion"]["shift_minutes"] == 120
+        monkeypatch.setattr(gap_ai, "pair_gap", _fake_pair(None))                       # a safe pair says nothing
+        assert client.get(f"/patients/{pid}/pair-check").json()["warnings"] == []
+
+
+def test_pair_check_endpoints_are_for_the_owner_only():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        rx = _typed(client, pid, ["Tab Telmisartan 40mg 1-0-0 x5d"])
+    with TestClient(app) as stranger:
+        from conftest import register_and_login
+        register_and_login(stranger)
+        assert stranger.get(f"/patients/{pid}/pair-check").status_code == 403
+        assert stranger.get(f"/prescriptions/{rx}/pair-check").status_code == 403
