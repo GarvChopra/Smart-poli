@@ -629,13 +629,12 @@ async function afterMedicineAdded(med, out, when, sos) {
     return;
   }
   const warn = showSafetyModal(`
-    <h3>⚠ Please check this</h3>
-    <div class="sm-headline" style="font-weight:500;">You added <strong>${escHtml(med.name)}</strong>. Some of your medicines should not be taken together:</div>
-    ${curated.map((c) => `<div class="ow-item">${timingAlertHtml(c)}${removeButtonsHtml(c.medicines, c.medicine_ids)}</div>`).join('')}
-    ${pair.map((w) => `<div class="ow-item">${pairWarningHtml(w)}${removeButtonsHtml(w.medicines, w.medicine_ids)}</div>`).join('')}
-    ${inter.map((i) => `<div class="ow-item">${interactionWarningHtml(i)}${removeButtonsHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)}</div>`).join('')}
-    <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
-    <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
+    <h3>⚠ Don’t take these together</h3>
+    ${curated.map((c) => compactClashHtml(c.medicines, c.medicine_ids)).join('')}
+    ${pair.map((w) => compactClashHtml(w.medicines, w.medicine_ids, w.suggestion)).join('')}
+    ${inter.map((i) => compactClashHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)).join('')}
+    <div class="sm-actions"><button class="primary small" id="wwOk">OK</button></div>`);
+  warn.classList.add('cw-modal');
   warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderPrescriptions(); renderGlance(); });
   wireConflictActions(warn);
   wireShiftButtons(warn);
@@ -661,11 +660,10 @@ async function checkPrescriptionCombinations(prescriptionId) {
   try { warnings = (await api('GET', `/prescriptions/${prescriptionId}/pair-check`)).warnings || []; } catch (e) { return; }
   if (!warnings.length) return;
   const warn = showSafetyModal(`
-    <h3>⚠ Please check this</h3>
-    <div class="sm-headline" style="font-weight:500;">Some of your medicines should not be taken together:</div>
-    ${warnings.map((w) => `<div class="ow-item">${pairWarningHtml(w)}${removeButtonsHtml(w.medicines, w.medicine_ids)}</div>`).join('')}
-    <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
-    <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
+    <h3>⚠ Don’t take these together</h3>
+    ${warnings.map((w) => compactClashHtml(w.medicines, w.medicine_ids, w.suggestion)).join('')}
+    <div class="sm-actions"><button class="primary small" id="wwOk">OK</button></div>`);
+  warn.classList.add('cw-modal');
   warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderActiveTab(); });
   wireShiftButtons(warn);
   wireRemoveButtons(warn, () => { warn.remove(); renderActiveTab(); });
@@ -706,6 +704,18 @@ function wireRemoveButtons(root, onRemoved) {
   }));
 }
 
+/** One short row per problem: the two medicines, one line, and a Remove button for each (plus "Move ... to <time>" when a safer time exists). */
+function compactClashHtml(names, ids, suggestion) {
+  const [a, b] = names;
+  const btns = names.map((n, i) => ids && ids[i]
+    ? `<button class="ghost small rm-btn" data-remove-med="${ids[i]}" data-name="${escHtml(n)}">Remove ${escHtml(n)}</button>` : '').join('');
+  const move = suggestion
+    ? `<button class="primary small" data-shift="${suggestion.medicine_id}" data-minutes="${suggestion.shift_minutes}" data-times="${escHtml(suggestion.new_times.map(fmtClock).join(', '))}">Move ${escHtml(suggestion.medicine)} to ${escHtml(suggestion.new_times.map(fmtClock).join(', '))}</button>` : '';
+  return `<div class="cw-item"><div class="cw-names">${escHtml(a)} + ${escHtml(b)}</div>
+    <div class="cw-note">Can cause problems when taken together.</div>
+    <div class="cw-actions">${btns}${move}</div></div>`;
+}
+
 const removeButtonsHtml = (names, ids) => {
   const rows = names.map((n, i) => ids && ids[i]
     ? `<div class="rm-row"><span>${escHtml(n)}</span><button class="ghost small rm-btn" data-remove-med="${ids[i]}" data-name="${escHtml(n)}">Remove</button></div>` : '').join('');
@@ -729,15 +739,13 @@ async function showOpenWarnings() {
   }
   if (!data || !data.has_problems) return;
   try { if (sessionStorage.getItem(OPEN_WARN_KEY) === `${state.patientId}:${data.key}`) return; } catch (e) { /* ignore */ }
-  const card = (html, names, ids) => `<div class="ow-item">${html}${removeButtonsHtml(names, ids)}</div>`;
   const overlay = showSafetyModal(`
-    <h3>⚠ These shouldn’t be taken together</h3>
-    <div class="sm-headline" style="font-weight:500;">Some of your medicines can cause problems when taken together. Please check with your doctor or pharmacist.</div>
-    ${data.interactions.map((i) => card(interactionWarningHtml(i), [capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)).join('')}
-    ${data.pair_warnings.map((w) => card(pairWarningHtml(w), w.medicines, w.medicine_ids)).join('')}
-    ${data.timing.map((c) => card(timingAlertHtml(c), c.medicines, c.medicine_ids)).join('')}
-    <div class="reg-meta" style="margin:8px 0;">SmartPoli only knows the combinations its sources cover. Don’t stop a medicine your doctor prescribed without asking them.</div>
-    <div class="sm-actions"><button class="primary small" id="owOk">OK, I understand</button></div>`);
+    <h3>⚠ Don’t take these together</h3>
+    ${data.interactions.map((i) => compactClashHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)).join('')}
+    ${data.pair_warnings.map((w) => compactClashHtml(w.medicines, w.medicine_ids, w.suggestion)).join('')}
+    ${data.timing.map((c) => compactClashHtml(c.medicines, c.medicine_ids)).join('')}
+    <div class="sm-actions"><button class="primary small" id="owOk">OK</button></div>`);
+  overlay.classList.add('cw-modal');
   overlay.id = 'openWarnOverlay';
   const close = () => {
     overlay.remove();

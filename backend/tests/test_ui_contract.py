@@ -225,8 +225,10 @@ def test_typed_prescriptions_and_the_safety_center_run_the_same_combination_chec
 def test_every_warning_popup_lets_the_person_remove_a_medicine():
     for fn in ("showOpenWarnings", "afterMedicineAdded", "checkPrescriptionCombinations"):
         body = fn_body(fn)
-        assert "removeButtonsHtml" in body and "wireRemoveButtons" in body, fn
-    assert "These shouldn’t be taken together" in fn_body("showOpenWarnings")
+        assert "compactClashHtml" in body and "wireRemoveButtons" in body, fn
+        assert "sm-headline" not in body and "disclaimer" not in body, fn            # short: names, one line, Remove, OK
+    assert "Remove ${escHtml(n)}" in fn_body("compactClashHtml")
+    assert "Don’t take these together" in fn_body("showOpenWarnings")
     assert "/open-warnings" in fn_body("showOpenWarnings") and "sessionStorage" in fn_body("showOpenWarnings")
     assert "data-remove-med" in fn_body("renderSafetyCenter")
     assert "DELETE" in fn_body("removeMedicine")

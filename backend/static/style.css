@@ -1178,3 +1178,13 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .rm-row + .rm-row { border-top: 1px solid #F1E3E0; }
 .rm-row > span { font-weight: 600; min-width: 0; word-break: break-word; }
 .rm-btn { color: #8E2018; border-color: #E8A79E; font-weight: 700; flex: none; }
+
+/* compact "don't take these together" popup */
+.cw-modal .safety-modal { max-width: 340px; padding: 18px; }
+.cw-modal h3 { margin: 0 0 6px; font-size: 18px; }
+.cw-item { margin-top: 10px; padding: 10px 12px; border: 1.5px solid #E8C9C4; background: #FDF4F2; border-radius: 14px; }
+.cw-names { font-weight: 800; font-size: 15.5px; word-break: break-word; }
+.cw-note { color: #8E2018; font-size: 13px; margin-top: 2px; }
+.cw-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cw-actions .small { padding: 7px 10px; font-size: 13px; }
+.cw-modal .sm-actions { margin-top: 12px; }
