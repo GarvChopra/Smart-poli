@@ -92,3 +92,18 @@ def test_shift_refuses_midnight_crossing_and_strangers():
         register_and_login(stranger)
         assert stranger.get(f"/medicines/{late}/pair-check").status_code == 403
         assert stranger.post(f"/medicines/{late}/shift", json={"minutes": 30}).status_code == 403
+
+
+def test_only_real_problems_interrupt_small_gaps_and_unsure_answers_are_ignored(monkeypatch):
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        _add(client, pid, "Calcium carbonate", "09:00")
+        iron = _add(client, pid, "Ferrous sulfate", "09:00")
+        monkeypatch.setattr(gap_ai, "pair_gap", _fake_pair(0.5))                       # a 30-minute gap: not worth a popup
+        assert client.get(f"/medicines/{iron}/pair-check").json()["warnings"] == []
+        monkeypatch.setattr(gap_ai, "pair_gap", lambda *a, **k: {"hours": 3, "basis": "ai_estimate", "quote": None,
+                                                                 "applies_when": None, "confidence": "low"})
+        assert client.get(f"/medicines/{iron}/pair-check").json()["warnings"] == []   # the AI is not sure: stay silent
+        monkeypatch.setattr(gap_ai, "pair_gap", lambda *a, **k: {"hours": 3, "basis": "ai_estimate", "quote": None,
+                                                                 "applies_when": None, "confidence": "medium"})
+        assert len(client.get(f"/medicines/{iron}/pair-check").json()["warnings"]) == 1   # a confident answer does warn

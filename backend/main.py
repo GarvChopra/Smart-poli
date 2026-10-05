@@ -480,7 +480,9 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
                                .filter(Prescription.patient_id == body.patient_id, Medicine.status != "needs_confirmation",
                                        Medicine.id != med.id).all()) if m.name]
     mine = normalize_for_interactions(med.name or "")
-    interactions = [i for i in check_interactions(INTERACTION_RULESET, [med.name or ""] + others) if mine in (i["drug_a"], i["drug_b"])]
+    # Minor interactions never interrupt: only the ones the table rates MODERATE or CRITICAL.
+    interactions = [i for i in check_interactions(INTERACTION_RULESET, [med.name or ""] + others)
+                    if mine in (i["drug_a"], i["drug_b"]) and i["severity"] in ("MODERATE", "CRITICAL")]
     return {"prescription_id": out["prescription_id"], "medicine": serialize_medicine(med),
             "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
             "first_dose": first.scheduled_at.isoformat() if first else None,

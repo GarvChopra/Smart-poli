@@ -20,6 +20,8 @@ import gap_ai
 logger = logging.getLogger(__name__)
 
 MAX_PAIRS = 5
+MIN_REQUIRED_HOURS = 1.0     # a shorter gap than this is noise, not a reason to interrupt someone
+
 HORIZON = timedelta(days=3)
 STEP_MIN = 15
 MAX_SHIFT_MIN = 12 * 60
@@ -93,6 +95,9 @@ def warnings_for_new_medicine(db, medicine, now_local: datetime, pair_fn=None) -
         if not ans or not ans.get("hours"):
             continue
         required = float(ans["hours"])
+        # Only warn about real problems: ignore tiny gaps and answers the AI itself is not confident about.
+        if required < MIN_REQUIRED_HOURS or (ans.get("basis") == "ai_estimate" and ans.get("confidence") == "low"):
+            continue
         other_doses = _pending_doses(db, other_id, now_local)
         close = closest_hours(new_doses, other_doses)
         if close is None or close >= required:
