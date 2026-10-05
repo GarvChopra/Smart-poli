@@ -1287,7 +1287,14 @@ async function renderDashboard() {
     <div id="dashTimingChip"></div>
     ${heroHtml}
     <div class="card" id="todayCard">
-      <div class="card-head">${iconBadge('teal', 'calendar')}<h3>Today's medicines</h3></div>
+      <div class="card-head">${iconBadge('teal', 'calendar')}<h3>Today's medicines</h3>
+        <span class="card-art" aria-hidden="true">
+          <svg viewBox="0 0 84 48" width="84" height="48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path class="art-heart" d="M42 40 C18 24 22 8 33 8 C38 8 41 11 42 14 C43 11 46 8 51 8 C62 8 66 24 42 40Z" fill="#E8F5F0" stroke="#0F8A70" stroke-width="2"/>
+            <path class="art-ecg" d="M2 26 H26 L31 16 L38 36 L44 10 L50 30 L54 26 H82" stroke="#0F8A70" stroke-width="2.4"/>
+          </svg>
+        </span>
+      </div>
       ${todayHtml}
     </div>
     ${missedHtml}

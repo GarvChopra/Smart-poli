@@ -1086,3 +1086,12 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .tl-status.taken { background: var(--teal-soft); color: var(--teal-dark); }
 .tl-status.missed { background: #FDF0DC; color: #8A5A00; }
 .tl-status.skipped { background: #ECEFEE; color: #5b6663; }
+
+/* Today's medicines: small animated heartbeat */
+.card-head .card-art { margin-left: auto; display: inline-flex; align-items: center; }
+.card-art svg { overflow: visible; }
+.art-heart { transform-origin: 42px 24px; animation: art-beat 1.6s ease-in-out infinite; }
+.art-ecg { stroke-dasharray: 120; stroke-dashoffset: 120; animation: art-draw 2.4s linear infinite; }
+@keyframes art-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.12); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } 48% { transform: scale(1); } }
+@keyframes art-draw { 0% { stroke-dashoffset: 120; } 60%, 100% { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .art-heart, .art-ecg { animation: none; stroke-dashoffset: 0; } }
