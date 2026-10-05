@@ -99,6 +99,7 @@ import gap_ai
 import safety_service
 import safety_engine
 import webpush_service
+from timeline import friendly_entries
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1285,17 +1286,7 @@ def patient_timeline(patient_id: int, user: User = Depends(require_patient_read_
         .limit(200)
         .all()
     )
-    return [
-        {
-            "id": e.id,
-            "at": e.at.isoformat(),
-            "actor": e.actor,
-            "action": e.action,
-            "summary": _TIMELINE_LABELS.get(e.action, e.action.replace("_", " ")),
-            "detail": e.detail,
-        }
-        for e in entries
-    ]
+    return friendly_entries(db, entries)
 
 
 @app.get("/patients/{patient_id}/notes")

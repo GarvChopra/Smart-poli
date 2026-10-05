@@ -1693,10 +1693,10 @@ async function renderTimeline() {
       <div class="dose-row">
         <div class="time">${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
         <div style="flex:1;padding:0 10px;">
-          ${e.summary}
-          ${e.detail ? `<div style="font-size:12px;color:var(--ink-soft);">${e.detail}</div>` : ''}
+          <strong>${escHtml(e.summary)}</strong>
+          ${e.detail ? `<div style="font-size:13px;color:var(--ink-soft);">${escHtml(e.detail)}</div>` : ''}
         </div>
-        <div style="font-size:11px;color:var(--ink-soft);">${e.actor}</div>
+        <div style="font-size:12px;color:var(--ink-soft);white-space:nowrap;">${escHtml(e.actor)}</div>
       </div>
     `;
   }).join('');
