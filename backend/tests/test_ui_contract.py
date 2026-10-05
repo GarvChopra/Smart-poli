@@ -123,7 +123,8 @@ def test_downloads_carry_the_login_token():
 
 def test_progress_and_adherence_live_in_the_care_report_not_the_dashboard():
     rep = fn_body("renderReport")
-    assert "treatmentProgressHtml(dashForProgress)" in rep and "Adherence" in rep
+    # the report is deliberately short: medicines, how doses went, then details behind "more" links
+    assert "How my doses went" in rep and "Medicines I take" in rep and "rp-more" in rep
 
 
 def test_several_timing_suggestions_can_be_applied_in_one_tap():

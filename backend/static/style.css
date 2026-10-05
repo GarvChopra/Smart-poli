@@ -1095,3 +1095,25 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 @keyframes art-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.12); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } 48% { transform: scale(1); } }
 @keyframes art-draw { 0% { stroke-dashoffset: 120; } 60%, 100% { stroke-dashoffset: 0; } }
 @media (prefers-reduced-motion: reduce) { .art-heart, .art-ecg { animation: none; stroke-dashoffset: 0; } }
+
+/* Care report: short, readable, one idea per block */
+.report-simple { padding: 18px 16px; }
+.rp-head h2 { margin: 0 0 2px; }
+.rp-who { font-size: 18px; font-weight: 700; }
+.rp-sub { color: var(--ink-soft); font-size: 13px; }
+.rp-title { margin: 22px 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
+.rp-allergy { margin-top: 12px; background: #FBE4E0; color: #8E2018; border-radius: 12px; padding: 10px 12px; font-size: 14.5px; }
+.rp-alerts { margin-top: 10px; background: #FDF0DC; color: #8A5A00; border-radius: 12px; padding: 10px 12px; font-size: 14px; display: grid; gap: 4px; }
+.rp-med { padding: 9px 0; border-top: 1px solid var(--line, #e3e8e6); }
+.rp-med:first-of-type { border-top: 0; }
+.rp-med-name { font-weight: 700; font-size: 16px; }
+.rp-dose { font-weight: 600; color: var(--ink-soft); }
+.rp-when { color: var(--ink-soft); font-size: 13.5px; }
+.rp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; }
+.rp-stats > div { background: var(--teal-soft); border-radius: 14px; padding: 12px 6px; }
+.rp-num { font-size: 26px; font-weight: 800; color: var(--teal-dark); }
+.rp-more { margin-top: 12px; border-top: 1px solid var(--line, #e3e8e6); padding-top: 10px; }
+.rp-more > summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.rp-count { background: var(--teal-soft); color: var(--teal-dark); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin-left: 4px; }
+.rp-line { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; font-size: 14.5px; }
+.rp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }

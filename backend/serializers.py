@@ -143,6 +143,14 @@ def gather_dashboard_data(db: Session, patient_id: int, interaction_ruleset: dic
     }
 
 
+def _plain_when(medicine) -> str:
+    """'1-0-1 PC' -> 'Morning & night, after food' for the care report; as-needed medicines say so."""
+    if medicine.is_prn:
+        return "When needed"
+    from emergency_page import _when_words
+    return _when_words(medicine.schedule_code, medicine.food)
+
+
 def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, food_ruleset: dict) -> dict:
     """Shared by the JSON report endpoint, the PDF export, and the doctor
     detail view — one report, several renderings, never two competing
@@ -176,7 +184,8 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
         alerts.append("A critical drug interaction was found — see Drug Interactions below.")
 
     return {
-        "patient": {"id": patient.id, "name": patient.name, "age": patient.age, "sex": patient.sex},
+        "patient": {"id": patient.id, "name": patient.name, "age": patient.age, "sex": patient.sex,
+                    "allergies": patient.allergies, "blood_group": patient.blood_group},
         "generated_at": datetime.utcnow().isoformat(),
         # Only medicines that were actually read and scheduled belong in a care report. Abandoned
         # drafts (every Decode / scan / photo makes one) used to be listed here as "needs confirmation".
@@ -186,7 +195,8 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
                 "doctor_name": pres.doctor_name,
                 "issued_date": pres.issued_date,
                 "status": pres.status,
-                "medicines": [serialize_medicine(m) for m in pres.medicines if m.status != "needs_confirmation"],
+                "medicines": [{**serialize_medicine(m), "when": _plain_when(m)}
+                              for m in pres.medicines if m.status != "needs_confirmation"],
             }
             for pres in prescriptions
             if any(m.status != "needs_confirmation" for m in pres.medicines)

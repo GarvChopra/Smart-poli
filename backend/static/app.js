@@ -1554,100 +1554,64 @@ async function renderReport() {
   const view = document.getElementById('view-report');
   view.innerHTML = `<div class="empty">Loading...</div>`;
   const r = await api('GET', `/patients/${state.patientId}/report`);
-  const dashForProgress = await getDashboard().catch(() => null);
 
-  const medsRows = r.prescriptions.flatMap(p => p.medicines).map(m => `
-    <tr>
-      <td data-label="Medicine">${m.name || m.raw_text}</td>
-      <td data-label="Dose">${m.dose_amount || ''} ${m.dose_unit || ''}</td>
-      <td data-label="Schedule">${m.schedule_code || '—'}</td>
-      <td data-label="Food">${m.food}</td>
-      <td data-label="Duration (days)">${m.is_prn ? 'as needed' : (m.duration_days ?? 'ongoing')}</td>
-      <td data-label="Status"><span class="badge ${badgeClass(m.status)}">${m.status.replace('_',' ')}</span></td>
-    </tr>
-  `).join('');
+  const meds = r.prescriptions.flatMap(p => p.medicines);
+  const seen = new Set();
+  const medRows = meds.filter((m) => {            // the same medicine entered twice shows once
+    const k = `${(m.name || m.raw_text || '').toLowerCase()}|${m.dose_amount}|${m.dose_unit}|${m.when}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  }).map(m => `
+    <div class="rp-med">
+      <div class="rp-med-name">${escHtml(m.name || m.raw_text)} <span class="rp-dose">${escHtml(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
+      ${m.when ? `<div class="rp-when">${escHtml(m.when)}</div>` : ''}
+    </div>`).join('') || '<div class="empty">No medicines yet.</div>';
 
-  const missedRows = r.missed_doses.map(d => `
-    <tr><td data-label="When">${new Date(d.scheduled_at).toLocaleString()}</td><td data-label="Medicine">${d.medicine_name}</td></tr>
-  `).join('') || '<tr><td colspan="2" class="empty">None</td></tr>';
+  const a = r.adherence;
+  const pct = a.adherence_percent;
+  const day = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-  const triageRows = r.symptom_history.map(c => `
-    <tr>
-      <td data-label="Date">${new Date(c.created_at).toLocaleDateString()}</td>
-      <td data-label="Symptoms">${c.symptoms.join(', ')}</td>
-      <td data-label="Severity"><span class="badge ${badgeClass(c.severity)}">${c.severity}</span></td>
-      <td data-label="Action">${c.action}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="4" class="empty">None</td></tr>';
-
-  const alertsHtml = r.alerts.map(a => `<div class="alert-item">${a}</div>`).join('') || '<div class="empty">No alerts.</div>';
+  const missedList = r.missed_doses.map(d => `<div class="rp-line"><span>${escHtml(d.medicine_name)}</span><span class="rp-sub">${escHtml(day(d.scheduled_at))}</span></div>`).join('');
+  const symptomList = r.symptom_history.slice(-5).reverse().map(c => `
+    <div class="rp-line"><span>${escHtml(c.symptoms.join(', '))}</span>
+      <span class="rp-sub">${escHtml(new Date(c.created_at).toLocaleDateString())} · <span class="badge ${badgeClass(c.severity)}">${escHtml(c.severity)}</span></span></div>`).join('');
+  const hasWarnings = (r.interactions && r.interactions.length) || (r.food_warnings && r.food_warnings.length);
+  const hasNotes = r.doctor_caregiver_notes && r.doctor_caregiver_notes.length;
+  const more = (title, count, body) => `<details class="rp-more"><summary>${title}${count ? ` <span class="rp-count">${count}</span>` : ''}</summary>${body}</details>`;
 
   view.innerHTML = `
-    <div class="card">
-      <div class="report-header">
-        <h2>SmartPoli Patient Care Report</h2>
-        <div>${r.patient.name}${r.patient.age ? ', ' + r.patient.age : ''}${r.patient.sex ? ', ' + r.patient.sex : ''}</div>
-        <div style="color:var(--ink-soft);font-size:13px;">Generated ${new Date(r.generated_at).toLocaleString()}</div>
+    <div class="card report-simple">
+      <div class="rp-head">
+        <h2>Care report</h2>
+        <div class="rp-who">${escHtml(r.patient.name)}${r.patient.age ? ', ' + escHtml(r.patient.age) : ''}${r.patient.sex ? ', ' + escHtml(r.patient.sex) : ''}</div>
+        <div class="rp-sub">Prepared ${escHtml(new Date(r.generated_at + 'Z').toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }))}</div>
       </div>
 
-      <div class="report-section">
-        <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>
-        ${alertsHtml}
+      ${r.patient.allergies ? `<div class="rp-allergy"><strong>Allergies:</strong> ${escHtml(r.patient.allergies)}</div>` : ''}
+      ${r.alerts.length ? `<div class="rp-alerts">${r.alerts.map(x => `<div>${escHtml(x)}</div>`).join('')}</div>` : ''}
+
+      <h3 class="rp-title">Medicines I take</h3>
+      ${medRows}
+
+      <h3 class="rp-title">How my doses went</h3>
+      <div class="rp-stats">
+        <div><div class="rp-num">${a.taken}</div><div class="rp-sub">Taken</div></div>
+        <div><div class="rp-num">${a.missed}</div><div class="rp-sub">Missed</div></div>
+        <div><div class="rp-num">${pct === null ? '—' : pct + '%'}</div><div class="rp-sub">On time</div></div>
       </div>
 
-      <div class="report-section">
-        <div class="card-head">${iconBadge('teal', 'pill')}<h3>Prescription</h3></div>
-        <div class="table-scroll"><table class="responsive-table">
-          <thead><tr><th>Medicine</th><th>Dose</th><th>Schedule</th><th>Food</th><th>Duration (days)</th><th>Status</th></tr></thead>
-          <tbody>${medsRows || '<tr><td colspan="6" class="empty">None</td></tr>'}</tbody>
-        </table></div>
+      ${r.missed_doses.length ? more('Missed doses', r.missed_doses.length, missedList) : ''}
+      ${r.symptom_history.length ? more('Symptom checks', r.symptom_history.length, symptomList) : ''}
+      ${hasWarnings ? more('Medicine warnings', (r.interactions || []).length + (r.food_warnings || []).length,
+        `${renderInteractionRows(r.interactions)}${renderFoodWarningRows(r.food_warnings)}`) : ''}
+      ${hasNotes ? more('Doctor notes', r.doctor_caregiver_notes.length, `<div id="notesList">${renderNotesList(r.doctor_caregiver_notes)}</div>`) : ''}
+
+      <div class="no-print rp-actions">
+        <button class="primary" onclick="downloadAuthed('/patients/${state.patientId}/report/pdf', 'smartpoli-report.pdf').catch(e => showNotice('Download failed', e.message))">Download PDF</button>
+        <button class="ghost" onclick="window.print()">Print</button>
+        <button class="ghost" onclick="downloadAuthed('/patients/${state.patientId}/calendar.ics', 'smartpoli-medicines.ics').catch(e => showNotice('Export failed', e.message))">Add to calendar</button>
       </div>
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Adherence</h3></div>
-        <div class="stat-row">
-          <div class="stat">${iconBadge('teal', 'chartBar')}<div><div class="num">${r.adherence.adherence_percent ?? '—'}${r.adherence.adherence_percent !== null ? '%' : ''}</div><div class="label">Overall</div></div></div>
-          <div class="stat">${iconBadge('blue', 'pill')}<div><div class="num">${r.adherence.taken}</div><div class="label">Taken</div></div></div>
-          <div class="stat">${iconBadge('alarm', 'alertCircle')}<div><div class="num">${r.adherence.missed}</div><div class="label">Missed</div></div></div>
-        </div>
-      </div>
-
-      ${treatmentProgressHtml(dashForProgress)}
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('amber', 'warning')}<h3>Drug interactions</h3></div>
-        ${renderInteractionRows(r.interactions)}
-      </div>
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('amber', 'utensils')}<h3>Food &amp; substance warnings</h3></div>
-        ${renderFoodWarningRows(r.food_warnings)}
-      </div>
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses</h3></div>
-        <div class="table-scroll"><table class="responsive-table"><thead><tr><th>When</th><th>Medicine</th></tr></thead><tbody>${missedRows}</tbody></table></div>
-      </div>
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Symptom &amp; triage history</h3></div>
-        <div class="table-scroll"><table class="responsive-table"><thead><tr><th>Date</th><th>Symptoms</th><th>Severity</th><th>Action</th></tr></thead><tbody>${triageRows}</tbody></table></div>
-      </div>
-
-      <div class="report-section">
-        <div class="card-head">${iconBadge('teal', 'fileText')}<h3>Doctor notes</h3></div>
-        <p style="color:var(--ink-soft);font-size:12.5px;">Added by a doctor you've linked, from their own dashboard —
-          notes are read-only here (Part 8: only an authenticated, linked doctor can add one).</p>
-        <div id="notesList">${renderNotesList(r.doctor_caregiver_notes)}</div>
-      </div>
-
-      <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
-        <button class="primary" onclick="window.print()">Print / Save as PDF (browser)</button>
-        <button class="ghost" onclick="downloadAuthed('/patients/${state.patientId}/report/pdf', 'smartpoli-report.pdf').catch(e => showNotice('Download failed', e.message))">Download PDF report</button>
-        <button class="ghost" onclick="downloadAuthed('/patients/${state.patientId}/calendar.ics', 'smartpoli-medicines.ics').catch(e => showNotice('Export failed', e.message))">Export calendar (.ics)</button>
-      </div>
-
-      <footer class="disclaimer">${r.disclaimer}</footer>
+      <footer class="disclaimer">${escHtml(r.disclaimer)}</footer>
     </div>
   `;
 }
