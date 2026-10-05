@@ -125,6 +125,7 @@ import io
 import json
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ _FORM_OK = {"tab", "cap", "syrup", "inj", "other"}
 
 
 def vision_available() -> bool:
-    return bool(os.getenv("GROQ_API_KEY")) and os.getenv("SMARTPOLI_AI_SCAN", "1") != "0"
+    return (bool(os.getenv("GROQ_API_KEY")) or bool(os.getenv("GEMINI_API_KEY"))) and os.getenv("SMARTPOLI_AI_SCAN", "1") != "0"
 
 
 def _vision_models() -> list:
@@ -149,12 +150,13 @@ def _vision_models() -> list:
 
 
 def _prepare_image(image_bytes: bytes) -> str:
-    """Shrink a full-size phone photo to a small JPEG data URL (fast upload, well under the API's size limit)."""
+    """Shrink a full-size phone photo to a small JPEG data URL. Smaller = fewer image tokens, and Groq's free tier
+    allows only ~8,000 tokens a minute per model, so a big photo can use up most of a minute's budget by itself."""
     from PIL import Image, ImageOps
     im = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes))).convert("RGB")
-    im.thumbnail((1400, 1400))
+    im.thumbnail((1024, 1024))
     buf = io.BytesIO()
-    im.save(buf, format="JPEG", quality=85)
+    im.save(buf, format="JPEG", quality=80)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
@@ -197,26 +199,62 @@ def parse_vision_answer(data: Optional[dict]) -> Optional[dict]:
     }
 
 
+MAX_WAIT_SECONDS = 6          # a rate-limit pause this short is waited out once; longer goes to the next provider
+
+
+def _retry_after_seconds(exc) -> Optional[float]:
+    try:
+        resp = getattr(exc, "response", None)
+        raw = resp.headers.get("retry-after") if resp is not None else None
+        return float(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _providers() -> list:
+    """(label, client, model) in the order they are tried. A provider without a key simply isn't in the list."""
+    out = []
+    try:
+        if os.getenv("GROQ_API_KEY"):
+            from groq import Groq
+            client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=30)
+            out += [("groq", client, m) for m in _vision_models()]
+        if os.getenv("GEMINI_API_KEY"):
+            from openai import OpenAI
+            client = OpenAI(api_key=os.environ["GEMINI_API_KEY"], max_retries=0, timeout=30,
+                            base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+            out.append(("gemini", client, os.getenv("GEMINI_VISION_MODEL", "gemini-flash-latest")))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Vision provider setup failed: %s", type(e).__name__)
+    return out
+
+
 def identify_with_vision(image_bytes: bytes) -> Optional[dict]:
-    """Ask a Groq vision model to read the packaging. None = it could not (no key, error, unreadable) - the caller
-    then offers manual entry. The photo is sent for this one call and is not stored."""
+    """Ask a vision model to read the packaging. None = it could not (no key, errors, unreadable) - the caller then
+    offers manual entry. Rate limits are handled: a short pause is waited out once, otherwise the next provider
+    (Groq, then Gemini) is tried. The photo is sent for this one call and is not stored."""
     if not vision_available():
         return None
     try:
-        from groq import Groq
         url = _prepare_image(image_bytes)
-        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=30)
     except Exception as e:  # noqa: BLE001
-        logger.warning("Vision scan setup failed: %s", type(e).__name__)
+        logger.warning("Vision scan could not prepare the image: %s", type(e).__name__)
         return None
-    for model in _vision_models():
-        try:
-            resp = client.chat.completions.create(
-                model=model, temperature=0, max_tokens=300,
-                messages=[{"role": "user", "content": [
-                    {"type": "text", "text": VISION_PROMPT},
-                    {"type": "image_url", "image_url": {"url": url}}]}])
-            return parse_vision_answer(_json_from(resp.choices[0].message.content))
-        except Exception as e:  # noqa: BLE001 - try the next model; never raise into the request
-            logger.warning("Vision scan with %s failed: %s", model, type(e).__name__)
+    messages = [{"role": "user", "content": [{"type": "text", "text": VISION_PROMPT},
+                                             {"type": "image_url", "image_url": {"url": url}}]}]
+    for label, client, model in _providers():
+        for attempt in (1, 2):
+            try:
+                resp = client.chat.completions.create(model=model, temperature=0, max_tokens=300, messages=messages)
+                return parse_vision_answer(_json_from(resp.choices[0].message.content))
+            except Exception as e:  # noqa: BLE001 - never raise into the request
+                name = type(e).__name__
+                wait = _retry_after_seconds(e) if name == "RateLimitError" else None
+                if wait is None and name in ("InternalServerError", "APIConnectionError", "APITimeoutError"):
+                    wait = 1.0                            # a one-off server hiccup: try the same provider once more
+                logger.warning("Vision scan via %s failed: %s%s", label, name, f" (retry in {wait}s)" if wait else "")
+                if attempt == 1 and wait is not None and wait <= MAX_WAIT_SECONDS:
+                    time.sleep(wait + 0.3)
+                    continue
+                break                                     # next provider
     return None

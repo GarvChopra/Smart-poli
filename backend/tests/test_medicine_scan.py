@@ -4,6 +4,7 @@ patient to confirm. OCR itself is mocked (the Tesseract binary is not part of
 the test environment); everything after it is exercised for real.
 """
 
+import io
 import os
 import sys
 
@@ -205,3 +206,73 @@ def test_vision_is_off_without_a_key_or_when_switched_off(monkeypatch):
     assert ms.vision_available() is False and ms.identify_with_vision(b"x") is None
     monkeypatch.setenv("GROQ_API_KEY", "k"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "0")
     assert ms.vision_available() is False
+
+
+class _Boom(Exception):
+    def __init__(self, name, retry_after=None):
+        super().__init__(name)
+        self.__class__ = type(name, (Exception,), {})
+        self.response = type("R", (), {"headers": {"retry-after": str(retry_after)} if retry_after is not None else {}})()
+
+
+def _fake_client(behaviour):
+    """behaviour: list of results; an Exception instance is raised, anything else is returned as the model's text."""
+    calls = {"n": 0}
+
+    class _C:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    r = behaviour[min(calls["n"], len(behaviour) - 1)]
+                    calls["n"] += 1
+                    if isinstance(r, Exception):
+                        raise r
+                    return type("Resp", (), {"choices": [type("Ch", (), {"message": type("M", (), {"content": r})()})()]})()
+    return _C, calls
+
+
+GOOD = '{"found": true, "brand_name": "Telma 40", "generic_name": "Telmisartan", "strength": "40mg", "form": "tab"}'
+
+
+def _tiny_jpeg():
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 40), (255, 255, 255)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def test_a_long_rate_limit_on_groq_moves_straight_to_gemini(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "1")
+    groq, gcalls = _fake_client([_Boom("RateLimitError", retry_after=19)])
+    gem, mcalls = _fake_client([GOOD])
+    monkeypatch.setattr(ms, "_providers", lambda: [("groq", groq, "m1"), ("gemini", gem, "m2")])
+    monkeypatch.setattr(ms.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("must not wait 19 s")))
+    out = ms.identify_with_vision(_tiny_jpeg())
+    assert out["candidates"][0]["name"] == "Telma 40" and gcalls["n"] == 1 and mcalls["n"] == 1
+
+
+def test_a_short_rate_limit_is_waited_out_once_then_succeeds(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "1")
+    groq, gcalls = _fake_client([_Boom("RateLimitError", retry_after=2), GOOD])
+    slept = []
+    monkeypatch.setattr(ms, "_providers", lambda: [("groq", groq, "m1")])
+    monkeypatch.setattr(ms.time, "sleep", slept.append)
+    assert ms.identify_with_vision(_tiny_jpeg())["candidates"][0]["name"] == "Telma 40"
+    assert gcalls["n"] == 2 and len(slept) == 1
+
+
+def test_a_server_hiccup_is_retried_once_and_total_failure_returns_none(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "1")
+    flaky, calls = _fake_client([_Boom("InternalServerError"), GOOD])
+    monkeypatch.setattr(ms, "_providers", lambda: [("gemini", flaky, "m")])
+    monkeypatch.setattr(ms.time, "sleep", lambda s: None)
+    assert ms.identify_with_vision(_tiny_jpeg())["candidates"][0]["name"] == "Telma 40" and calls["n"] == 2
+    dead, dcalls = _fake_client([_Boom("InternalServerError")])
+    monkeypatch.setattr(ms, "_providers", lambda: [("a", dead, "m"), ("b", dead, "m")])
+    assert ms.identify_with_vision(_tiny_jpeg()) is None
+
+
+def test_gemini_alone_is_enough_to_enable_scanning(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False); monkeypatch.setenv("GEMINI_API_KEY", "g"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "1")
+    assert ms.vision_available() is True
