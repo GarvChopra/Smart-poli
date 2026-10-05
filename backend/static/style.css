@@ -1170,3 +1170,11 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .ow-item { margin-top: 10px; }
 .ow-item .alert-card { margin-top: 0; }
 .safety-med-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+
+/* "Remove one of them?" inside the warning popups */
+.rm-box { margin-top: 10px; background: #fff; border: 1.5px solid #E8C9C4; border-radius: 14px; padding: 10px 12px; }
+.rm-title { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; color: #8E2018; }
+.rm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+.rm-row + .rm-row { border-top: 1px solid #F1E3E0; }
+.rm-row > span { font-weight: 600; min-width: 0; word-break: break-word; }
+.rm-btn { color: #8E2018; border-color: #E8A79E; font-weight: 700; flex: none; }

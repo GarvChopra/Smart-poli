@@ -706,8 +706,11 @@ function wireRemoveButtons(root, onRemoved) {
   }));
 }
 
-const removeButtonsHtml = (names, ids) => names.map((n, i) => ids && ids[i]
-  ? `<button class="ghost small" data-remove-med="${ids[i]}" data-name="${escHtml(n)}" style="margin:8px 8px 0 0;">Remove ${escHtml(n)}</button>` : '').join('');
+const removeButtonsHtml = (names, ids) => {
+  const rows = names.map((n, i) => ids && ids[i]
+    ? `<div class="rm-row"><span>${escHtml(n)}</span><button class="ghost small rm-btn" data-remove-med="${ids[i]}" data-name="${escHtml(n)}">Remove</button></div>` : '').join('');
+  return rows ? `<div class="rm-box"><div class="rm-title">Remove one of them?</div>${rows}</div>` : '';
+};
 
 // ---------------------------------------------------------------- when the app is opened: medicines that shouldn't be taken together
 
