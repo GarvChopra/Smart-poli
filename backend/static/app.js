@@ -1682,6 +1682,7 @@ async function renderTimeline() {
     return;
   }
 
+  const LABEL = { taken: 'Taken', missed: 'Not taken', skipped: 'Skipped' };
   let lastDateKey = null;
   const rows = events.map(e => {
     const d = new Date(e.at);
@@ -1692,11 +1693,8 @@ async function renderTimeline() {
       ${dayHeader}
       <div class="dose-row">
         <div class="time">${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-        <div style="flex:1;padding:0 10px;">
-          <strong>${escHtml(e.summary)}</strong>
-          ${e.detail ? `<div style="font-size:13px;color:var(--ink-soft);">${escHtml(e.detail)}</div>` : ''}
-        </div>
-        <div style="font-size:12px;color:var(--ink-soft);white-space:nowrap;">${escHtml(e.actor)}</div>
+        <div style="flex:1;padding:0 10px;"><strong>${escHtml(e.summary)}</strong></div>
+        <span class="tl-status ${escHtml(e.status)}">${LABEL[e.status] || escHtml(e.status)}</span>
       </div>
     `;
   }).join('');
@@ -1705,7 +1703,6 @@ async function renderTimeline() {
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
       ${iconBadge('teal', 'history')}<h2 style="margin:0;">${t('timelineHeading')}</h2>
     </div>
-    <p style="color:var(--ink-soft);">Every prescription, dose, symptom check and note, in one chronological view.</p>
     <div class="card">${rows}</div>
   `;
 }

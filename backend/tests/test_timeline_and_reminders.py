@@ -11,29 +11,13 @@ from scheduler import sweep_missed  # noqa: E402
 from conftest import register_and_login  # noqa: E402
 
 
-def test_timeline_shows_events_in_reverse_chronological_order_with_summaries():
+def test_timeline_is_empty_until_a_dose_is_acted_on():
     with TestClient(app) as client:
         register_and_login(client)
-        r = client.post("/patients", json={"name": "Timeline Test"})
-        patient_id = r.json()["id"]
-
-        client.post("/prescriptions", json={
-            "patient_id": patient_id, "lines": ["Tab Dolo 650mg 1-0-1 PC x5d"],
-        })
-        client.post("/triage/check", json={
-            "patient_id": patient_id, "symptom_ids": ["fever"], "answers": {},
-        })
-
+        patient_id = client.post("/patients", json={"name": "Timeline Test"}).json()["id"]
+        client.post("/prescriptions", json={"patient_id": patient_id, "lines": ["Tab Dolo 650mg 1-0-1 PC x5d"]})
         r = client.get(f"/patients/{patient_id}/timeline")
-        assert r.status_code == 200
-        events = r.json()
-        actions = [e["action"] for e in events]
-        assert "patient_created" in actions
-        assert "prescription_created" in actions
-        assert "triage_check" in actions
-        # reverse chronological: most recent (triage_check) comes before patient_created
-        assert actions.index("triage_check") < actions.index("patient_created")
-        assert all(e["summary"] for e in events)
+        assert r.status_code == 200 and r.json() == []     # profile/prescription events are not timeline rows
 
 
 def test_sweep_missed_logs_an_audit_entry_per_auto_missed_dose():
