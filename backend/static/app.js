@@ -209,26 +209,71 @@ navOverlay.addEventListener('click', closeDrawer);
 
 function renderNoPatientState() {
   const view = document.getElementById(`view-${state.activeTab}`);
-  if (!view) return;
-  view.innerHTML = `
-    <div class="card" style="text-align:center;padding:40px 24px;margin-top:24px;">
-      <h3>Let's set up your first patient profile</h3>
-      <p style="color:var(--ink-soft);font-size:14px;margin:10px 0 20px;">
-        Prescriptions, schedules, symptom checks and reports are all tracked
-        per patient. Create one to get started — it only takes a few seconds.
-      </p>
-      <button class="primary" id="createFirstPatientBtn">+ Create patient profile</button>
-    </div>
-  `;
-  document.getElementById('createFirstPatientBtn').addEventListener('click', createNewPatient);
+  if (view && state.activeTab !== 'settings') view.innerHTML = '<div class="empty">One moment…</div>';
+  askFirstProfile();
+}
+
+/** First login: a short popup (name + age) instead of a "create patient" page. It cannot be dismissed, because
+ * everything in the app belongs to a profile. The name is filled in from the account. */
+function askFirstProfile() {
+  if (document.getElementById('firstProfileOverlay')) return;
+  const overlay = el(`
+    <div class="safety-modal-overlay" id="firstProfileOverlay" role="dialog" aria-modal="true">
+      <form class="safety-modal" id="firstProfileForm" autocomplete="off">
+        <h3>Welcome to SmartPoli</h3>
+        <p style="color:var(--ink-soft);margin:4px 0 14px;">Tell us a little about you.</p>
+        <label for="fpName">Your name</label>
+        <input id="fpName" type="text" required maxlength="80" value="${escHtml((currentUser && currentUser.name) || '')}">
+        <div class="fp-row">
+          <div><label for="fpAge">Age</label>
+            <input id="fpAge" type="number" inputmode="numeric" required min="0" max="120" placeholder="e.g. 54"></div>
+          <div><label for="fpSex">Sex</label>
+            <select id="fpSex" required><option value="">Select</option><option value="F">Female</option><option value="M">Male</option><option value="Other">Other</option></select></div>
+        </div>
+        <label for="fpBlood" style="margin-top:10px;display:block;">Blood group <span class="reg-meta">(optional)</span></label>
+        <select id="fpBlood"><option value="">Not sure</option>${['A+','A-','B+','B-','AB+','AB-','O+','O-'].map((g) => `<option>${g}</option>`).join('')}</select>
+        <label for="fpAllergy" style="margin-top:10px;display:block;">Allergies <span class="reg-meta">(optional)</span></label>
+        <input id="fpAllergy" type="text" maxlength="200" placeholder="e.g. Penicillin">
+        <label for="fpContact" style="margin-top:10px;display:block;">Emergency contact <span class="reg-meta">(optional)</span></label>
+        <input id="fpContact" type="text" maxlength="120" placeholder="Name, phone number">
+        <div id="fpMsg" style="color:#8E2018;font-size:13px;margin-top:8px;"></div>
+        <div class="sm-actions" style="margin-top:14px;"><button class="primary" type="submit" id="fpSave">Continue</button></div>
+      </form>
+    </div>`);
+  document.body.appendChild(overlay);
+  overlay.querySelector('#fpName').focus();
+  overlay.querySelector('#firstProfileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = overlay.querySelector('#fpName').value.trim();
+    const age = Number(overlay.querySelector('#fpAge').value);
+    const msg = overlay.querySelector('#fpMsg');
+    if (!name) { msg.textContent = 'Please enter your name.'; return; }
+    if (!Number.isFinite(age) || age < 0 || age > 120) { msg.textContent = 'Please enter a valid age.'; return; }
+    const sex = overlay.querySelector('#fpSex').value;
+    if (!sex) { msg.textContent = 'Please choose your sex.'; return; }
+    const val = (id) => overlay.querySelector(id).value.trim() || null;
+    const btn = overlay.querySelector('#fpSave');
+    btn.disabled = true;
+    try {
+      const patient = await api('POST', '/patients', {
+        name, age: Math.round(age), sex, blood_group: val('#fpBlood'), allergies: val('#fpAllergy'), emergency_contact: val('#fpContact'),
+      });
+      overlay.remove();
+      await loadPatients();
+      state.patientId = patient.id;
+      document.getElementById('patientSelect').value = patient.id;
+      renderActiveTab();
+      renderGlance();
+    } catch (err) {
+      btn.disabled = false;
+      msg.textContent = err.message || 'Could not save. Please try again.';
+    }
+  });
 }
 
 function renderActiveTab() {
-  // Settings is static (patient/language/account) and is how you create
-  // your first patient in the first place, so it must never be replaced
-  // by the no-patient empty state — everything else needs a patient.
-  if (!state.patientId && state.activeTab !== 'settings') { renderNoPatientState(); return; }
-  if (!state.patientId) return;
+  // No profile yet (first login): the name-and-age popup opens; nothing else can render without one.
+  if (!state.patientId) { renderNoPatientState(); return; }
   syncPatientTimezone(state.patientId);
   if (state.activeTab === 'prescriptions') renderPrescriptions();
   if (state.activeTab === 'dashboard') renderDashboard();

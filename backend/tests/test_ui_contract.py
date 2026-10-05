@@ -174,3 +174,15 @@ def test_each_open_dose_says_when_and_how_to_take_it_without_locking_anything():
 
 def test_when_the_safe_answer_is_to_wait_the_wait_button_is_the_prominent_one():
     assert "safeIsNo" in fn_body("confirmDialog") and "'OK, I’ll wait', true)" in fn_body("takeDoseWithGuard")
+
+
+def test_first_login_asks_name_and_age_in_a_popup_not_a_create_patient_page():
+    assert "createNewPatient" not in JS and "Create patient profile" not in JS and "newPatientBtn" not in JS
+    body = fn_body("askFirstProfile")
+    assert "fpName" in body and "fpAge" in body and "'POST', '/patients'" in body
+    assert "askFirstProfile()" in fn_body("renderNoPatientState")
+
+
+def test_push_is_sent_with_high_urgency_so_android_delivers_it_while_dozing():
+    src = open(os.path.join(os.path.dirname(__file__), "..", "webpush_service.py"), encoding="utf-8").read()
+    assert '"Urgency": "high"' in src

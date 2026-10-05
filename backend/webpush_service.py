@@ -52,6 +52,7 @@ def send(endpoint: str, p256dh: str, auth: str, payload: dict) -> str:
             vapid_private_key=os.environ["SMARTPOLI_VAPID_PRIVATE_KEY"],
             vapid_claims={"sub": os.getenv("SMARTPOLI_VAPID_SUBJECT", "mailto:admin@example.com")},
             ttl=3600,
+            headers={"Urgency": "high"},   # normal-priority pushes are held back while the phone is dozing
             timeout=10,
         )
         return "sent"
