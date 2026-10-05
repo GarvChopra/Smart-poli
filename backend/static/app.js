@@ -721,7 +721,12 @@ const OPEN_WARN_KEY = 'smartpoli_open_warn';
  * uncertain ever appears here, and it stays silent when everything is fine. Any medicine can be removed from it. */
 async function showOpenWarnings() {
   if (!state.patientId || document.getElementById('openWarnOverlay')) return;
-  const data = await api('GET', `/patients/${state.patientId}/open-warnings`).catch(() => null);
+  let data = null;
+  for (let attempt = 0; attempt < 3; attempt++) {                    // combinations still being looked up show up a few seconds later
+    data = await api('GET', `/patients/${state.patientId}/open-warnings`).catch(() => null);
+    if (!data || data.has_problems || !data.pending) break;
+    await waitMs(attempt === 0 ? 7000 : 10000);
+  }
   if (!data || !data.has_problems) return;
   try { if (sessionStorage.getItem(OPEN_WARN_KEY) === `${state.patientId}:${data.key}`) return; } catch (e) { /* ignore */ }
   const card = (html, names, ids) => `<div class="ow-item">${html}${removeButtonsHtml(names, ids)}</div>`;

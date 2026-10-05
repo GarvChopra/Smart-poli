@@ -82,3 +82,8 @@ def test_install_page_assets_and_login_link(client):
     assert "Care Together" in page and "Live Healthier" in page and "Install SmartPoli" in page
     for p in ("/static/install.css", "/static/install.js", "/static/install-family.jpg"):
         assert client.get(p).status_code == 200, p
+
+
+def test_app_files_are_revalidated_and_api_answers_are_never_cached(client):
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
+    assert client.get("/auth/me").headers["cache-control"] == "no-store"

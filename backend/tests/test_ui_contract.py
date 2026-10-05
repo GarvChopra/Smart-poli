@@ -230,3 +230,8 @@ def test_every_warning_popup_lets_the_person_remove_a_medicine():
     assert "/open-warnings" in fn_body("showOpenWarnings") and "sessionStorage" in fn_body("showOpenWarnings")
     assert "data-remove-med" in fn_body("renderSafetyCenter")
     assert "DELETE" in fn_body("removeMedicine")
+
+
+def test_open_warnings_wait_for_combinations_still_being_looked_up():
+    body = fn_body("showOpenWarnings")
+    assert "data.pending" in body and "waitMs" in body

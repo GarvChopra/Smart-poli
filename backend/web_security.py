@@ -43,8 +43,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
             h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # Private pages and API answers must not be kept by shared caches or the back button.
-        if not request.url.path.startswith("/static/") and "cache-control" not in h:
-            h["Cache-Control"] = "no-store"
+        if "cache-control" not in h:
+            # API answers are private: never cached. App files (/static) are re-validated on every open (a cheap 304 when
+            # unchanged) so a phone never keeps running an old version of the app after an update.
+            h["Cache-Control"] = "no-cache" if request.url.path.startswith("/static/") else "no-store"
         return response
 
 
