@@ -1150,3 +1150,17 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 
 /* "Every day" shows all seven days selected but fixed; "Choose days" lets you pick */
 .wz-days.is-locked .wz-day { pointer-events: none; opacity: .85; }
+
+/* medicine information ("what is this for") and the add-medicine warnings */
+.mi-for { margin-top: 6px; font-size: 14.5px; }
+.mi-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.mi-chip { background: var(--teal-soft); color: var(--teal-dark); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; font-weight: 700; }
+.mi-sub { font-weight: 700; font-size: 13px; margin-top: 8px; }
+.mi-list { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-soft); }
+.rp-info { margin-top: 2px; }
+.rp-guess { margin-top: 12px; background: var(--teal-soft); border-radius: 14px; padding: 12px 14px; }
+.wz-for { margin-top: 8px; }
+.wz-check { min-height: 20px; }
+.wz-moved { margin-top: 8px; font-weight: 700; color: var(--teal-dark); }
+.safety-modal .alert-card { text-align: left; margin-top: 10px; }
+.safety-modal { max-height: 90vh; overflow-y: auto; }

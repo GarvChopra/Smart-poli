@@ -14,6 +14,7 @@ os.environ["SMARTPOLI_DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 # tested explicitly (tests/test_timezone_and_reminders.py) with named zones.
 os.environ["SMARTPOLI_DEFAULT_TZ"] = "UTC"
 os.environ["SMARTPOLI_DISABLE_SCHEDULER"] = "1"
+os.environ["SMARTPOLI_AI_INFO"] = "0"
 os.environ["SMARTPOLI_AI_SCAN"] = "0"   # no real vision calls in tests; they are mocked where needed
 os.environ["SMARTPOLI_DISABLE_RATE_LIMIT"] = "1"   # tests register many users from one IP; test_web_security turns it on
 # AI dose-gap lookups call Groq / openFDA; tests inject fakes where they want them.

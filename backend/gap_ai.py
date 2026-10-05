@@ -103,14 +103,10 @@ def default_label_fn(generic: str, fields: tuple) -> str:
 
 
 def default_llm_fn(system: str, user: str) -> dict:
-    from groq import Groq
-    client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=LLM_TIMEOUT)
-    out = client.chat.completions.create(
-        model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"), temperature=0, max_tokens=320,
-        response_format={"type": "json_object"},
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-    ).choices[0].message.content
-    return json.loads(out)
+    """Same provider chain as medicine_info (several Groq models, then Gemini): each Groq model has its own
+    per-minute token budget, so a rate limit on one does not stop the lookup."""
+    import medicine_info
+    return medicine_info.default_llm_fn(system, user)
 
 
 # ---------------------------------------------------------------- validation and grading

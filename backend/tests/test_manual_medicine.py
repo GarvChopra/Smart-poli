@@ -73,3 +73,45 @@ def test_only_the_patient_can_add_a_medicine():
         register_and_login(stranger)
         assert _post(stranger, pid).status_code == 403
     assert TestClient(app).post("/medicines/manual", json={"patient_id": pid, "name": "Telma"}).status_code == 401
+
+
+# ---------------------------------------------------------------- warn when the new medicine clashes with an existing one
+
+def test_adding_a_curated_pair_returns_the_verified_timing_warning():
+    """Levothyroxine + calcium at the same time is a curated, label-quoted rule. (Calcium + iron has no curated rule; it is
+    covered by the sourced AI check - see test_pair_check.py.)"""
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        first = _post(client, pid, name="Levothyroxine", strength="50mcg", times=["09:00"], duration_days=10)
+        assert first.status_code == 200 and first.json()["conflicts"] == []
+        r = _post(client, pid, name="Calcium carbonate", strength="500mg", times=["09:00"], duration_days=10)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["conflicts"], "same-time levothyroxine + calcium must be flagged"
+        c = body["conflicts"][0]
+        assert {m.lower() for m in c["medicines"]} == {"levothyroxine", "calcium carbonate"}
+        assert c["kind"] in ("timing", "interval_unspecified")
+
+
+def test_unrelated_medicines_give_no_warning():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        _post(client, pid, name="Telmisartan", times=["08:00"])
+        r = _post(client, pid, name="Vitamin D3", times=["14:00"])
+        assert r.json()["conflicts"] == []
+
+
+def test_medicine_info_endpoint_uses_the_cache_and_never_blocks(monkeypatch):
+    import medicine_info as mi
+    from db import AIGapCache
+    monkeypatch.setattr(mi, "warm_patient", lambda *a, **k: 0)
+    d = SessionLocal()
+    d.query(AIGapCache).filter(AIGapCache.kind == "info").delete()
+    d.commit()
+    d.close()
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        _post(client, pid, name="Telma 40", times=["08:00"])
+        out = client.get(f"/patients/{pid}/medicine-info").json()
+        assert out["medicines"][0]["name"] == "Telma 40" and out["medicines"][0]["known"] is False
+        assert "disclaimer" in out and "pending" in out

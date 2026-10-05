@@ -30,6 +30,11 @@ class ManualMedicine(BaseModel):
     duration_days: Optional[int] = Field(None, ge=1, le=365)              # None = ongoing
 
 
+class ShiftMedicine(BaseModel):
+    """Move every upcoming dose of one medicine later by a number of minutes (the 'keep these apart' suggestion)."""
+    minutes: int = Field(..., ge=15, le=720)
+
+
 class PatientEdit(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = None

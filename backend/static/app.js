@@ -299,9 +299,10 @@ async function renderSafetyCenter() {
 
   const medsHtml = s.medicines.map(m => `
     <div class="safety-med-row">
-      <div>
-        <strong>${m.name}</strong>
-        ${m.generic_name ? `<div class="generic">generic: ${m.generic_name}</div>` : ''}
+      <div style="flex:1;min-width:0;">
+        <strong>${escHtml(m.name)}</strong>
+        ${m.generic_name ? `<div class="generic">generic: ${escHtml(m.generic_name)}</div>` : ''}
+        <div data-med-info="${escHtml(m.name)}"></div>
       </div>
     </div>
   `).join('') || '<div class="empty">No active medicines yet.</div>';
@@ -345,6 +346,7 @@ async function renderSafetyCenter() {
     <footer class="disclaimer">${s.disclaimer}</footer>
   `;
   loadConflictsInto(document.getElementById('safetyConflicts'));
+  loadMedicineInfoInto(view);
   document.getElementById('regCheckBtn').addEventListener('click', async () => {
     const mount = document.getElementById('safetyRegulatory');
     mount.innerHTML = '<div class="empty">Checking…</div>';
@@ -538,6 +540,105 @@ async function scanMedicinePhoto(file) {
   }
 }
 
+
+// ---------------------------------------------------------------- after adding: what it is for, and any clash with the other medicines
+
+const waitMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function medInfoBlock(info) {
+  const chips = (info.conditions || []).map((c) => `<span class="mi-chip">${escHtml(c)}</span>`).join('');
+  const list = (title, items) => items && items.length ? `<div class="mi-sub">${title}</div><ul class="mi-list">${items.map((i) => `<li>${escHtml(i)}</li>`).join('')}</ul>` : '';
+  return `
+    <div class="mi-for">For: <strong>${escHtml(info.what_for)}</strong></div>
+    ${chips ? `<div class="mi-chips">${chips}</div>` : ''}
+    <details class="rp-more"><summary>Side effects &amp; care</summary>
+      ${list('Common side effects', info.side_effects)}${list('Take care', info.take_care)}
+      <div class="reg-meta" style="margin-top:6px;">${escHtml(info.note || '')}</div></details>`;
+}
+
+/** Fetch what each medicine is for (cached on the server; missing ones are looked up in the background) and fill every
+ * `[data-med-info]` placeholder inside root. Tries again once for anything still being looked up. */
+async function loadMedicineInfoInto(root, onData) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!document.body.contains(root)) return;
+    const data = await api('GET', `/patients/${state.patientId}/medicine-info`).catch(() => null);
+    if (!data) return;
+    const byName = new Map(data.medicines.filter((m) => m.known).map((m) => [m.name.toLowerCase(), m]));
+    root.querySelectorAll('[data-med-info]').forEach((slot) => {
+      const info = byName.get(slot.dataset.medInfo.toLowerCase());
+      if (info && !slot.dataset.filled) { slot.innerHTML = medInfoBlock(info); slot.dataset.filled = '1'; }
+    });
+    if (onData) onData(data);
+    if (!data.pending.length || !data.enabled) return;
+    await waitMs(attempt === 0 ? 6000 : 9000);
+  }
+}
+
+function pairWarningHtml(w) {
+  const [a, b] = w.medicines;
+  const sug = w.suggestion;
+  const timesText = sug ? sug.new_times.map(fmtClock).join(', ') : '';
+  return alertCardHtml({
+    tone: 'action',
+    title: `Don’t take ${a} and ${b} together`,
+    problem: w.message,
+    action: sug
+      ? `Take <strong>${escHtml(a)}</strong> at <strong>${escHtml(timesText)}</strong> instead. Nothing changes unless you tap the button.`
+      : 'Ask your pharmacist how far apart to take them. Until then, don’t change your doses on your own.',
+    buttons: sug ? `<button class="primary small" data-shift="${sug.medicine_id}" data-minutes="${sug.shift_minutes}" data-times="${escHtml(timesText)}" style="margin-top:8px;">Move ${escHtml(a)} to ${escHtml(timesText)}</button>` : '',
+    details: `<div class="reg-meta" style="margin-top:6px;">${escHtml(w.source_label || '')}${w.quote ? ` “${escHtml(w.quote)}”` : ''}</div>`,
+  });
+}
+
+function interactionWarningHtml(i) {
+  return alertCardHtml({
+    tone: 'action',
+    title: `${capName(i.drug_a)} and ${capName(i.drug_b)} can interact`,
+    problem: i.description,
+    action: 'Ask your pharmacist before taking them together.',
+  });
+}
+
+async function afterMedicineAdded(med, out, when, sos) {
+  const m = showSafetyModal(`
+    <h3>Added ✓</h3>
+    <div class="wz-card"><div class="wz-name">${escHtml(med.name)}</div><div class="wz-meta">${escHtml(when)}</div>
+      <div data-med-info="${escHtml(med.name)}" class="wz-for"></div></div>
+    <div class="reg-meta wz-check" id="wzCheck" style="margin-top:10px;text-align:center;">
+      ${sos ? 'You can log a dose from the dashboard whenever you need it.' : '<span class="upload-spinner"></span> Checking it against your other medicines…'}</div>
+    <div class="sm-actions"><button class="primary small" id="wzDone">Done</button><button class="ghost small" id="wzAnother">Add another</button></div>`);
+  const finish = () => { m.remove(); renderPrescriptions(); renderGlance(); };
+  m.querySelector('#wzDone').addEventListener('click', finish);
+  m.querySelector('#wzAnother').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
+  loadMedicineInfoInto(m);                                           // "Used for: ..." appears when the lookup finishes
+  if (sos) return;
+
+  let pair = [];
+  try { pair = (await api('GET', `/medicines/${out.medicine.id}/pair-check`)).warnings || []; } catch (e) { pair = []; }
+  const curated = out.conflicts || [], inter = out.interactions || [];
+  if (!document.body.contains(m)) return;
+  if (!curated.length && !inter.length && !pair.length) {
+    m.querySelector('#wzCheck').textContent = '✓ No known clash with your other medicines.';
+    return;
+  }
+  const warn = showSafetyModal(`
+    <h3>⚠ Please check this</h3>
+    <div class="sm-headline" style="font-weight:500;">You added <strong>${escHtml(med.name)}</strong>. Some of your medicines should not be taken together:</div>
+    ${curated.map(timingAlertHtml).join('')}${pair.map(pairWarningHtml).join('')}${inter.map(interactionWarningHtml).join('')}
+    <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
+    <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
+  warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderPrescriptions(); renderGlance(); });
+  wireConflictActions(warn);
+  warn.querySelectorAll('[data-shift]').forEach((btn) => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await api('POST', `/medicines/${btn.dataset.shift}/shift`, { minutes: Number(btn.dataset.minutes) });
+      dashboardCache = null;
+      btn.outerHTML = `<div class="wz-moved">Moved to ${escHtml(btn.dataset.times)} ✓</div>`;
+    } catch (e) { btn.disabled = false; showNotice('Could not move it', e.message); }
+  }));
+}
+
 function scanFailedPopup() {
   const m = showSafetyModal(`
     <h3>Scan failed</h3>
@@ -713,13 +814,7 @@ function medicineWizard(ctx) {
       m.remove();
       dashboardCache = null;
       const when = sos ? 'Only when needed' : times.map(fmtClock).join(', ') + (weekdays && weekdays.length < 7 ? ' · ' + weekdays.map((d) => WEEKDAYS[d]).join(' ') : ' · every day');
-      const done = showSafetyModal(`
-        <h3>Added ✓</h3>
-        <div class="wz-card"><div class="wz-name">${escHtml(med.name)}</div><div class="wz-meta">${escHtml(when)}</div></div>
-        <div class="reg-meta" style="margin-top:8px;text-align:center;">${sos ? 'You can log a dose from the dashboard whenever you need it.' : 'Reminders are set.'}</div>
-        <div class="sm-actions"><button class="primary small" id="wzDone">Done</button><button class="ghost small" id="wzAnother">Add another</button></div>`);
-      done.querySelector('#wzDone').addEventListener('click', () => { done.remove(); renderPrescriptions(); renderGlance(); });
-      done.querySelector('#wzAnother').addEventListener('click', () => { done.remove(); medicineWizard({ step: 'details' }); });
+      afterMedicineAdded(med, out, when, sos);
     } catch (e) { btn.disabled = false; msg.textContent = e.message || 'Could not add it.'; }
   });
 }
@@ -1741,6 +1836,7 @@ async function renderReport() {
     <div class="rp-med">
       <div class="rp-med-name">${escHtml(m.name || m.raw_text)} <span class="rp-dose">${escHtml(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
       ${m.when ? `<div class="rp-when">${escHtml(m.when)}</div>` : ''}
+      <div data-med-info="${escHtml(m.name || m.raw_text)}" class="rp-info"></div>
     </div>`).join('') || '<div class="empty">No medicines yet.</div>';
 
   const a = r.adherence;
@@ -1768,6 +1864,7 @@ async function renderReport() {
 
       <h3 class="rp-title">Medicines I take</h3>
       ${medRows}
+      <div id="rpReasons"></div>
 
       <h3 class="rp-title">How my doses went</h3>
       <div class="rp-stats">
@@ -1790,6 +1887,14 @@ async function renderReport() {
       <footer class="disclaimer">${escHtml(r.disclaimer)}</footer>
     </div>
   `;
+  loadMedicineInfoInto(view, (data) => {
+    const box = document.getElementById('rpReasons');
+    if (box && data.conditions.length) {
+      box.innerHTML = `<div class="rp-guess"><strong>Why I may be taking these</strong>
+        <div class="mi-chips">${data.conditions.map((c) => `<span class="mi-chip">${escHtml(c)}</span>`).join('')}</div>
+        <div class="reg-meta">${escHtml(data.disclaimer)}</div></div>`;
+    }
+  });
 }
 
 function formatNoteActor(actor) {

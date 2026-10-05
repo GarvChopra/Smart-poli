@@ -54,7 +54,7 @@ from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
 import voice_assistant
 import voice_stt
-from interactions import load_ruleset as load_interaction_ruleset, check_interactions
+from interactions import load_ruleset as load_interaction_ruleset, check_interactions, normalize_for_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import read_prescription_image, read_image_text_lines, OCRUnavailable
 import medicine_scan
@@ -62,7 +62,7 @@ from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
 from schemas import (
-    PatientCreate, PatientEdit, ManualMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
+    PatientCreate, PatientEdit, ManualMedicine, ShiftMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
     PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
@@ -99,6 +99,8 @@ import gap_ai
 import safety_service
 import safety_engine
 import webpush_service
+import medicine_info
+import pair_check
 from timeline import friendly_entries
 
 logging.basicConfig(level=logging.INFO)
@@ -466,12 +468,73 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
     except ValueError as e:
         raise HTTPException(422, str(e))
     _maybe_warm(body.patient_id, background)
+    background.add_task(medicine_info.warm_patient, body.patient_id)          # look up what it is for, in the background
     med = out["medicine"]
     first = (db.query(Dose).filter(Dose.medicine_id == med.id, Dose.state == "pending")
              .order_by(Dose.scheduled_at).first())
+    # Things the person should hear about right now: timing clashes with their other medicines, and known interactions.
+    me = (med.name or med.raw_text or "").strip().lower()
+    conflicts = [c for c in safety_service.conflicts_for_patient(db, body.patient_id)["conflicts"]
+                 if any(me and me == (n or "").strip().lower() for n in c.get("medicines", []))]
+    others = [m.name for m in (db.query(Medicine).join(Prescription)
+                               .filter(Prescription.patient_id == body.patient_id, Medicine.status != "needs_confirmation",
+                                       Medicine.id != med.id).all()) if m.name]
+    mine = normalize_for_interactions(med.name or "")
+    interactions = [i for i in check_interactions(INTERACTION_RULESET, [med.name or ""] + others) if mine in (i["drug_a"], i["drug_b"])]
     return {"prescription_id": out["prescription_id"], "medicine": serialize_medicine(med),
             "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
-            "first_dose": first.scheduled_at.isoformat() if first else None}
+            "first_dose": first.scheduled_at.isoformat() if first else None,
+            "conflicts": conflicts, "interactions": interactions}
+
+
+@app.get("/medicines/{medicine_id}/pair-check")
+def medicine_pair_check(medicine_id: int, user: User = Depends(require_medicine_write_access),
+                        db: Session = Depends(get_db_session)):
+    """Should this medicine be kept apart from the others the patient takes? Sourced (FDA label + AI, graded), cached.
+    Called right after a medicine is added; the answer is a list of warnings, each with a suggested later time."""
+    medicine = get_medicine_or_404(db, medicine_id)
+    now = patient_now(db, medicine.prescription.patient_id)
+    return {"warnings": pair_check.warnings_for_new_medicine(db, medicine, now),
+            "note": "SmartPoli only knows the combinations its sources cover. No warning is not proof two medicines are safe together."}
+
+
+@app.post("/medicines/{medicine_id}/shift")
+def shift_medicine_times(medicine_id: int, body: ShiftMedicine, user: User = Depends(require_medicine_write_access),
+                         db: Session = Depends(get_db_session)):
+    """Accept a 'keep these apart' suggestion: move every UPCOMING, untouched dose of this medicine later by the same
+    number of minutes. Past and already-acted doses are never touched; no dose may move onto another day."""
+    medicine = get_medicine_or_404(db, medicine_id)
+    pid = medicine.prescription.patient_id
+    now = patient_now(db, pid)
+    doses = [d for d in medicine.doses if d.state in ("pending", "snoozed") and d.scheduled_at >= now]
+    if not doses:
+        raise HTTPException(409, "There are no upcoming doses of this medicine to move.")
+    delta = timedelta(minutes=body.minutes)
+    if any((d.scheduled_at + delta).date() != d.scheduled_at.date() for d in doses):
+        raise HTTPException(422, "That would move a dose onto another day. Choose the time yourself instead.")
+    for d in doses:
+        d.scheduled_at = d.scheduled_at + delta
+    try:
+        times = json.loads(medicine.times) if medicine.times else []
+        medicine.times = json.dumps(sorted({(datetime.strptime(t, "%H:%M") + delta).strftime("%H:%M") for t in times
+                                            if (datetime.strptime(t, "%H:%M") + delta).day == datetime.strptime(t, "%H:%M").day}))
+    except ValueError:
+        pass
+    db.commit()
+    log_audit(db, pid, f"patient:{user.id}", "medicine_time_changed", f"medicine {medicine.id} moved later by {body.minutes} min (keep-apart suggestion)")
+    return {"medicine_id": medicine.id, "doses_moved": len(doses), "times": json.loads(medicine.times or "[]")}
+
+
+@app.get("/patients/{patient_id}/medicine-info")
+def patient_medicine_info(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+                          db: Session = Depends(get_db_session)):
+    """What each of the patient's medicines is usually for (plain words, from public drug labels), plus the conditions
+    that suggests. Answers come from the cache; anything missing is looked up in the background (`pending`)."""
+    get_patient_or_404(db, patient_id)
+    out = medicine_info.summarize_patient(db, patient_id, allow_network=False)
+    if out["pending"] and out["enabled"]:
+        background.add_task(medicine_info.warm_patient, patient_id)
+    return out
 
 
 @app.post("/prescriptions/from-image")

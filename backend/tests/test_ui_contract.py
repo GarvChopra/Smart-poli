@@ -197,3 +197,17 @@ def test_scan_flow_has_failure_popup_confirm_popup_and_schedule_step():
     assert "With food?" in wiz and "For how long?" in wiz
     assert "'/medicines/manual'" in wiz and "/confirm" not in wiz        # added and scheduled in one step: no confirm
     assert "scanFailedPopup()" in fn_body("scanMedicinePhoto")
+
+
+def test_adding_a_medicine_checks_it_against_the_others_and_shows_a_warning_popup():
+    body = fn_body("afterMedicineAdded")
+    assert "/pair-check" in body and "Please check this" in body and "No known clash" in body
+    assert "pairWarningHtml" in body and "interactionWarningHtml" in body and "timingAlertHtml" in body
+    assert "/shift" in body                                           # "Move X to <time>" button
+    assert "loadMedicineInfoInto" in body                              # "Used for: ..." under the new medicine
+
+
+def test_what_a_medicine_is_for_shows_in_the_safety_center_and_the_care_report():
+    assert "data-med-info" in fn_body("renderSafetyCenter") and "loadMedicineInfoInto" in fn_body("renderSafetyCenter")
+    rep = fn_body("renderReport")
+    assert "data-med-info" in rep and "Why I may be taking these" in rep
