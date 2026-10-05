@@ -62,9 +62,18 @@ def generate_doses(medicine: Medicine, start_at: Optional[datetime] = None, skip
         return []
 
     span = medicine.duration_days if medicine.duration_days is not None else 30
+    weekdays = None
+    rule = getattr(medicine, "days_rule", None)
+    if rule is not None:
+        try:
+            weekdays = {int(d) for d in json.loads(rule.weekdays)}
+        except (ValueError, TypeError):
+            weekdays = None
 
     doses = []
     for day in range(span):
+        if weekdays is not None and (start_date + timedelta(days=day)).weekday() not in weekdays:
+            continue                                    # "only on Mon / Wed / Fri"
         for t in times:
             if not t:
                 continue

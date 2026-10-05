@@ -44,7 +44,7 @@ from db import (
     AuditLog, User, VoiceMessage, PatientSettings, PushSubscription, ReminderLog,
 )
 from parser import parse_medicine_line, compute_status
-from prescription_service import create_prescription_from_lines, confirm_prescription_doses
+from prescription_service import create_prescription_from_lines, confirm_prescription_doses, create_manual_medicine
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
     mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, undo_taken,
@@ -62,7 +62,7 @@ from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
 from schemas import (
-    PatientCreate, PatientEdit, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
+    PatientCreate, PatientEdit, ManualMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
     PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
@@ -453,6 +453,25 @@ async def scan_medicine(
     log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result
+
+
+@app.post("/medicines/manual")
+def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db_session)):
+    """Add a medicine from the popup (typed, or after a scan) and schedule it right away - no confirm step."""
+    if not has_write_access(db, user, body.patient_id):
+        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
+    try:
+        out = create_manual_medicine(db, body, f"patient:{user.id}")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    _maybe_warm(body.patient_id, background)
+    med = out["medicine"]
+    first = (db.query(Dose).filter(Dose.medicine_id == med.id, Dose.state == "pending")
+             .order_by(Dose.scheduled_at).first())
+    return {"prescription_id": out["prescription_id"], "medicine": serialize_medicine(med),
+            "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
+            "first_dose": first.scheduled_at.isoformat() if first else None}
 
 
 @app.post("/prescriptions/from-image")

@@ -178,6 +178,16 @@ class Medicine(Base):
 
     prescription = relationship("Prescription", back_populates="medicines")
     doses = relationship("Dose", back_populates="medicine", cascade="all, delete-orphan", lazy="selectin")
+    days_rule = relationship("MedicineDays", uselist=False, cascade="all, delete-orphan", lazy="selectin")
+
+
+class MedicineDays(Base):
+    """Optional 'only on these weekdays' rule for a medicine (an alarm that repeats Mon/Wed/Fri). No row = every day.
+    A separate table, not a new column on medicines, so existing databases (including Postgres) need no ALTER."""
+    __tablename__ = "medicine_days"
+
+    medicine_id = Column(Integer, ForeignKey("medicines.id"), primary_key=True)
+    weekdays = Column(Text, nullable=False)           # JSON list of 0 (Mon) .. 6 (Sun)
 
 
 class Dose(Base):

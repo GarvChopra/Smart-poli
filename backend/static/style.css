@@ -1140,3 +1140,10 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .wz-chip.on { background: var(--teal-dark); border-color: var(--teal-dark); color: #fff; }
 .wz-msg { color: #8E2018; font-size: 13px; min-height: 18px; margin-top: 8px; }
 .safety-modal input[type=text], .safety-modal input[type=number], .safety-modal select { width: 100%; }
+
+/* add medicine: alarm-style times and repeat days */
+.wz-times { display: grid; gap: 8px; }
+.wz-time { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--teal-soft); border-radius: 12px; padding: 8px 12px; font-weight: 600; }
+.wz-time input[type=time] { width: auto !important; font-size: 18px; font-weight: 700; border: 0; background: transparent; }
+.wz-days { margin-top: 10px; }
+.wz-day { padding: 8px 11px; min-width: 46px; }

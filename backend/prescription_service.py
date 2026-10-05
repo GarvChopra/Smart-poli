@@ -8,6 +8,7 @@ WhatsApp integration.
 """
 
 import json
+import re
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -124,3 +125,60 @@ def confirm_prescription_doses(db: Session, prescription: Prescription, actor: s
         logging.getLogger(__name__).exception("conflict notice failed after confirm")
 
     return {"prescription_id": prescription.id, "scheduled": scheduled, "blocked_needs_confirmation": blocked, "prn": prn}
+
+
+_STRENGTH_RX = re.compile(r"(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|ml|iu)\b", re.I)
+_CODES = {1: "OD", 2: "BD", 3: "TDS", 4: "QID"}
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def create_manual_medicine(db: Session, spec, actor: str) -> dict:
+    """One medicine entered through the add-medicine popup -> Prescription + Medicine -> doses scheduled immediately.
+    Every field was typed or confirmed by the person, so there is no review gate; the scheduler's safety rules, the
+    conflict notices and the take-time guard all still apply exactly as before."""
+    from parser import match_drug_name
+
+    name = re.sub(r"\s+", " ", spec.name).strip()
+    times = sorted({t for t in spec.times if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t or "")})
+    if not spec.as_needed and not times:
+        raise ValueError("Choose at least one time.")
+    weekdays = sorted({d for d in (spec.weekdays or []) if 0 <= d <= 6})
+    every_day = (not weekdays) or len(weekdays) == 7
+    if spec.weekdays and not weekdays:
+        raise ValueError("Choose at least one day.")
+
+    sm = _STRENGTH_RX.search(spec.strength or "")
+    dose_amount, dose_unit = (sm.group(1), sm.group(2).lower()) if sm else (None, None)
+    matched, _ = match_drug_name(name)
+    form_word = {"tab": "Tab", "cap": "Cap", "syrup": "Syrup", "inj": "Inj"}[spec.form]
+    bits = [form_word, name, (spec.strength or "").strip(), "(as needed)" if spec.as_needed else " ".join(times)]
+    if not spec.as_needed:
+        if spec.food != "any":
+            bits.append(f"{spec.food} food")
+        if not every_day:
+            bits.append("on " + ", ".join(_DAY_NAMES[d] for d in weekdays))
+        bits.append(f"for {spec.duration_days} days" if spec.duration_days else "ongoing")
+    raw_text = " ".join(b for b in bits if b)
+
+    prescription = Prescription(patient_id=spec.patient_id, source="manual", status="draft")
+    db.add(prescription)
+    db.commit()
+    medicine = Medicine(
+        prescription_id=prescription.id, raw_text=raw_text, name=name, normalized_name=matched,
+        dose_amount=dose_amount, dose_unit=dose_unit,
+        schedule_code="SOS" if spec.as_needed else _CODES.get(len(times), "CUSTOM"),
+        slots=json.dumps([]), times=json.dumps([] if spec.as_needed else times),     # exact times: never follow the routine
+        food="any" if spec.as_needed else spec.food,
+        duration_days=None if spec.as_needed else spec.duration_days, is_prn=bool(spec.as_needed),
+        confidence=1.0, field_confidence=json.dumps({"source": "entered_by_patient"}), status="verified",
+    )
+    db.add(medicine)
+    db.commit()
+    if not spec.as_needed and not every_day:
+        from db import MedicineDays
+        db.add(MedicineDays(medicine_id=medicine.id, weekdays=json.dumps(weekdays)))
+        db.commit()
+    log_audit(db, spec.patient_id, actor, "prescription_created", f"prescription {prescription.id}, 1 line, source=manual_form")
+    scheduled = confirm_prescription_doses(db, prescription, actor)
+    db.refresh(medicine)
+    return {"prescription_id": prescription.id, "medicine": medicine, "scheduled": scheduled}

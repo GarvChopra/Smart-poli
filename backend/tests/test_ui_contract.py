@@ -193,5 +193,7 @@ def test_scan_flow_has_failure_popup_confirm_popup_and_schedule_step():
     assert "Scan failed" in fn_body("scanFailedPopup") and "Enter manually" in fn_body("scanFailedPopup")
     wiz = fn_body("medicineWizard")
     assert "Is this your medicine?" in wiz and "No, enter manually" in wiz
-    assert "How many times a day?" in wiz and "With food?" in wiz and "For how many days?" in wiz
+    assert "How many times a day?" in wiz and "At what time?" in wiz and "Repeat" in wiz and "Choose days" in wiz
+    assert "With food?" in wiz and "For how long?" in wiz
+    assert "'/medicines/manual'" in wiz and "/confirm" not in wiz        # added and scheduled in one step: no confirm
     assert "scanFailedPopup()" in fn_body("scanMedicinePhoto")

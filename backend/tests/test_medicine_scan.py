@@ -156,7 +156,7 @@ def test_prescriptions_screen_offers_the_camera_scan():
     app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"),
                   encoding="utf-8").read()
     assert 'id="scanInput" accept="image/*" capture="environment"' in app_js
-    assert "'/medicines/scan'" in app_js and "choose a dose" in app_js
+    assert "'/medicines/scan'" in app_js and "Is this your medicine?" in app_js
 
 
 # ---------------------------------------------------------------- vision (the main way to read a box)

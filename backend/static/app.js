@@ -550,11 +550,19 @@ function scanFailedPopup() {
   m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); document.getElementById('scanInput').click(); });
 }
 
+function fmtClock(hhmm) {
+  const [h, mi] = hhmm.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 const MED_FORMS = [['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']];
 const FREQUENCIES = [
   ['once', 'Once a day'], ['twice', 'Twice a day'], ['thrice', 'Three times a day'], ['four', 'Four times a day'], ['sos', 'Only when needed'],
 ];
-const ONCE_SLOTS = [['1-0-0', 'Morning'], ['0-1-0', 'Afternoon'], ['0-0-1', 'Night']];
+// which of the person's daily-routine times each frequency starts from (they can change every time, like an alarm)
+const FREQ_SLOTS = { once: ['morning'], twice: ['morning', 'night'], thrice: ['morning', 'afternoon', 'night'], four: ['morning', 'afternoon', 'evening', 'night'] };
+const DEFAULT_TIMES = { morning: '08:00', afternoon: '14:00', evening: '18:00', night: '20:30', bedtime: '22:00' };
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function medicineWizard(ctx) {
   const med = ctx.med || {};
@@ -606,69 +614,105 @@ function medicineWizard(ctx) {
     return;
   }
 
-  // step: schedule - "when do you take it, and how many times?"
+  // step: schedule - set it like an alarm: how many times, at what time, which days, for how long
   const m = showSafetyModal(`
-    <h3>How do you take ${escHtml(med.name)}?</h3>
+    <h3>Set reminders for ${escHtml(med.name)}</h3>
     <div class="wz-label">How many times a day?</div>
     <div class="wz-chips" id="wzFreq">${FREQUENCIES.map(([v, l]) => `<button type="button" class="wz-chip" data-v="${v}">${l}</button>`).join('')}</div>
-    <div id="wzOnce" hidden>
-      <div class="wz-label">When?</div>
-      <div class="wz-chips" id="wzSlot">${ONCE_SLOTS.map(([v, l], i) => `<button type="button" class="wz-chip ${i === 0 ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>
+    <div id="wzTimesBox" hidden>
+      <div class="wz-label">At what time?</div>
+      <div id="wzTimes" class="wz-times"></div>
     </div>
-    <div id="wzFoodBox">
+    <div id="wzRepeatBox" hidden>
+      <div class="wz-label">Repeat</div>
+      <div class="wz-chips" id="wzRepeat">
+        <button type="button" class="wz-chip on" data-v="daily">Every day</button>
+        <button type="button" class="wz-chip" data-v="days">Choose days</button>
+      </div>
+      <div class="wz-chips wz-days" id="wzDays" hidden>${WEEKDAYS.map((d, i) => `<button type="button" class="wz-chip wz-day on" data-d="${i}">${d}</button>`).join('')}</div>
+    </div>
+    <div id="wzFoodBox" hidden>
       <div class="wz-label">With food?</div>
       <div class="wz-chips" id="wzFood">
-        <button type="button" class="wz-chip" data-v="AC">Before food</button>
-        <button type="button" class="wz-chip on" data-v="PC">After food</button>
-        <button type="button" class="wz-chip" data-v="">Doesn’t matter</button>
+        <button type="button" class="wz-chip" data-v="before">Before food</button>
+        <button type="button" class="wz-chip on" data-v="after">After food</button>
+        <button type="button" class="wz-chip" data-v="any">Doesn’t matter</button>
       </div>
     </div>
-    <div id="wzDaysBox">
-      <div class="wz-label">For how many days?</div>
+    <div id="wzLenBox" hidden>
+      <div class="wz-label">For how long?</div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <input id="wzDays" type="number" min="1" max="365" placeholder="e.g. 5" style="width:110px;">
+        <input id="wzLen" type="number" min="1" max="365" placeholder="days" style="width:100px;">
         <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="wzOngoing"> Ongoing</label>
       </div>
     </div>
-    <div class="reg-meta" style="margin-top:8px;">Enter this as your doctor or the label told you. SmartPoli doesn’t choose a dose.</div>
     <div id="wzMsg" class="wz-msg"></div>
     <div class="sm-actions">
       <button class="primary small" id="wzAdd">Add medicine</button>
       <button class="ghost small" id="wzBack">Back</button>
     </div>`);
-  const pickOne = (id) => m.querySelectorAll(`#${id} .wz-chip`).forEach((b) => b.addEventListener('click', () => {
+
+  let routineTimes = DEFAULT_TIMES;
+  api('GET', `/patients/${state.patientId}/routine`).then((r) => { if (r && r.times) routineTimes = { ...DEFAULT_TIMES, ...r.times }; }).catch(() => {});
+
+  const chosen = (id) => (m.querySelector(`#${id} .wz-chip.on`) || {}).dataset || {};
+  const drawTimes = (freq) => {
+    const slots = FREQ_SLOTS[freq] || [];
+    m.querySelector('#wzTimes').innerHTML = slots.map((slot, i) => `
+      <label class="wz-time"><span>${slots.length > 1 ? `Dose ${i + 1}` : 'Time'}</span>
+        <input type="time" value="${escHtml(routineTimes[slot] || DEFAULT_TIMES[slot])}" data-time></label>`).join('');
+  };
+  const pickOne = (id, after) => m.querySelectorAll(`#${id} .wz-chip`).forEach((b) => b.addEventListener('click', () => {
     m.querySelectorAll(`#${id} .wz-chip`).forEach((x) => x.classList.remove('on'));
     b.classList.add('on');
-    if (id === 'wzFreq') {
-      const v = b.dataset.v;
-      m.querySelector('#wzOnce').hidden = v !== 'once';
-      m.querySelector('#wzFoodBox').hidden = v === 'sos';
-      m.querySelector('#wzDaysBox').hidden = v === 'sos';
-    }
+    if (after) after(b.dataset.v);
   }));
-  ['wzFreq', 'wzSlot', 'wzFood'].forEach(pickOne);
+  pickOne('wzFreq', (v) => {
+    const sos = v === 'sos';
+    m.querySelector('#wzTimesBox').hidden = sos;
+    m.querySelector('#wzRepeatBox').hidden = sos;
+    m.querySelector('#wzFoodBox').hidden = sos;
+    m.querySelector('#wzLenBox').hidden = sos;
+    if (!sos) drawTimes(v);
+  });
+  pickOne('wzRepeat', (v) => { m.querySelector('#wzDays').hidden = v !== 'days'; });
+  pickOne('wzFood');
+  m.querySelectorAll('.wz-day').forEach((b) => b.addEventListener('click', () => b.classList.toggle('on')));
   m.querySelector('#wzBack').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details', med }); });
+
   m.querySelector('#wzAdd').addEventListener('click', async () => {
     const msg = m.querySelector('#wzMsg');
-    const freq = (m.querySelector('#wzFreq .on') || {}).dataset;
+    const freq = chosen('wzFreq').v;
     if (!freq) { msg.textContent = 'Choose how many times a day.'; return; }
-    const sos = freq.v === 'sos';
-    const days = Number(m.querySelector('#wzDays').value);
+    const sos = freq === 'sos';
+    const times = sos ? [] : [...m.querySelectorAll('[data-time]')].map((i) => i.value).filter(Boolean);
+    if (!sos && times.length !== (FREQ_SLOTS[freq] || []).length) { msg.textContent = 'Set a time for every dose.'; return; }
+    if (!sos && new Set(times).size !== times.length) { msg.textContent = 'Each dose needs a different time.'; return; }
+    let weekdays = null;
+    if (!sos && chosen('wzRepeat').v === 'days') {
+      weekdays = [...m.querySelectorAll('.wz-day.on')].map((b) => Number(b.dataset.d));
+      if (!weekdays.length) { msg.textContent = 'Choose at least one day.'; return; }
+    }
+    const len = Number(m.querySelector('#wzLen').value);
     const ongoing = m.querySelector('#wzOngoing').checked;
-    if (!sos && !ongoing && !(days >= 1)) { msg.textContent = 'Enter the number of days, or tick Ongoing.'; return; }
-    const code = { once: (m.querySelector('#wzSlot .on') || {}).dataset?.v || '1-0-0', twice: '1-0-1', thrice: '1-1-1', four: 'QID', sos: 'SOS' }[freq.v];
-    const food = sos ? '' : ((m.querySelector('#wzFood .on') || {}).dataset?.v || '');
-    const tail = sos ? '' : (ongoing ? ' continue' : ` x${days}d`);
-    const num = (med.strength.match(/^\s*(\d+(?:\.\d+)?)/) || [])[1];
-    const strengthPart = med.strength && !(num && new RegExp(`\\b${num.replace('.', '\\.')}\\s*$`).test(med.name)) ? ' ' + med.strength : '';
-    const line = `${med.form.charAt(0).toUpperCase() + med.form.slice(1)} ${med.name}${strengthPart} ${code}${food ? ' ' + food : ''}${tail}`;
+    if (!sos && !ongoing && !(len >= 1)) { msg.textContent = 'Enter the number of days, or tick Ongoing.'; return; }
     const btn = m.querySelector('#wzAdd'); btn.disabled = true;
     try {
-      const result = await api('POST', '/prescriptions', { patient_id: state.patientId, lines: [line] });
+      const out = await api('POST', '/medicines/manual', {
+        patient_id: state.patientId, name: med.name, strength: med.strength || null, form: med.form || 'tab',
+        as_needed: sos, times, weekdays, food: sos ? 'any' : chosen('wzFood').v || 'any',
+        duration_days: sos || ongoing ? null : Math.round(len),
+      });
       m.remove();
       dashboardCache = null;
-      renderRxResult(result);
-      document.getElementById('rxResult').scrollIntoView({ behavior: 'smooth' });
+      const when = sos ? 'Only when needed' : times.map(fmtClock).join(', ') + (weekdays && weekdays.length < 7 ? ' · ' + weekdays.map((d) => WEEKDAYS[d]).join(' ') : ' · every day');
+      const done = showSafetyModal(`
+        <h3>Added ✓</h3>
+        <div class="wz-card"><div class="wz-name">${escHtml(med.name)}</div><div class="wz-meta">${escHtml(when)}</div></div>
+        <div class="reg-meta" style="margin-top:8px;text-align:center;">${sos ? 'You can log a dose from the dashboard whenever you need it.' : 'Reminders are set.'}</div>
+        <div class="sm-actions"><button class="primary small" id="wzDone">Done</button><button class="ghost small" id="wzAnother">Add another</button></div>`);
+      done.querySelector('#wzDone').addEventListener('click', () => { done.remove(); renderPrescriptions(); renderGlance(); });
+      done.querySelector('#wzAnother').addEventListener('click', () => { done.remove(); medicineWizard({ step: 'details' }); });
     } catch (e) { btn.disabled = false; msg.textContent = e.message || 'Could not add it.'; }
   });
 }

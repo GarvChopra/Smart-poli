@@ -16,6 +16,20 @@ class PatientCreate(BaseModel):
     emergency_contact: Optional[str] = None
 
 
+class ManualMedicine(BaseModel):
+    """Add one medicine by hand (or after a scan) the way an alarm is set: which medicine, at what times, repeating on
+    which days, for how long. Scheduled straight away - the person has just entered every detail themselves."""
+    patient_id: int
+    name: str = Field(..., min_length=2, max_length=80)
+    strength: Optional[str] = Field(None, max_length=30)
+    form: Literal["tab", "cap", "syrup", "inj"] = "tab"
+    as_needed: bool = False
+    times: list[str] = Field(default_factory=list, max_length=8)          # "HH:MM", e.g. ["08:00", "20:00"]
+    weekdays: Optional[list[int]] = None                                    # None / all seven = every day
+    food: Literal["before", "after", "any"] = "any"
+    duration_days: Optional[int] = Field(None, ge=1, le=365)              # None = ongoing
+
+
 class PatientEdit(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = None
