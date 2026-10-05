@@ -1147,3 +1147,6 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .wz-time input[type=time] { width: auto !important; font-size: 18px; font-weight: 700; border: 0; background: transparent; }
 .wz-days { margin-top: 10px; }
 .wz-day { padding: 8px 11px; min-width: 46px; }
+
+/* "Every day" shows all seven days selected but fixed; "Choose days" lets you pick */
+.wz-days.is-locked .wz-day { pointer-events: none; opacity: .85; }

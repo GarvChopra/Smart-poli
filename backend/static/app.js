@@ -629,7 +629,7 @@ function medicineWizard(ctx) {
         <button type="button" class="wz-chip on" data-v="daily">Every day</button>
         <button type="button" class="wz-chip" data-v="days">Choose days</button>
       </div>
-      <div class="wz-chips wz-days" id="wzDays" hidden>${WEEKDAYS.map((d, i) => `<button type="button" class="wz-chip wz-day on" data-d="${i}">${d}</button>`).join('')}</div>
+      <div class="wz-chips wz-days is-locked" id="wzDays">${WEEKDAYS.map((d, i) => `<button type="button" class="wz-chip wz-day on" data-d="${i}">${d}</button>`).join('')}</div>
     </div>
     <div id="wzFoodBox" hidden>
       <div class="wz-label">With food?</div>
@@ -675,9 +675,16 @@ function medicineWizard(ctx) {
     m.querySelector('#wzLenBox').hidden = sos;
     if (!sos) drawTimes(v);
   });
-  pickOne('wzRepeat', (v) => { m.querySelector('#wzDays').hidden = v !== 'days'; });
+  const daysRow = m.querySelector('#wzDays');
+  pickOne('wzRepeat', (v) => {
+    const every = v !== 'days';
+    daysRow.classList.toggle('is-locked', every);                       // "Every day": all seven shown selected, not tappable
+    m.querySelectorAll('.wz-day').forEach((b) => b.classList.toggle('on', every));   // "Choose days": start with none selected
+  });
   pickOne('wzFood');
-  m.querySelectorAll('.wz-day').forEach((b) => b.addEventListener('click', () => b.classList.toggle('on')));
+  m.querySelectorAll('.wz-day').forEach((b) => b.addEventListener('click', () => {
+    if (!daysRow.classList.contains('is-locked')) b.classList.toggle('on');
+  }));
   m.querySelector('#wzBack').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details', med }); });
 
   m.querySelector('#wzAdd').addEventListener('click', async () => {
