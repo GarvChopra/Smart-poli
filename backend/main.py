@@ -476,13 +476,18 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
     me = (med.name or med.raw_text or "").strip().lower()
     conflicts = [c for c in safety_service.conflicts_for_patient(db, body.patient_id)["conflicts"]
                  if any(me and me == (n or "").strip().lower() for n in c.get("medicines", []))]
-    others = [m.name for m in (db.query(Medicine).join(Prescription)
-                               .filter(Prescription.patient_id == body.patient_id, Medicine.status != "needs_confirmation",
-                                       Medicine.id != med.id).all()) if m.name]
+    other_rows = [(m.id, m.name) for m in (db.query(Medicine).join(Prescription)
+                                           .filter(Prescription.patient_id == body.patient_id, Medicine.status != "needs_confirmation",
+                                                   Medicine.id != med.id).all()) if m.name]
+    others = [n for _, n in other_rows]
+    id_of = {normalize_for_interactions(n): i for i, n in other_rows}
     mine = normalize_for_interactions(med.name or "")
     # Minor interactions never interrupt: only the ones the table rates MODERATE or CRITICAL.
-    interactions = [i for i in check_interactions(INTERACTION_RULESET, [med.name or ""] + others)
-                    if mine in (i["drug_a"], i["drug_b"]) and i["severity"] in ("MODERATE", "CRITICAL")]
+    interactions = []
+    for i in check_interactions(INTERACTION_RULESET, [med.name or ""] + others):
+        if mine in (i["drug_a"], i["drug_b"]) and i["severity"] in ("MODERATE", "CRITICAL"):
+            ids = [med.id if g == mine else id_of.get(g) for g in (i["drug_a"], i["drug_b"])]
+            interactions.append({**i, "medicine_ids": ids})
     return {"prescription_id": out["prescription_id"], "medicine": serialize_medicine(med),
             "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
             "first_dose": first.scheduled_at.isoformat() if first else None,
@@ -521,6 +526,61 @@ def patient_pair_check(patient_id: int, background: BackgroundTasks, user: User 
         background.add_task(gap_ai.warm_patient, patient_id)
     out["note"] = "SmartPoli only knows the combinations its sources cover. No warning is not proof two medicines are safe together."
     return out
+
+
+@app.delete("/medicines/{medicine_id}")
+def remove_medicine(medicine_id: int, user: User = Depends(require_medicine_write_access),
+                    db: Session = Depends(get_db_session)):
+    """Remove a medicine the person no longer takes (or added by mistake). Reminders stop and it disappears from every
+    list, but nothing already recorded is erased: taken / missed history stays in the timeline and adherence. Upcoming
+    doses are cancelled, not deleted, so past reminder records stay consistent."""
+    medicine = get_medicine_or_404(db, medicine_id)
+    pid = medicine.prescription.patient_id
+    cancelled = 0
+    for d in medicine.doses:
+        if d.state in ("pending", "snoozed"):
+            d.state = "cancelled"
+            cancelled += 1
+    try:
+        fc = json.loads(medicine.field_confidence) if medicine.field_confidence else {}
+    except ValueError:
+        fc = {}
+    fc["removed"] = True
+    medicine.field_confidence = json.dumps(fc)
+    medicine.status = "needs_confirmation"               # every list and check already skips these
+    db.commit()
+    log_audit(db, pid, f"patient:{user.id}", "medicine_removed", f"medicine {medicine.id}: {cancelled} upcoming dose(s) cancelled")
+    return {"removed": True, "medicine_id": medicine.id, "upcoming_doses_cancelled": cancelled}
+
+
+@app.get("/patients/{patient_id}/open-warnings")
+def patient_open_warnings(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+                          db: Session = Depends(get_db_session)):
+    """Everything that is a REAL problem right now, for the popup shown when the app is opened: medicines that interact
+    (rated MODERATE or CRITICAL), pairs a source says must be kept apart while they are scheduled together, and verified
+    timing clashes. Minor interactions and anything uncertain never appear. `key` changes when the set of problems does."""
+    get_patient_or_404(db, patient_id)
+    meds = (db.query(Medicine).join(Prescription, Medicine.prescription_id == Prescription.id)
+            .filter(Prescription.patient_id == patient_id, Medicine.status != "needs_confirmation").all())
+    ids_by_generic: dict = {}
+    for m in meds:
+        if m.name:
+            ids_by_generic.setdefault(normalize_for_interactions(m.name), []).append(m.id)
+    interactions = []
+    for i in check_interactions(INTERACTION_RULESET, [m.name for m in meds if m.name]):
+        if i["severity"] in ("MODERATE", "CRITICAL"):
+            interactions.append({**i, "medicine_ids": [ids_by_generic.get(i["drug_a"], [None])[0], ids_by_generic.get(i["drug_b"], [None])[0]]})
+    pairs = pair_check.warnings_for_patient(db, patient_id, patient_now(db, patient_id))
+    if pairs["pending"] and gap_ai.is_enabled():
+        background.add_task(gap_ai.warm_patient, patient_id)
+    timing = safety_service.conflicts_for_patient(db, patient_id)["conflicts"]
+    import hashlib
+    sig = json.dumps([sorted((i["drug_a"], i["drug_b"]) for i in interactions),
+                      sorted(tuple(sorted(w["medicines"])) for w in pairs["warnings"]),
+                      sorted(tuple(sorted(c["medicines"])) for c in timing)], default=str)
+    return {"interactions": interactions, "pair_warnings": pairs["warnings"], "timing": timing, "pending": pairs["pending"],
+            "has_problems": bool(interactions or pairs["warnings"] or timing),
+            "key": hashlib.sha1(sig.encode()).hexdigest()[:16]}
 
 
 @app.post("/medicines/{medicine_id}/shift")

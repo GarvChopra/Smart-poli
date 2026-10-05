@@ -210,7 +210,9 @@ def test_adding_a_medicine_checks_it_against_the_others_and_shows_a_warning_popu
 def test_what_a_medicine_is_for_shows_in_the_safety_center_and_the_care_report():
     assert "data-med-info" in fn_body("renderSafetyCenter") and "loadMedicineInfoInto" in fn_body("renderSafetyCenter")
     rep = fn_body("renderReport")
-    assert "data-med-info" in rep and "Why I may be taking these" in rep
+    # the Care report does NOT repeat what the Safety center shows
+    assert "data-med-info" not in rep and "Why I may be taking these" not in rep and "Medicine warnings" not in rep
+    assert "renderInteractionRows" not in rep and "renderFoodWarningRows" not in rep
 
 
 def test_typed_prescriptions_and_the_safety_center_run_the_same_combination_check():
@@ -218,3 +220,13 @@ def test_typed_prescriptions_and_the_safety_center_run_the_same_combination_chec
     assert "/pair-check" in fn_body("checkPrescriptionCombinations") and "Please check this" in fn_body("checkPrescriptionCombinations")
     assert "loadCombinationCheckInto" in fn_body("renderSafetyCenter") and "safetyCombos" in fn_body("renderSafetyCenter")
     assert "No known clash between your medicines" in fn_body("loadCombinationCheckInto")
+
+
+def test_every_warning_popup_lets_the_person_remove_a_medicine():
+    for fn in ("showOpenWarnings", "afterMedicineAdded", "checkPrescriptionCombinations"):
+        body = fn_body(fn)
+        assert "removeButtonsHtml" in body and "wireRemoveButtons" in body, fn
+    assert "These shouldn’t be taken together" in fn_body("showOpenWarnings")
+    assert "/open-warnings" in fn_body("showOpenWarnings") and "sessionStorage" in fn_body("showOpenWarnings")
+    assert "data-remove-med" in fn_body("renderSafetyCenter")
+    assert "DELETE" in fn_body("removeMedicine")

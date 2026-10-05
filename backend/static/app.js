@@ -304,6 +304,7 @@ async function renderSafetyCenter() {
         ${m.generic_name ? `<div class="generic">generic: ${escHtml(m.generic_name)}</div>` : ''}
         <div data-med-info="${escHtml(m.name)}"></div>
       </div>
+      <button class="ghost small" data-remove-med="${m.medicine_id}" data-name="${escHtml(m.name)}">Remove</button>
     </div>
   `).join('') || '<div class="empty">No active medicines yet.</div>';
 
@@ -350,6 +351,7 @@ async function renderSafetyCenter() {
     <footer class="disclaimer">${s.disclaimer}</footer>
   `;
   loadConflictsInto(document.getElementById('safetyConflicts'));
+  wireRemoveButtons(view, () => renderSafetyCenter());
   loadMedicineInfoInto(view);
   loadCombinationCheckInto(document.getElementById('safetyCombos'));
   document.getElementById('regCheckBtn').addEventListener('click', async () => {
@@ -629,12 +631,15 @@ async function afterMedicineAdded(med, out, when, sos) {
   const warn = showSafetyModal(`
     <h3>⚠ Please check this</h3>
     <div class="sm-headline" style="font-weight:500;">You added <strong>${escHtml(med.name)}</strong>. Some of your medicines should not be taken together:</div>
-    ${curated.map(timingAlertHtml).join('')}${pair.map(pairWarningHtml).join('')}${inter.map(interactionWarningHtml).join('')}
+    ${curated.map((c) => `<div class="ow-item">${timingAlertHtml(c)}${removeButtonsHtml(c.medicines, c.medicine_ids)}</div>`).join('')}
+    ${pair.map((w) => `<div class="ow-item">${pairWarningHtml(w)}${removeButtonsHtml(w.medicines, w.medicine_ids)}</div>`).join('')}
+    ${inter.map((i) => `<div class="ow-item">${interactionWarningHtml(i)}${removeButtonsHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)}</div>`).join('')}
     <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
     <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
   warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderPrescriptions(); renderGlance(); });
   wireConflictActions(warn);
   wireShiftButtons(warn);
+  wireRemoveButtons(warn, () => { warn.remove(); renderPrescriptions(); renderGlance(); });
 }
 
 /** "Move X to <time>" buttons on keep-apart warnings: shift every upcoming dose of that medicine, then say so. */
@@ -658,11 +663,12 @@ async function checkPrescriptionCombinations(prescriptionId) {
   const warn = showSafetyModal(`
     <h3>⚠ Please check this</h3>
     <div class="sm-headline" style="font-weight:500;">Some of your medicines should not be taken together:</div>
-    ${warnings.map(pairWarningHtml).join('')}
+    ${warnings.map((w) => `<div class="ow-item">${pairWarningHtml(w)}${removeButtonsHtml(w.medicines, w.medicine_ids)}</div>`).join('')}
     <div class="reg-meta" style="margin:8px 0;">${escHtml('SmartPoli only knows the combinations its sources cover. No warning is not proof that two medicines are safe together.')}</div>
     <div class="sm-actions"><button class="primary small" id="wwOk">OK, I understand</button></div>`);
   warn.querySelector('#wwOk').addEventListener('click', () => { warn.remove(); renderActiveTab(); });
   wireShiftButtons(warn);
+  wireRemoveButtons(warn, () => { warn.remove(); renderActiveTab(); });
 }
 
 /** Safety center card: every pair among the person's medicines that should be kept apart. */
@@ -671,14 +677,68 @@ async function loadCombinationCheckInto(mount) {
     if (!document.body.contains(mount)) return;
     const data = await api('GET', `/patients/${state.patientId}/pair-check`).catch(() => null);
     if (!data) { mount.innerHTML = '<div class="empty">Could not check right now.</div>'; return; }
-    const warn = data.warnings.length ? data.warnings.map(pairWarningHtml).join('')
+    const warn = data.warnings.length ? data.warnings.map((w) => `<div class="ow-item">${pairWarningHtml(w)}${removeButtonsHtml(w.medicines, w.medicine_ids)}</div>`).join('')
       : '<div class="mi-ok">✓ No known clash between your medicines.</div>';
     mount.innerHTML = `${warn}${data.pending ? '<div class="reg-meta"><span class="upload-spinner"></span> Still checking some combinations…</div>' : ''}
       <div class="reg-meta" style="margin-top:6px;">${escHtml(data.note)}</div>`;
     wireShiftButtons(mount, () => loadCombinationCheckInto(mount));
+    wireRemoveButtons(mount, () => renderSafetyCenter());
     if (!data.pending) return;
     await waitMs(attempt === 0 ? 7000 : 10000);
   }
+}
+
+
+/** "Remove <medicine>": asks first, stops its reminders and hides it everywhere; past history stays. */
+async function removeMedicine(id, name) {
+  const yes = await confirmDialog(`Remove ${name}?`, 'Its reminders will stop and it will disappear from your lists. Your past history stays.', 'Remove', 'Keep it', true);
+  if (!yes) return false;
+  try {
+    await api('DELETE', `/medicines/${id}`);
+    dashboardCache = null;
+    return true;
+  } catch (e) { showNotice('Could not remove it', e.message); return false; }
+}
+
+function wireRemoveButtons(root, onRemoved) {
+  root.querySelectorAll('[data-remove-med]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (await removeMedicine(btn.dataset.removeMed, btn.dataset.name)) onRemoved();
+  }));
+}
+
+const removeButtonsHtml = (names, ids) => names.map((n, i) => ids && ids[i]
+  ? `<button class="ghost small" data-remove-med="${ids[i]}" data-name="${escHtml(n)}" style="margin:8px 8px 0 0;">Remove ${escHtml(n)}</button>` : '').join('');
+
+// ---------------------------------------------------------------- when the app is opened: medicines that shouldn't be taken together
+
+const OPEN_WARN_KEY = 'smartpoli_open_warn';
+
+/** A popup, once each time the app is opened, if the person's medicines have a REAL problem: they interact, a source says
+ * they must be kept apart while they are scheduled together, or a verified timing rule is broken. Nothing minor or
+ * uncertain ever appears here, and it stays silent when everything is fine. Any medicine can be removed from it. */
+async function showOpenWarnings() {
+  if (!state.patientId || document.getElementById('openWarnOverlay')) return;
+  const data = await api('GET', `/patients/${state.patientId}/open-warnings`).catch(() => null);
+  if (!data || !data.has_problems) return;
+  try { if (sessionStorage.getItem(OPEN_WARN_KEY) === `${state.patientId}:${data.key}`) return; } catch (e) { /* ignore */ }
+  const card = (html, names, ids) => `<div class="ow-item">${html}${removeButtonsHtml(names, ids)}</div>`;
+  const overlay = showSafetyModal(`
+    <h3>⚠ These shouldn’t be taken together</h3>
+    <div class="sm-headline" style="font-weight:500;">Some of your medicines can cause problems when taken together. Please check with your doctor or pharmacist.</div>
+    ${data.interactions.map((i) => card(interactionWarningHtml(i), [capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)).join('')}
+    ${data.pair_warnings.map((w) => card(pairWarningHtml(w), w.medicines, w.medicine_ids)).join('')}
+    ${data.timing.map((c) => card(timingAlertHtml(c), c.medicines, c.medicine_ids)).join('')}
+    <div class="reg-meta" style="margin:8px 0;">SmartPoli only knows the combinations its sources cover. Don’t stop a medicine your doctor prescribed without asking them.</div>
+    <div class="sm-actions"><button class="primary small" id="owOk">OK, I understand</button></div>`);
+  overlay.id = 'openWarnOverlay';
+  const close = () => {
+    overlay.remove();
+    try { sessionStorage.setItem(OPEN_WARN_KEY, `${state.patientId}:${data.key}`); } catch (e) { /* ignore */ }
+  };
+  overlay.querySelector('#owOk').addEventListener('click', close);
+  wireConflictActions(overlay);
+  wireShiftButtons(overlay);
+  wireRemoveButtons(overlay, () => { overlay.remove(); renderActiveTab(); renderGlance(); showOpenWarnings(); });
 }
 
 function scanFailedPopup() {
@@ -1879,7 +1939,6 @@ async function renderReport() {
     <div class="rp-med">
       <div class="rp-med-name">${escHtml(m.name || m.raw_text)} <span class="rp-dose">${escHtml(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
       ${m.when ? `<div class="rp-when">${escHtml(m.when)}</div>` : ''}
-      <div data-med-info="${escHtml(m.name || m.raw_text)}" class="rp-info"></div>
     </div>`).join('') || '<div class="empty">No medicines yet.</div>';
 
   const a = r.adherence;
@@ -1890,7 +1949,6 @@ async function renderReport() {
   const symptomList = r.symptom_history.slice(-5).reverse().map(c => `
     <div class="rp-line"><span>${escHtml(c.symptoms.join(', '))}</span>
       <span class="rp-sub">${escHtml(new Date(c.created_at).toLocaleDateString())} · <span class="badge ${badgeClass(c.severity)}">${escHtml(c.severity)}</span></span></div>`).join('');
-  const hasWarnings = (r.interactions && r.interactions.length) || (r.food_warnings && r.food_warnings.length);
   const hasNotes = r.doctor_caregiver_notes && r.doctor_caregiver_notes.length;
   const more = (title, count, body) => `<details class="rp-more"><summary>${title}${count ? ` <span class="rp-count">${count}</span>` : ''}</summary>${body}</details>`;
 
@@ -1907,7 +1965,6 @@ async function renderReport() {
 
       <h3 class="rp-title">Medicines I take</h3>
       ${medRows}
-      <div id="rpReasons"></div>
 
       <h3 class="rp-title">How my doses went</h3>
       <div class="rp-stats">
@@ -1918,8 +1975,6 @@ async function renderReport() {
 
       ${r.missed_doses.length ? more('Missed doses', r.missed_doses.length, missedList) : ''}
       ${r.symptom_history.length ? more('Symptom checks', r.symptom_history.length, symptomList) : ''}
-      ${hasWarnings ? more('Medicine warnings', (r.interactions || []).length + (r.food_warnings || []).length,
-        `${renderInteractionRows(r.interactions)}${renderFoodWarningRows(r.food_warnings)}`) : ''}
       ${hasNotes ? more('Doctor notes', r.doctor_caregiver_notes.length, `<div id="notesList">${renderNotesList(r.doctor_caregiver_notes)}</div>`) : ''}
 
       <div class="no-print rp-actions">
@@ -1930,14 +1985,6 @@ async function renderReport() {
       <footer class="disclaimer">${escHtml(r.disclaimer)}</footer>
     </div>
   `;
-  loadMedicineInfoInto(view, (data) => {
-    const box = document.getElementById('rpReasons');
-    if (box && data.conditions.length) {
-      box.innerHTML = `<div class="rp-guess"><strong>Why I may be taking these</strong>
-        <div class="mi-chips">${data.conditions.map((c) => `<span class="mi-chip">${escHtml(c)}</span>`).join('')}</div>
-        <div class="reg-meta">${escHtml(data.disclaimer)}</div></div>`;
-    }
-  });
 }
 
 function formatNoteActor(actor) {
@@ -2123,4 +2170,5 @@ function openTabFromHash() {
   // Straight to the tab in the URL (#tab=… from the voice page); rendering the
   // dashboard first and then switching would load both.
   if (!openTabFromHash()) renderActiveTab();
+  showOpenWarnings();
 })();

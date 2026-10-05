@@ -1166,3 +1166,7 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .safety-modal { max-height: 90vh; overflow-y: auto; }
 
 .mi-ok { background: var(--teal-soft); color: var(--teal-dark); border-radius: 12px; padding: 10px 12px; font-weight: 700; }
+
+.ow-item { margin-top: 10px; }
+.ow-item .alert-card { margin-top: 0; }
+.safety-med-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

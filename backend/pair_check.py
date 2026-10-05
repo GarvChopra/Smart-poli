@@ -105,7 +105,8 @@ def warnings_for_new_medicine(db, medicine, now_local: datetime, pair_fn=None) -
         shift = suggest_shift(new_doses, other_doses, required)
         basis = ans.get("basis") or "ai_estimate"
         out.append({
-            "kind": "pair_gap", "medicines": [new_name, other_name], "required_hours": required, "closest_hours": round(close, 2),
+            "kind": "pair_gap", "medicines": [new_name, other_name], "medicine_ids": [medicine.id, other_id],
+            "required_hours": required, "closest_hours": round(close, 2),
             "message": (f"{new_name} and {other_name} work less well, or can cause problems, when taken close together. "
                         f"Keep them about {required:g} hour{'s' if required != 1 else ''} apart."),
             "applies_when": ans.get("applies_when"), "source": basis, "source_label": SOURCE_LABEL.get(basis, SOURCE_LABEL["ai_estimate"]),
@@ -117,10 +118,10 @@ def warnings_for_new_medicine(db, medicine, now_local: datetime, pair_fn=None) -
     return out
 
 
-def _warning(new_name, other_name, required, close, ans, medicine_id, new_doses, shift):
+def _warning(new_name, other_name, required, close, ans, medicine_id, new_doses, shift, other_id=None):
     basis = ans.get("basis") or "ai_estimate"
     return {
-        "kind": "pair_gap", "medicines": [new_name, other_name], "required_hours": required, "closest_hours": round(close, 2),
+        "kind": "pair_gap", "medicines": [new_name, other_name], "medicine_ids": [medicine_id, other_id], "required_hours": required, "closest_hours": round(close, 2),
         "message": (f"{new_name} and {other_name} work less well, or can cause problems, when taken close together. "
                     f"Keep them about {required:g} hour{'s' if required != 1 else ''} apart."),
         "applies_when": ans.get("applies_when"), "source": basis, "source_label": SOURCE_LABEL.get(basis, SOURCE_LABEL["ai_estimate"]),
@@ -184,5 +185,5 @@ def warnings_for_patient(db, patient_id: int, now_local: datetime, pair_fn=None,
             if close is None or close >= required:
                 continue
             shift = suggest_shift(doses[b.id], doses[a.id], required)
-            out.append(_warning(b.name or b.raw_text, a.name or a.raw_text, required, close, ans, b.id, doses[b.id], shift))
+            out.append(_warning(b.name or b.raw_text, a.name or a.raw_text, required, close, ans, b.id, doses[b.id], shift, a.id))
     return {"warnings": out, "pending": pending}

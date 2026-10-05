@@ -41,6 +41,8 @@ def needs_patient_review(m, now: Optional[datetime] = None) -> bool:
     either belongs to a confirmed prescription (it was left out of the schedule) or is a recent draft."""
     if m.status != "needs_confirmation":
         return False
+    if '"removed"' in (getattr(m, "field_confidence", None) or ""):
+        return False                                   # the patient removed it on purpose
     pres = getattr(m, "prescription", None)
     if pres is None or pres.status == "confirmed":
         return True
