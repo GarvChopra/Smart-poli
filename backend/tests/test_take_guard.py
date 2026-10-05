@@ -355,3 +355,21 @@ def test_warm_up_fills_the_cache_for_each_medicine_and_pair_and_stops_when_the_p
         monkeypatch.setattr(gap_ai, "default_llm_fn", lambda s, u: (_ for _ in ()).throw(RuntimeError("429")))
         monkeypatch.setattr(gap_ai.time, "sleep", lambda s: None)
         assert gap_ai.warm_patient(pid, pause=0)["failed"] == 3             # gave up after three failures, did not hammer
+
+def test_a_dose_due_on_schedule_is_not_held_back_because_the_previous_one_was_taken_late(db, monkeypatch):
+    """Telma (once a day): last night's dose due 08:30 was taken at 19:20. The AI says 18 h; today's 08:30 dose is only 13 h
+    later but it IS the scheduled dose - the extra wait is dropped, the 12 h schedule floor still holds."""
+    monkeypatch.setattr(gap_ai, "single_gap", lambda *a, **k: {"min_hours": 24, "basis": "ai_estimate", "quote": None})
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        now = now_local()
+        due = now - timedelta(minutes=5)                                   # today's dose, due just now
+        taken_at = due - timedelta(hours=13)                               # last one: 13 h earlier (taken very late)
+        mid, (first, second) = add_medicine(pid, "Telma", [taken_at - timedelta(hours=11), due],
+                                            states=["taken", "pending"], acted=[taken_at, None], times=["08:30"])
+        assert client.post(f"/doses/{second}/take").status_code == 200
+        # ...but two doses 2 h apart are still refused (the floor is 12 h for a once-a-day medicine)
+        pid2, _ = new_patient(client)
+        mid2, (a, b) = add_medicine(pid2, "Telma", [now - timedelta(hours=3), now - timedelta(minutes=5)],
+                                    states=["taken", "pending"], acted=[now - timedelta(hours=2), None], times=["08:30"])
+        assert client.post(f"/doses/{b}/take").status_code == 409

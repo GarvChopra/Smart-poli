@@ -73,7 +73,7 @@ def min_gap_info(db: Session, medicine, allow_network: bool = False) -> dict:
     interval = prescribed_interval_hours(medicine)
     floor = FLOOR_FRACTION * interval if interval else None
     cap = CAP_FRACTION * interval if interval else None
-    info = {"hours": floor, "source": "schedule" if floor else None, "quote": None, "max_per_24h": None}
+    info = {"hours": floor, "floor": floor, "source": "schedule" if floor else None, "quote": None, "max_per_24h": None}
     try:
         ai = gap_ai.single_gap(db, medicine.name or medicine.raw_text, allow_network=allow_network)
     except Exception:  # noqa: BLE001 - an AI/cache problem must never stop a tap; the schedule floor still applies
@@ -117,6 +117,11 @@ def evaluate(db: Session, dose: Dose, now: datetime, *, allow_network: bool = Fa
         gap = min_gap_info(db, medicine, allow_network)
         if gap["hours"]:
             earliest = last.acted_at + timedelta(hours=gap["hours"])
+            # A dose that is simply due on the prescription's own schedule is never held back by a LATE previous dose:
+            # last night's dose taken 11 h late must not push this morning's scheduled dose to the afternoon.
+            # (The prescription-schedule floor itself always stays; only the extra wait from a label/AI estimate is dropped.)
+            if gap.get("floor"):
+                earliest = min(earliest, max(dose.scheduled_at, last.acted_at + timedelta(hours=gap["floor"])))
             if earliest > now:
                 source = gap["source"] or "schedule"
                 issues.append(_issue(
