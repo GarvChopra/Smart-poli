@@ -1122,3 +1122,7 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 #firstProfileForm { max-height: 90vh; overflow-y: auto; }
 #firstProfileForm input, #firstProfileForm select { width: 100%; }
 .fp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+/* login page: link to the install page */
+.auth-install { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px auto 0; padding: 12px 18px; border-radius: 14px; background: var(--teal-soft); color: var(--teal-dark); font-weight: 700; text-decoration: none; max-width: 420px; }
+.auth-install:hover { filter: brightness(.97); }

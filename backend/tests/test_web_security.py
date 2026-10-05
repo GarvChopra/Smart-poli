@@ -11,7 +11,7 @@ def client():
         yield c
 
 
-@pytest.mark.parametrize("path", ["/", "/login", "/voice", "/caregiver", "/doctor"])
+@pytest.mark.parametrize("path", ["/", "/login", "/voice", "/install", "/caregiver", "/doctor"])
 def test_pages_live_at_clean_urls(client, path):
     r = client.get(path)
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
@@ -74,3 +74,11 @@ def test_rate_limit_triggers(client, monkeypatch):
     codes = [client.post("/triage/next-question", json={"symptom_id": "x", "answers": {}}).status_code for _ in range(65)]
     assert 429 in codes
     web_security._hits.clear()
+
+
+def test_install_page_assets_and_login_link(client):
+    assert 'href="/install"' in client.get("/login").text
+    page = client.get("/install").text
+    assert "Care Together" in page and "Live Healthier" in page and "Install SmartPoli" in page
+    for p in ("/static/install.css", "/static/install.js", "/static/install-family.jpg"):
+        assert client.get(p).status_code == 200, p

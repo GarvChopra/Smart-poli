@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Install SmartPoli</title>
+<meta name="description" content="A simple app for caregivers and their loved ones. Manage medication, track health, get reminders.">
+<meta name="theme-color" content="#EAF6F1">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/app-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/static/install.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true">
+  <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+  <span class="cross c1">+</span><span class="cross c2">+</span><span class="cross c3">+</span><span class="cross c4">+</span><span class="cross c5">+</span>
+</div>
+
+<main class="page">
+  <section class="copy">
+    <div class="logo reveal" style="--d:0s">
+      <span class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <span class="logo-word">Smart<b>Poli</b></span>
+    </div>
+
+    <h1 class="reveal" style="--d:.1s">
+      <span class="h-dark">Care Together</span>
+      <span class="h-green">Live Healthier</span>
+    </h1>
+    <p class="sub reveal" style="--d:.2s">A simple app for caregivers<br>and their loved ones.</p>
+
+    <ul class="features">
+      <li class="reveal" style="--d:.3s">
+        <span class="tile t-pill" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.5 20.5-7-7a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7Z"/><path d="m8.5 8.5 7 7"/></svg>
+        </span>
+        <span class="lbl">Manage<br>Medication</span>
+      </li>
+      <li class="reveal" style="--d:.4s">
+        <span class="tile t-clip" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1"/><path d="M12 9.5v5M9.5 12h5"/></svg>
+        </span>
+        <span class="lbl">Track<br>Health</span>
+      </li>
+      <li class="reveal" style="--d:.5s">
+        <span class="tile t-bell" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+        </span>
+        <span class="lbl">Get<br>Reminders</span>
+      </li>
+    </ul>
+
+    <div class="cta-wrap reveal" style="--d:.7s">
+      <button class="install" id="installBtn" type="button">
+        <span class="install-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#12876F" stroke-width="3.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </span>
+        <span id="installLabel">Install SmartPoli</span>
+      </button>
+      <p class="note" id="installNote" role="status"></p>
+      <a class="login-link" href="/login">Already have an account? Log in</a>
+    </div>
+  </section>
+
+  <section class="art reveal" style="--d:.45s" aria-hidden="true">
+    <div class="art-inner">
+      <img src="/static/install-family.jpg" alt="" width="800" height="688" decoding="async">
+      <span class="float-card fc1"><i></i>Metformin&nbsp;&middot;&nbsp;8:30 AM</span>
+      <span class="float-card fc2"><i class="ok"></i>All doses taken</span>
+    </div>
+  </section>
+</main>
+
+<div class="sheet" id="howSheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="howTitle">
+    <h2 id="howTitle">Add SmartPoli to your phone</h2>
+    <ol id="howSteps"></ol>
+    <button class="install small" id="howClose" type="button">Got it</button>
+  </div>
+</div>
+
+<script src="/static/install.js"></script>
+</body>
+</html>
