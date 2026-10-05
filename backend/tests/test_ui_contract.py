@@ -201,8 +201,8 @@ def test_scan_flow_has_failure_popup_confirm_popup_and_schedule_step():
 
 def test_adding_a_medicine_checks_it_against_the_others_and_shows_a_warning_popup():
     body = fn_body("afterMedicineAdded")
-    assert "/pair-check" in body and "Please check this" in body and "No known clash" in body
-    assert "pairWarningHtml" in body and "interactionWarningHtml" in body and "timingAlertHtml" in body
+    assert "/pair-check" in body and "Don’t take these together" in body and "No known clash" in body
+    assert "compactClashHtml" in body
     assert "wireShiftButtons" in body and "/shift" in fn_body("wireShiftButtons")      # "Move X to <time>" button
     assert "loadMedicineInfoInto" in body                              # "Used for: ..." under the new medicine
 
@@ -217,7 +217,7 @@ def test_what_a_medicine_is_for_shows_in_the_safety_center_and_the_care_report()
 
 def test_typed_prescriptions_and_the_safety_center_run_the_same_combination_check():
     assert "checkPrescriptionCombinations" in fn_body("renderRxResult")
-    assert "/pair-check" in fn_body("checkPrescriptionCombinations") and "Please check this" in fn_body("checkPrescriptionCombinations")
+    assert "/pair-check" in fn_body("checkPrescriptionCombinations") and "Don’t take these together" in fn_body("checkPrescriptionCombinations")
     assert "loadCombinationCheckInto" in fn_body("renderSafetyCenter") and "safetyCombos" in fn_body("renderSafetyCenter")
     assert "No known clash between your medicines" in fn_body("loadCombinationCheckInto")
 
