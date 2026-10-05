@@ -415,11 +415,14 @@ function renderPrescriptions(lastResult) {
     <p style="color:var(--ink-soft)">Add a medicine in one tap, or type it in.</p>
 
     <div class="card">
-      <div class="add-actions">
-        <button class="primary add-big" id="scanBtn"><span class="icon">${ICONS.pill}</span>Scan medicine</button>
-        <button class="ghost add-big" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
+      <button class="primary add-big add-full" id="scanBtn"><span class="icon">${ICONS.pill}</span>Scan medicine</button>
+      <div class="or-divider"><span>or</span></div>
+      <button class="ghost add-big add-full" id="manualBtn"><span class="icon">${ICONS.fileText}</span>Enter manually</button>
+      <div class="reg-meta" style="margin-top:10px;text-align:center;">Scan opens the camera. Point it at the strip or box.</div>
+      <div style="text-align:center;margin-top:10px;">
+        <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
+        <span class="reg-meta">&nbsp;a photo of a whole prescription</span>
       </div>
-      <div class="reg-meta" style="margin-top:8px;">Scan opens the camera — point it at a strip or box. Choose file lets you pick a photo of your prescription from your phone.</div>
       <input type="file" id="scanInput" accept="image/*" capture="environment" hidden>
       <input type="file" id="rxImageInput" accept="image/*" hidden>
       <div id="uploadStatus"></div>
@@ -442,27 +445,12 @@ Syrup Crocin 5ml SOS"></textarea>
 
   const scanInput = document.getElementById('scanInput');
   document.getElementById('scanBtn').addEventListener('click', () => scanInput.click());   // opens the camera
+  document.getElementById('manualBtn').addEventListener('click', () => medicineWizard({ step: 'details' }));
   scanInput.addEventListener('change', async () => {
     if (!scanInput.files.length) return;
-    const out = document.getElementById('scanResult');
-    out.innerHTML = '<div class="upload-status-banner loading"><span class="upload-spinner"></span><span>Reading the packaging…</span></div>';
-    const form = new FormData();
-    form.append('patient_id', state.patientId);
-    form.append('file', scanInput.files[0]);
-    try {
-      const auth = getAuth();
-      const res = await fetch('/medicines/scan', {
-        method: 'POST', body: form,
-        headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || `Could not read that photo (${res.status}).`);
-      renderScanResult(body);
-    } catch (e) {
-      out.innerHTML = `<div class="upload-status-banner error">${escHtml(e.message || 'Could not reach the server. Type the medicine in instead.')}</div>`;
-    } finally {
-      scanInput.value = '';
-    }
+    const file = scanInput.files[0];
+    scanInput.value = '';
+    await scanMedicinePhoto(file);
   });
 
   document.getElementById('fillExampleBtn').addEventListener('click', () => {
@@ -519,77 +507,169 @@ Syrup Crocin 5ml SOS"></textarea>
   if (lastResult) renderRxResult(lastResult);
 }
 
-// Candidate names read from a medicine box/strip. Nothing is added until the
-// patient confirms name + strength and types how they were told to take it;
-// the line then goes through the normal prescription review gate.
-const SCAN_SCHEDULES = [
-  ['1-0-0', 'Once a day (morning)'], ['0-0-1', 'Once a day (night)'], ['1-0-1', 'Twice a day'],
-  ['1-1-1', 'Three times a day'], ['SOS', 'Only when needed (SOS)'],
+// ---------------------------------------------------------------- add a medicine: scan or type, then confirm, then "how do you take it"
+//
+//   photo -> "Reading..." -> "Is this your medicine?" (yes / no, enter manually) -> "How do you take it?"
+//   a failed scan -> "Scan failed" popup with Enter manually.
+// Nothing is added until the person answers the last step; the line then goes through the normal prescription
+// review gate, so SmartPoli never invents a dose or schedule.
+
+async function scanMedicinePhoto(file) {
+  const loading = showSafetyModal(`
+    <h3>Reading your medicine…</h3>
+    <div class="upload-status-banner loading" style="margin-top:10px;"><span class="upload-spinner"></span><span>This takes a few seconds.</span></div>`);
+  try {
+    const form = new FormData();
+    form.append('patient_id', state.patientId);
+    form.append('file', file);
+    const auth = getAuth();
+    const res = await fetch('/medicines/scan', {
+      method: 'POST', body: form,
+      headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+    });
+    const body = await res.json().catch(() => ({}));
+    loading.remove();
+    const cand = res.ok && body.candidates && body.candidates[0];
+    if (!cand) { scanFailedPopup(); return; }
+    medicineWizard({ step: 'confirm', cand, form: body.form_guess });
+  } catch (e) {
+    loading.remove();
+    scanFailedPopup();
+  }
+}
+
+function scanFailedPopup() {
+  const m = showSafetyModal(`
+    <h3>Scan failed</h3>
+    <div class="sm-headline" style="font-weight:500;">We couldn’t read this medicine. Please enter it manually.</div>
+    <div class="sm-actions">
+      <button class="primary small" id="sfManual">Enter manually</button>
+      <button class="ghost small" id="sfRetry">Try again</button>
+    </div>`);
+  m.querySelector('#sfManual').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
+  m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); document.getElementById('scanInput').click(); });
+}
+
+const MED_FORMS = [['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']];
+const FREQUENCIES = [
+  ['once', 'Once a day'], ['twice', 'Twice a day'], ['thrice', 'Three times a day'], ['four', 'Four times a day'], ['sos', 'Only when needed'],
 ];
+const ONCE_SLOTS = [['1-0-0', 'Morning'], ['0-1-0', 'Afternoon'], ['0-0-1', 'Night']];
 
-function renderScanResult(res) {
-  const out = document.getElementById('scanResult');
-  const cands = res.candidates || [];
-  const first = cands[0] || {};
-  const pick = cands.length ? cands.map((c, i) => `
-    <label class="scan-option">
-      <input type="radio" name="scanPick" value="${i}" ${i === 0 ? 'checked' : ''}>
-      <span><strong>${escHtml(c.name)}</strong> ${c.strength ? escHtml(c.strength) : ''}
-        <span class="reg-meta">${c.match === 'exact' ? 'matches a known name' : 'approximate match — check carefully'}
-        · read from “${escHtml(c.read_from)}”</span></span>
-    </label>`).join('')
-    : `<div class="empty" style="padding:6px 0;">We couldn't match a known medicine name. Type it below.
-        <div class="reg-meta">Text we read: ${escHtml((res.lines_read || []).slice(0, 6).join(' · ') || 'nothing')}</div></div>`;
-  out.innerHTML = `
-    <div class="scan-result">
-      <div style="font-weight:600;margin:10px 0 4px;">Is this your medicine?</div>
-      ${pick}
-      <div class="reg-meta" style="margin:6px 0;">${escHtml(res.note || '')}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
-        <label>Medicine name<input type="text" id="scanName" value="${escHtml(first.name || '')}"></label>
-        <label>Strength<input type="text" id="scanStrength" placeholder="e.g. 500mg" value="${escHtml(first.strength || '')}"></label>
-        <label>Form<select id="scanForm">
-          ${[['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']]
-            .map(([v, l]) => `<option value="${v}" ${(res.form_guess || 'tab') === v ? 'selected' : ''}>${l}</option>`).join('')}
-        </select></label>
-        <label>How to take it<select id="scanSchedule">
-          <option value="">Choose…</option>
-          ${SCAN_SCHEDULES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
-        </select></label>
-        <label>For how many days<input type="number" id="scanDays" min="1" max="365" placeholder="e.g. 5"></label>
-        <label style="display:flex;align-items:flex-end;gap:6px;"><input type="checkbox" id="scanOngoing"> Ongoing</label>
+function medicineWizard(ctx) {
+  const med = ctx.med || {};
+  if (ctx.step === 'confirm') {
+    const c = ctx.cand;
+    const formLabel = (MED_FORMS.find(([v]) => v === (c.form || ctx.form)) || [])[1] || '';
+    const m = showSafetyModal(`
+      <h3>Is this your medicine?</h3>
+      <div class="wz-card">
+        <div class="wz-name">${escHtml(c.name)}</div>
+        <div class="wz-meta">${[c.strength, formLabel, c.generic].filter(Boolean).map(escHtml).join(' · ')}</div>
       </div>
-      <div class="reg-meta" style="margin-top:6px;">Enter this exactly as your doctor or the label told you. SmartPoli does not choose a dose or schedule.</div>
-      <div id="scanError" style="color:var(--alarm);font-size:13px;margin-top:6px;"></div>
-      <div style="margin-top:10px;"><button class="primary" id="scanAddBtn">Add medicine</button></div>
-    </div>`;
+      <div class="sm-actions">
+        <button class="primary small" id="wzYes">Yes, this is it</button>
+        <button class="ghost small" id="wzNo">No, enter manually</button>
+      </div>`);
+    m.querySelector('#wzYes').addEventListener('click', () => {
+      m.remove();
+      medicineWizard({ step: 'schedule', med: { name: c.name, strength: c.strength || '', form: c.form || ctx.form || 'tab' } });
+    });
+    m.querySelector('#wzNo').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
+    return;
+  }
 
-  out.querySelectorAll('input[name="scanPick"]').forEach((r) => r.addEventListener('change', () => {
-    const c = cands[Number(r.value)];
-    document.getElementById('scanName').value = c.name;
-    document.getElementById('scanStrength').value = c.strength || '';
+  if (ctx.step === 'details') {
+    const m = showSafetyModal(`
+      <h3>Add a medicine</h3>
+      <label for="wzName">Medicine name</label>
+      <input id="wzName" type="text" maxlength="80" placeholder="e.g. Dolo 650" value="${escHtml(med.name || '')}">
+      <div class="fp-row">
+        <div><label for="wzStrength">Strength <span class="reg-meta">(optional)</span></label>
+          <input id="wzStrength" type="text" maxlength="30" placeholder="e.g. 500mg" value="${escHtml(med.strength || '')}"></div>
+        <div><label for="wzForm">Form</label>
+          <select id="wzForm">${MED_FORMS.map(([v, l]) => `<option value="${v}" ${(med.form || 'tab') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      </div>
+      <div id="wzMsg" class="wz-msg"></div>
+      <div class="sm-actions">
+        <button class="primary small" id="wzNext">Next</button>
+        <button class="ghost small" id="wzCancel">Cancel</button>
+      </div>`);
+    m.querySelector('#wzName').focus();
+    m.querySelector('#wzCancel').addEventListener('click', () => m.remove());
+    m.querySelector('#wzNext').addEventListener('click', () => {
+      const name = m.querySelector('#wzName').value.trim();
+      if (name.length < 2) { m.querySelector('#wzMsg').textContent = 'Please enter the medicine name.'; return; }
+      m.remove();
+      medicineWizard({ step: 'schedule', med: { name, strength: m.querySelector('#wzStrength').value.trim(), form: m.querySelector('#wzForm').value } });
+    });
+    return;
+  }
+
+  // step: schedule - "when do you take it, and how many times?"
+  const m = showSafetyModal(`
+    <h3>How do you take ${escHtml(med.name)}?</h3>
+    <div class="wz-label">How many times a day?</div>
+    <div class="wz-chips" id="wzFreq">${FREQUENCIES.map(([v, l]) => `<button type="button" class="wz-chip" data-v="${v}">${l}</button>`).join('')}</div>
+    <div id="wzOnce" hidden>
+      <div class="wz-label">When?</div>
+      <div class="wz-chips" id="wzSlot">${ONCE_SLOTS.map(([v, l], i) => `<button type="button" class="wz-chip ${i === 0 ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>
+    </div>
+    <div id="wzFoodBox">
+      <div class="wz-label">With food?</div>
+      <div class="wz-chips" id="wzFood">
+        <button type="button" class="wz-chip" data-v="AC">Before food</button>
+        <button type="button" class="wz-chip on" data-v="PC">After food</button>
+        <button type="button" class="wz-chip" data-v="">Doesn’t matter</button>
+      </div>
+    </div>
+    <div id="wzDaysBox">
+      <div class="wz-label">For how many days?</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <input id="wzDays" type="number" min="1" max="365" placeholder="e.g. 5" style="width:110px;">
+        <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="wzOngoing"> Ongoing</label>
+      </div>
+    </div>
+    <div class="reg-meta" style="margin-top:8px;">Enter this as your doctor or the label told you. SmartPoli doesn’t choose a dose.</div>
+    <div id="wzMsg" class="wz-msg"></div>
+    <div class="sm-actions">
+      <button class="primary small" id="wzAdd">Add medicine</button>
+      <button class="ghost small" id="wzBack">Back</button>
+    </div>`);
+  const pickOne = (id) => m.querySelectorAll(`#${id} .wz-chip`).forEach((b) => b.addEventListener('click', () => {
+    m.querySelectorAll(`#${id} .wz-chip`).forEach((x) => x.classList.remove('on'));
+    b.classList.add('on');
+    if (id === 'wzFreq') {
+      const v = b.dataset.v;
+      m.querySelector('#wzOnce').hidden = v !== 'once';
+      m.querySelector('#wzFoodBox').hidden = v === 'sos';
+      m.querySelector('#wzDaysBox').hidden = v === 'sos';
+    }
   }));
-  document.getElementById('scanAddBtn').addEventListener('click', async () => {
-    const err = document.getElementById('scanError');
-    const name = document.getElementById('scanName').value.trim();
-    const schedule = document.getElementById('scanSchedule').value;
-    const days = Number(document.getElementById('scanDays').value);
-    const ongoing = document.getElementById('scanOngoing').checked;
-    if (!name) { err.textContent = 'Enter the medicine name.'; return; }
-    if (!schedule) { err.textContent = 'Choose how often it is taken — SmartPoli will not guess.'; return; }
-    if (schedule !== 'SOS' && !ongoing && !(days >= 1)) { err.textContent = 'Enter the number of days, or tick Ongoing.'; return; }
-    const strength = document.getElementById('scanStrength').value.trim();
-    const form = document.getElementById('scanForm').value;
-    const tail = schedule === 'SOS' ? '' : (ongoing ? ' continue' : ` x${days}d`);
-    const num = (strength.match(/^\s*(\d+(?:\.\d+)?)/) || [])[1];
-    const strengthPart = strength && !(num && new RegExp(`\\b${num.replace('.', '\\.')}\\s*$`).test(name)) ? ' ' + strength : '';
-    const line = `${form.charAt(0).toUpperCase() + form.slice(1)} ${name}${strengthPart} ${schedule}${tail}`;
+  ['wzFreq', 'wzSlot', 'wzFood'].forEach(pickOne);
+  m.querySelector('#wzBack').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details', med }); });
+  m.querySelector('#wzAdd').addEventListener('click', async () => {
+    const msg = m.querySelector('#wzMsg');
+    const freq = (m.querySelector('#wzFreq .on') || {}).dataset;
+    if (!freq) { msg.textContent = 'Choose how many times a day.'; return; }
+    const sos = freq.v === 'sos';
+    const days = Number(m.querySelector('#wzDays').value);
+    const ongoing = m.querySelector('#wzOngoing').checked;
+    if (!sos && !ongoing && !(days >= 1)) { msg.textContent = 'Enter the number of days, or tick Ongoing.'; return; }
+    const code = { once: (m.querySelector('#wzSlot .on') || {}).dataset?.v || '1-0-0', twice: '1-0-1', thrice: '1-1-1', four: 'QID', sos: 'SOS' }[freq.v];
+    const food = sos ? '' : ((m.querySelector('#wzFood .on') || {}).dataset?.v || '');
+    const tail = sos ? '' : (ongoing ? ' continue' : ` x${days}d`);
+    const num = (med.strength.match(/^\s*(\d+(?:\.\d+)?)/) || [])[1];
+    const strengthPart = med.strength && !(num && new RegExp(`\\b${num.replace('.', '\\.')}\\s*$`).test(med.name)) ? ' ' + med.strength : '';
+    const line = `${med.form.charAt(0).toUpperCase() + med.form.slice(1)} ${med.name}${strengthPart} ${code}${food ? ' ' + food : ''}${tail}`;
+    const btn = m.querySelector('#wzAdd'); btn.disabled = true;
     try {
       const result = await api('POST', '/prescriptions', { patient_id: state.patientId, lines: [line] });
-      out.innerHTML = '<div class="upload-status-banner loading" style="background:var(--teal-soft);color:var(--teal-dark);">Added for review — check it below, then confirm to start reminders.</div>';
+      m.remove();
+      dashboardCache = null;
       renderRxResult(result);
       document.getElementById('rxResult').scrollIntoView({ behavior: 'smooth' });
-    } catch (e) { err.textContent = e.message || 'Could not add it.'; }
+    } catch (e) { btn.disabled = false; msg.textContent = e.message || 'Could not add it.'; }
   });
 }
 

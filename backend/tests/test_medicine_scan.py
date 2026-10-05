@@ -124,10 +124,10 @@ def test_scan_without_a_readable_photo_degrades_to_manual_entry(monkeypatch):
         pid, _ = new_patient(client)
         monkeypatch.setattr(main, "read_image_text_lines", lambda b: (_ for _ in ()).throw(OCRUnavailable("no engine")))
         r = client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")})
-        assert r.status_code == 503 and "Type the medicine in" in r.json()["detail"]
+        assert r.status_code == 422 and "Enter it manually" in r.json()["detail"]
         monkeypatch.setattr(main, "read_image_text_lines", lambda b: [])
         r = client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")})
-        assert r.status_code == 422 and "type the medicine in" in r.json()["detail"]
+        assert r.status_code == 422 and "Enter it manually" in r.json()["detail"]
 
 
 def test_scan_rejects_bad_uploads_and_other_peoples_records(monkeypatch):
@@ -155,4 +155,53 @@ def test_prescriptions_screen_offers_the_camera_scan():
     app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"),
                   encoding="utf-8").read()
     assert 'id="scanInput" accept="image/*" capture="environment"' in app_js
-    assert "'/medicines/scan'" in app_js and "SmartPoli does not choose a dose or schedule" in app_js
+    assert "'/medicines/scan'" in app_js and "choose a dose" in app_js
+
+
+# ---------------------------------------------------------------- vision (the main way to read a box)
+
+def test_a_vision_answer_is_validated_before_it_is_trusted():
+    ok = ms.parse_vision_answer({"found": True, "brand_name": "Dolo 650", "generic_name": "Paracetamol", "strength": "650 mg",
+                                 "form": "tab", "text_read": ["Dolo 650", "Paracetamol IP 650 mg"]})
+    c = ok["candidates"][0]
+    assert c["name"] == "Dolo 650" and c["generic"] == "Paracetamol" and c["strength"] == "650mg" and c["form"] == "tab"
+    assert ok["source"] == "vision" and ok["form_guess"] == "tab"
+    # not found / junk / no name -> nothing (the screen then offers manual entry)
+    assert ms.parse_vision_answer({"found": False}) is None
+    assert ms.parse_vision_answer({"found": True, "brand_name": "  ", "generic_name": None}) is None
+    assert ms.parse_vision_answer({"found": True, "brand_name": "123"}) is None
+    assert ms.parse_vision_answer(None) is None
+    odd = ms.parse_vision_answer({"found": True, "brand_name": "Crocin", "strength": "lots", "form": "potion"})["candidates"][0]
+    assert odd["strength"] is None and odd["form"] is None             # an invented form/strength is dropped, not shown
+
+
+def test_json_is_found_inside_chatty_model_output():
+    assert ms._json_from('```json' + chr(10) + '{"found": true, "brand_name": "Crocin"}' + chr(10) + '```')["brand_name"] == "Crocin"
+    assert ms._json_from("no json here") is None
+
+
+def test_scan_endpoint_prefers_the_vision_answer_and_does_not_need_ocr(monkeypatch):
+    vision = ms.parse_vision_answer({"found": True, "brand_name": "Telma 40", "generic_name": "Telmisartan", "strength": "40mg", "form": "tab"})
+    monkeypatch.setattr(ms, "identify_with_vision", lambda b: vision)
+    monkeypatch.setattr(main, "read_image_text_lines", lambda b: (_ for _ in ()).throw(AssertionError("OCR must not run")))
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        r = client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")})
+        assert r.status_code == 200 and r.json()["candidates"][0]["name"] == "Telma 40"
+
+
+def test_vision_failure_falls_back_to_ocr_then_to_manual(monkeypatch):
+    monkeypatch.setattr(ms, "identify_with_vision", lambda b: None)
+    monkeypatch.setattr(main, "read_image_text_lines", lambda b: BOX)
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        assert client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")}).status_code == 200
+        monkeypatch.setattr(main, "read_image_text_lines", lambda b: [])
+        assert client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")}).status_code == 422
+
+
+def test_vision_is_off_without_a_key_or_when_switched_off(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    assert ms.vision_available() is False and ms.identify_with_vision(b"x") is None
+    monkeypatch.setenv("GROQ_API_KEY", "k"); monkeypatch.setenv("SMARTPOLI_AI_SCAN", "0")
+    assert ms.vision_available() is False

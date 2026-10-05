@@ -116,3 +116,107 @@ def build_prescription_line(form: Optional[str], name: str, strength: Optional[s
     else:
         parts.append(f"x{int(days)}d")
     return " ".join(p for p in parts if p)
+
+
+# ---------------------------------------------------------------- vision (Groq) - the primary way to read a box
+
+import base64
+import io
+import json
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+VISION_PROMPT = (
+    "You read the PRINTED text on a photo of a medicine strip, bottle, tube or box. Reply with ONLY a JSON object: "
+    '{"found": true|false, "brand_name": string|null, "generic_name": string|null, "strength": string|null, '
+    '"form": "tab"|"cap"|"syrup"|"inj"|"other"|null, "text_read": [up to 8 short strings you read]}. '
+    "brand_name is the product name as printed (e.g. Dolo 650). generic_name is the active ingredient printed on the pack. "
+    "strength looks like 500mg, 5ml or 10mg/5ml. Only report what is actually printed and legible. "
+    "Never guess, never suggest a dose, schedule, use or advice. If you cannot read a medicine name, set found to false."
+)
+_FORM_OK = {"tab", "cap", "syrup", "inj", "other"}
+
+
+def vision_available() -> bool:
+    return bool(os.getenv("GROQ_API_KEY")) and os.getenv("SMARTPOLI_AI_SCAN", "1") != "0"
+
+
+def _vision_models() -> list:
+    # qwen3.8-27b is the vision-capable model on this Groq account (the llama-4 vision models are no longer offered).
+    return list(dict.fromkeys([os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")]))
+
+
+def _prepare_image(image_bytes: bytes) -> str:
+    """Shrink a full-size phone photo to a small JPEG data URL (fast upload, well under the API's size limit)."""
+    from PIL import Image, ImageOps
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes))).convert("RGB")
+    im.thumbnail((1400, 1400))
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _json_from(text: str) -> Optional[dict]:
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def parse_vision_answer(data: Optional[dict]) -> Optional[dict]:
+    """Validate what the model said. Returns the same shape as candidates_from_lines, or None if nothing usable."""
+    if not data or data.get("found") is False:
+        return None
+
+    def clean(v, limit=80):
+        return re.sub(r"\s+", " ", v).strip()[:limit] if isinstance(v, str) and v.strip() else None
+
+    name = clean(data.get("brand_name")) or clean(data.get("generic_name"))
+    if not name or len(name) < 2 or not re.search(r"[A-Za-z]", name):
+        return None
+    generic = clean(data.get("generic_name"))
+    strength_raw = clean(data.get("strength"), 30)
+    sm = _STRENGTH.search(strength_raw or "")
+    strength = f"{sm.group(1)}{sm.group(2).lower()}" if sm else None
+    form = data.get("form") if data.get("form") in _FORM_OK else None
+    read = [s[:120] for s in (data.get("text_read") or []) if isinstance(s, str)][:8]
+    return {
+        "candidates": [{"name": name, "generic": generic if generic and generic.lower() != name.lower() else None,
+                        "strength": strength, "form": form, "match": "read", "score": None,
+                        "read_from": ", ".join(read)[:120] or "the packaging"}],
+        "lines_read": read,
+        "form_guess": form,
+        "source": "vision",
+        "note": "Check the name and strength against the box or strip in your hand.",
+    }
+
+
+def identify_with_vision(image_bytes: bytes) -> Optional[dict]:
+    """Ask a Groq vision model to read the packaging. None = it could not (no key, error, unreadable) - the caller
+    then offers manual entry. The photo is sent for this one call and is not stored."""
+    if not vision_available():
+        return None
+    try:
+        from groq import Groq
+        url = _prepare_image(image_bytes)
+        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=30)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Vision scan setup failed: %s", type(e).__name__)
+        return None
+    for model in _vision_models():
+        try:
+            resp = client.chat.completions.create(
+                model=model, temperature=0, max_tokens=300,
+                messages=[{"role": "user", "content": [
+                    {"type": "text", "text": VISION_PROMPT},
+                    {"type": "image_url", "image_url": {"url": url}}]}])
+            return parse_vision_answer(_json_from(resp.choices[0].message.content))
+        except Exception as e:  # noqa: BLE001 - try the next model; never raise into the request
+            logger.warning("Vision scan with %s failed: %s", model, type(e).__name__)
+    return None

@@ -90,9 +90,10 @@ def test_whatsapp_is_a_popup_not_a_dashboard_card():
     assert "renderDashboardWhatsApp" not in JS
 
 
-def test_prescription_tab_has_only_scan_choose_file_and_type():
+def test_prescription_tab_has_scan_or_enter_manually_choose_file_and_type():
     body = fn_body("renderPrescriptions")
-    assert "Scan medicine" in body and "Choose file" in body and "Or type it in" in body
+    assert "Scan medicine" in body and "Enter manually" in body and 'class="or-divider"' in body
+    assert "Choose file" in body and "Or type it in" in body
     for gone in ("Upload a photo", "upload-zone", "uploadBtn", "Drag &amp; drop", "Read prescription"):
         assert gone not in body, gone
     assert 'id="scanInput" accept="image/*" capture="environment" hidden' in body       # opens the camera
@@ -186,3 +187,11 @@ def test_first_login_asks_name_and_age_in_a_popup_not_a_create_patient_page():
 def test_push_is_sent_with_high_urgency_so_android_delivers_it_while_dozing():
     src = open(os.path.join(os.path.dirname(__file__), "..", "webpush_service.py"), encoding="utf-8").read()
     assert '"Urgency": "high"' in src
+
+
+def test_scan_flow_has_failure_popup_confirm_popup_and_schedule_step():
+    assert "Scan failed" in fn_body("scanFailedPopup") and "Enter manually" in fn_body("scanFailedPopup")
+    wiz = fn_body("medicineWizard")
+    assert "Is this your medicine?" in wiz and "No, enter manually" in wiz
+    assert "How many times a day?" in wiz and "With food?" in wiz and "For how many days?" in wiz
+    assert "scanFailedPopup()" in fn_body("scanMedicinePhoto")

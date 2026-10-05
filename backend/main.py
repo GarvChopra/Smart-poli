@@ -440,14 +440,16 @@ async def scan_medicine(
     if not has_write_access(db, user, patient_id):
         raise HTTPException(403, "Only the patient can add a medicine to their own record.")
     image_bytes = await _read_image_upload(file)
-    try:
-        lines = await run_in_threadpool(read_image_text_lines, image_bytes)
-    except OCRUnavailable as e:
-        raise HTTPException(503, f"Scanning is unavailable right now ({e}). Type the medicine in instead.")
-    if not lines:
-        raise HTTPException(422, "No text could be read from that photo. Try again in good light, "
-                                 "close to the printed name, or type the medicine in.")
-    result = medicine_scan.candidates_from_lines(lines)
+    # 1) a vision model reads the box (the main way); 2) the older OCR + name matching is only the backup.
+    result = await run_in_threadpool(medicine_scan.identify_with_vision, image_bytes)
+    if result is None:
+        try:
+            lines = await run_in_threadpool(read_image_text_lines, image_bytes)
+        except OCRUnavailable:
+            lines = []
+        result = medicine_scan.candidates_from_lines(lines) if lines else None
+    if result is None or not result["candidates"]:
+        raise HTTPException(422, "We could not read a medicine from that photo. Enter it manually instead.")
     log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result
