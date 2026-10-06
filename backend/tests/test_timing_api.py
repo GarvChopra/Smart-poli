@@ -338,7 +338,9 @@ def test_service_worker_is_served_from_the_root_uncached_and_shows_push_notifica
         assert r.status_code == 200 and "javascript" in r.headers["content-type"]
         assert r.headers["cache-control"] == "no-cache"
         assert "addEventListener('push'" in r.text and "showNotification" in r.text and "notificationclick" in r.text
-        assert "fetch" not in r.text.replace("fetch interception", "")   # it must never intercept or cache requests
+        # It may only pass page loads straight through (Chrome needs a fetch handler to treat the site as installable);
+        # it must never cache anything or answer from a cache.
+        assert "caches." not in r.text and "cache.put" not in r.text and "respondWith(fetch(event.request))" in r.text
 
 
 # ---------------------------------------------------------------- external cron trigger
@@ -362,7 +364,7 @@ def test_internal_sweep_endpoint_is_hidden_unless_the_secret_matches(monkeypatch
 # ---------------------------------------------------------------- the dashboard shows TODAY, not 30 days
 
 def test_dashboard_lists_only_todays_doses_and_the_next_day_starts_fresh(monkeypatch):
-    day = datetime(2026, 10, 5)
+    day = (datetime.utcnow() + timedelta(days=40)).replace(hour=0, minute=0, second=0, microsecond=0)   # a future day: the real clock never sweeps it
     at = lambda d, h, m=0: day.replace(hour=h, minute=m) + timedelta(days=d)  # noqa: E731
     with TestClient(app) as client:
         pid, _ = new_patient(client)
@@ -373,21 +375,21 @@ def test_dashboard_lists_only_todays_doses_and_the_next_day_starts_fresh(monkeyp
 
         monkeypatch.setattr(main, "patient_now", lambda db, patient_id, utc_now=None: at(0, 14))
         d = client.get(f"/patients/{pid}/dashboard").json()
-        assert d["today"] == "2026-10-05"
+        assert d["today"] == day.strftime("%Y-%m-%d")
         assert [x["scheduled_at"][11:16] for x in d["today_doses"]] == ["08:00", "12:00", "18:00", "21:00"]
         assert [x["state"] for x in d["today_doses"]] == ["taken", "missed", "pending", "pending"]
         assert d["left_today"] == 2 and d["today_doses"][0]["medicine_name"] == "Telmisartan"
-        assert all(x["scheduled_at"].startswith("2026-10-05") for x in d["today_doses"])   # no yesterday, no tomorrow
+        assert all(x["scheduled_at"].startswith(day.strftime("%Y-%m-%d")) for x in d["today_doses"])   # no yesterday, no tomorrow
 
         # the next day the same screen is simply that day's doses
         monkeypatch.setattr(main, "patient_now", lambda db, patient_id, utc_now=None: at(1, 7, 30))
         d2 = client.get(f"/patients/{pid}/dashboard").json()
-        assert d2["today"] == "2026-10-06" and [x["scheduled_at"][11:16] for x in d2["today_doses"]] == ["08:00"]
+        assert d2["today"] == (day + timedelta(days=1)).strftime("%Y-%m-%d") and [x["scheduled_at"][11:16] for x in d2["today_doses"]] == ["08:00"]
         assert d2["left_today"] == 1
 
 
 def test_a_day_with_nothing_scheduled_returns_an_empty_today_not_the_whole_course(monkeypatch):
-    day = datetime(2026, 10, 5)
+    day = (datetime.utcnow() + timedelta(days=40)).replace(hour=0, minute=0, second=0, microsecond=0)
     with TestClient(app) as client:
         pid, _ = new_patient(client)
         add_medicine(pid, "Telmisartan", [day.replace(hour=8) + timedelta(days=n) for n in range(3, 10)])

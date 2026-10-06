@@ -3,6 +3,12 @@
 // can never serve stale medical data. The server decides what to send and
 // when (reminders.py); this only displays it and opens the app on tap.
 
+// A fetch handler is what makes Chrome treat the site as an installable app. It only passes page loads straight through
+// to the network: nothing is cached, so it can never serve stale medical data.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') event.respondWith(fetch(event.request));
+});
+
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 

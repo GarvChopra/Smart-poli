@@ -215,3 +215,9 @@ async function renderPushPrompt(mount, patientId) {
     });
   } catch (e) { /* best effort: Settings still has the full control */ }
 }
+
+// Register the app's service worker as soon as the app opens (not only when reminders are turned on): Chrome treats a
+// site as an installable app only when it has one, and the same worker shows the reminder notifications.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw-push.js', { scope: '/' }).catch(() => { /* optional */ }); });
+}

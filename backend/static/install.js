@@ -1,50 +1,57 @@
-// SmartPoli install page: one big button that really installs the PWA.
+// SmartPoli install page: one button that installs the app straight away with the browser's own install prompt.
 (function () {
   const $ = (id) => document.getElementById(id);
   const btn = $('installBtn'), label = $('installLabel'), note = $('installNote');
-  const sheet = $('howSheet'), steps = $('howSteps');
-  let deferred = null;
 
   const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   const ua = navigator.userAgent || '';
   const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isAndroid = /Android/i.test(ua);
-
+  
   if (standalone) {                       // already running as the installed app
     label.textContent = 'Open SmartPoli';
     note.textContent = 'SmartPoli is installed on this device.';
   }
 
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; });
+  // The install offer only appears once the browser has a working service worker for the site: register it now.
+  if ('serviceWorker' in navigator && !standalone) {
+    navigator.serviceWorker.register('/sw-push.js', { scope: '/' }).catch(function () { /* the button falls back below */ });
+  }
+
   window.addEventListener('appinstalled', () => {
     note.textContent = 'Installed! Opening SmartPoli…';
     setTimeout(() => { window.location.href = '/'; }, 1200);
   });
 
-  function showHowTo() {
-    let list;
-    if (isIOS) {
-      list = ['Tap the <b>Share</b> button at the bottom of Safari.', 'Scroll and tap <b>Add to Home Screen</b>.', 'Tap <b>Add</b>. SmartPoli appears on your home screen.'];
-    } else if (isAndroid) {
-      list = ['Tap the <b>⋮</b> menu at the top right of Chrome.', 'Tap <b>Install app</b> (or <b>Add to Home screen</b>).', 'Tap <b>Install</b>. SmartPoli appears on your home screen.'];
-    } else {
-      list = ['Look for the <b>install icon</b> at the right end of the address bar.', 'Click it, then click <b>Install</b>.', 'Open SmartPoli from your apps or desktop.'];
-    }
-    steps.innerHTML = list.map((s) => `<li>${s}</li>`).join('');
-    sheet.hidden = false;
+  /** Resolves with Chrome's install event, or null if it does not arrive within `ms`. */
+  function installOffer(ms) {
+    return new Promise((resolve) => {
+      if (window.__bip) return resolve(window.__bip);
+      const done = () => { clearTimeout(t); resolve(window.__bip); };
+      const t = setTimeout(() => { window.removeEventListener('bip-ready', done); resolve(null); }, ms);
+      window.addEventListener('bip-ready', done, { once: true });
+    });
   }
 
   btn.addEventListener('click', async () => {
     if (standalone) { window.location.href = '/'; return; }
-    if (deferred) {
-      deferred.prompt();
-      const choice = await deferred.userChoice.catch(() => null);
-      deferred = null;
+    let offer = window.__bip;                                    // usually already here: prompt at once, inside the tap
+    if (!offer && !isIOS) {
+      btn.disabled = true;
+      const original = label.textContent;
+      label.textContent = 'Getting ready…';
+      offer = await installOffer(3000);                          // short wait (a tap's permission to prompt lasts a few seconds)
+      label.textContent = original;
+      btn.disabled = false;
+    }
+    if (offer) {
+      window.__bip = null;                                       // an offer can be used once
+      offer.prompt();
+      const choice = await offer.userChoice.catch(() => null);
       note.textContent = choice && choice.outcome === 'accepted' ? 'Installing SmartPoli…' : 'No problem — you can install it any time.';
       return;
     }
-    showHowTo();
+    // No install offer from the browser: say so in one line (never a how-to). This is the case on iPhone Safari, or when
+    // the app is already installed on this phone.
+    note.textContent = isIOS ? 'Open this page in Safari, then use Share → Add to Home Screen.' : 'SmartPoli may already be installed. Open it from your home screen, or open this page in Chrome.';
   });
-  $('howClose').addEventListener('click', () => { sheet.hidden = true; });
-  sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.hidden = true; });
 })();

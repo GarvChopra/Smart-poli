@@ -12,6 +12,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/static/install.css">
+<script>
+  // Chrome offers the install prompt once, early; keep it for the button.
+  window.__bip = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.__bip = e; window.dispatchEvent(new Event('bip-ready')); });
+</script>
 </head>
 <body>
 <div class="bg" aria-hidden="true">
@@ -75,14 +80,6 @@
     </div>
   </section>
 </main>
-
-<div class="sheet" id="howSheet" hidden>
-  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="howTitle">
-    <h2 id="howTitle">Add SmartPoli to your phone</h2>
-    <ol id="howSteps"></ol>
-    <button class="install small" id="howClose" type="button">Got it</button>
-  </div>
-</div>
 
 <script src="/static/install.js"></script>
 </body>

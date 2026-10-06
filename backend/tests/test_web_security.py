@@ -120,3 +120,13 @@ def test_the_builtin_sweep_skips_when_the_external_one_just_ran(monkeypatch):
     main._last_external_sweep[0] = time.time() - 1000
     main._in_process_sweep_job()
     assert calls == [1]
+
+
+def test_install_button_installs_directly_with_no_instruction_sheet(client):
+    page = client.get("/install").text
+    assert "howSheet" not in page and "Add SmartPoli to your phone" not in page
+    js = client.get("/static/install.js").text
+    assert "prompt()" in js and "showHowTo" not in js and "howSteps" not in js
+    # Chrome only offers an install for a site whose service worker handles fetches
+    assert "addEventListener('fetch'" in client.get("/sw-push.js").text
+    assert "serviceWorker.register('/sw-push.js'" in client.get("/static/push.js").text
