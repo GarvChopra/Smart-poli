@@ -241,14 +241,3 @@ def test_open_warnings_wait_for_combinations_still_being_looked_up():
 
 def test_open_warning_check_runs_after_the_screen_is_up():
     assert "setTimeout(showOpenWarnings" in JS
-
-
-def test_patient_sees_caregiver_notes_on_the_dashboard_safety_center_and_settings():
-    dash = fn_body("renderDashboard")
-    assert "dashCareNotes" in dash and "loadCareNotesCard" in dash
-    card = fn_body("loadCareNotesCard")
-    assert "/care-notes" in card and "/care-notes/seen" in card and "From your caregiver" in card
-    assert "escHtml(data.disclaimer)" in card and "escHtml(n.body)" in fn_body("careNoteHtml")      # the disclaimer text comes from the server
-    assert "data-med-notes" in fn_body("renderSafetyCenter") and "loadMedicineNotesInto" in fn_body("renderSafetyCenter")
-    assert "settingsCareNotes" in open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
-    assert "renderSettingsCareNotes" in JS

@@ -286,7 +286,6 @@ function renderActiveTab() {
     renderSettingsCareTeam(); renderSettingsWhatsApp();
     renderNotificationsCard(document.getElementById('settingsNotifications'), state.patientId);
     renderRoutineCard(document.getElementById('settingsRoutine'), state.patientId);
-    renderSettingsCareNotes();
   }
   renderGlance();
 }
@@ -304,7 +303,6 @@ async function renderSafetyCenter() {
         <strong>${escHtml(m.name)}</strong>
         ${m.generic_name ? `<div class="generic">generic: ${escHtml(m.generic_name)}</div>` : ''}
         <div data-med-info="${escHtml(m.name)}"></div>
-        <div data-med-notes="${escHtml(m.medicine_id)}"></div>
       </div>
       <button class="ghost small" data-remove-med="${m.medicine_id}" data-name="${escHtml(m.name)}">Remove</button>
     </div>
@@ -355,7 +353,6 @@ async function renderSafetyCenter() {
   loadConflictsInto(document.getElementById('safetyConflicts'));
   wireRemoveButtons(view, () => renderSafetyCenter());
   loadMedicineInfoInto(view);
-  loadMedicineNotesInto(view);
   loadCombinationCheckInto(document.getElementById('safetyCombos'));
   document.getElementById('regCheckBtn').addEventListener('click', async () => {
     const mount = document.getElementById('safetyRegulatory');
@@ -758,64 +755,6 @@ async function showOpenWarnings() {
   wireConflictActions(overlay);
   wireShiftButtons(overlay);
   wireRemoveButtons(overlay, () => { overlay.remove(); renderActiveTab(); renderGlance(); showOpenWarnings(); });
-}
-
-
-// ---------------------------------------------------------------- notes from caregivers (and the doctor)
-
-function careNoteHtml(n) {
-  return `<div class="cn-note"><div class="cn-head"><strong>${escHtml(n.author_name)}</strong>
-    <span class="reg-meta">${escHtml(new Date(n.created_at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span></div>
-    <div class="cn-body">${escHtml(n.body)}</div></div>`;
-}
-
-/** Dashboard card: only when there is something new. "Got it" marks the notes as seen (the caregiver can see that). */
-async function loadCareNotesCard(mount) {
-  if (!mount || !state.patientId) return;
-  const data = await api('GET', `/patients/${state.patientId}/care-notes`).catch(() => null);
-  if (!data || !data.unread) return;
-  const fresh = data.notes.filter((n) => !n.seen && n.kind === 'message').concat(data.notes.filter((n) => !n.seen && n.kind === 'medicine')).slice(0, 2);
-  mount.innerHTML = `
-    <div class="card cn-card">
-      <div class="card-head">${iconBadge('teal', 'messageCircle')}<h3>From your caregiver</h3><span class="cn-badge">${escHtml(data.unread)} new</span></div>
-      ${fresh.map(careNoteHtml).join('')}
-      <div class="reg-meta" style="margin:6px 0;">${escHtml(data.disclaimer)}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="primary small" id="cnGotIt">Got it</button><button class="ghost small" id="cnAll">See all</button></div>
-    </div>`;
-  mount.querySelector('#cnGotIt').addEventListener('click', async () => {
-    await api('POST', `/patients/${state.patientId}/care-notes/seen`).catch(() => null);
-    mount.innerHTML = '';
-  });
-  mount.querySelector('#cnAll').addEventListener('click', async () => {
-    const all = await api('GET', `/patients/${state.patientId}/care-notes`).catch(() => data);
-    const m = showSafetyModal(`<h3>Notes from your caregivers</h3>${all.notes.map(careNoteHtml).join('')}
-      <div class="reg-meta" style="margin:8px 0;">${escHtml(all.disclaimer)}</div><div class="sm-actions"><button class="primary small" id="cnClose">Close</button></div>`);
-    m.querySelector('#cnClose').addEventListener('click', async () => {
-      m.remove();
-      await api('POST', `/patients/${state.patientId}/care-notes/seen`).catch(() => null);
-      mount.innerHTML = '';
-    });
-  });
-}
-
-/** Settings: every note, newest first (also the way to find an old one after "Got it"). */
-async function renderSettingsCareNotes() {
-  const mount = document.getElementById('settingsCareNotes');
-  if (!mount || !state.patientId) return;
-  const data = await api('GET', `/patients/${state.patientId}/care-notes`).catch(() => null);
-  mount.innerHTML = data && data.notes.length
-    ? `${data.notes.map(careNoteHtml).join('')}<div class="reg-meta" style="margin-top:6px;">${escHtml(data.disclaimer)}</div>`
-    : '<div class="empty">No notes from your caregivers yet.</div>';
-}
-
-/** Safety center: show the notes a caregiver wrote on each medicine, under that medicine. */
-async function loadMedicineNotesInto(root) {
-  const data = await api('GET', `/patients/${state.patientId}/care-notes`).catch(() => null);
-  if (!data) return;
-  root.querySelectorAll('[data-med-notes]').forEach((slot) => {
-    const mine = data.notes.filter((n) => n.kind === 'medicine' && String(n.medicine_id) === slot.dataset.medNotes);
-    if (mine.length) slot.innerHTML = mine.slice(0, 3).map((n) => `<div class="cn-medline">📝 <strong>${escHtml(n.author_name)}:</strong> ${escHtml(n.body)}</div>`).join('');
-  });
 }
 
 function scanFailedPopup() {
@@ -1735,7 +1674,6 @@ async function renderDashboard() {
       <button class="ghost small" id="dashWhatsAppBtn"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
     </div>
     <div id="dashPushPrompt"></div>
-    <div id="dashCareNotes"></div>
     <div id="dashTimingChip"></div>
     ${heroHtml}
     <div class="card" id="todayCard">
@@ -1760,7 +1698,6 @@ async function renderDashboard() {
   document.getElementById('dashWhatsAppBtn').addEventListener('click', showWhatsAppPopup);
   loadTimingChip(document.getElementById('dashTimingChip'));
   renderPushPrompt(document.getElementById('dashPushPrompt'), state.patientId);
-  loadCareNotesCard(document.getElementById('dashCareNotes'));
   view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(d.id));

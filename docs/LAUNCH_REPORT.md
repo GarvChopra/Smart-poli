@@ -205,8 +205,7 @@ Spec: `docs/superpowers/specs/2026-10-06-caregiver-portal-design.md` · Plan: `d
 * **Alerts**: a missed dose pushes to each linked caregiver who turned phone alerts on (once per dose per caregiver);
   **Remind now** nudges the patient (once per 15 min per patient, audited).
 * **New tables** (created automatically, no ALTER): `care_notes`, `user_push_subscriptions`, `caregiver_prefs`.
-* **Patient side**: "From your caregiver" card on the dashboard (unread only), notes under each medicine in the Safety center,
-  all notes in Settings. Handover notes are never shown to the patient.
+* **Patient side**: deliberately NOT changed. A message can be pushed to the patient's phone; showing notes inside the patient app is not built (ask before adding).
 * **Limits**: 500 characters per note, 30 notes/hour per author; a revoked link is refused everywhere.
 * **Not built yet** (suggested next): refill tracker, appointments, health log / weekly digest.
 * Tests: `test_care_notes.py`, `test_care_notes_api.py`, `test_caregiver_alerts.py`, `test_caregiver_overview.py`,

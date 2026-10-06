@@ -65,17 +65,6 @@ def test_a_linked_caregiver_writes_and_reads_all_three_kinds(world):
     assert [n["body"] for n in only] == ["BP felt high at 5"]
 
 
-def test_the_patient_sees_messages_and_medicine_notes_but_never_handover_notes(world):
-    post(world.cg, world.pid, kind="message", body="Drink water")
-    post(world.cg, world.pid, kind="medicine", body="With milk", medicine_id=world.med)
-    post(world.cg, world.pid, kind="handover", body="team only")
-    out = world.patient.get(f"/patients/{world.pid}/care-notes").json()
-    assert sorted(n["body"] for n in out["notes"]) == ["Drink water", "With milk"]
-    assert out["unread"] == 2 and "not medical advice" in out["disclaimer"]
-    assert world.patient.post(f"/patients/{world.pid}/care-notes/seen").json() == {"seen": 2}
-    assert world.patient.get(f"/patients/{world.pid}/care-notes").json()["unread"] == 0
-
-
 def test_a_revoked_caregiver_loses_everything(world):
     n = post(world.cg, world.pid, kind="message", body="hello").json()
     revoke_caregiver(world.patient, world.pid)
@@ -90,11 +79,7 @@ def test_unlinked_caregivers_and_strangers_are_refused(world):
     register_and_login(other, role="caregiver", name="Nobody")
     assert post(other, world.pid, kind="message", body="hi").status_code == 403
     assert other.get(f"/caregiver/patients/{world.pid}/notes").status_code == 403
-    stranger = TestClient(app)
-    register_and_login(stranger)                                                         # a patient account, not this patient
-    assert stranger.get(f"/patients/{world.pid}/care-notes").status_code == 403
-    assert stranger.post(f"/patients/{world.pid}/care-notes/seen").status_code == 403
-    assert TestClient(app).get(f"/patients/{world.pid}/care-notes").status_code == 401
+    assert TestClient(app).get(f"/caregiver/patients/{world.pid}/notes").status_code == 401         # not logged in
     assert world.patient.post(f"/caregiver/patients/{world.pid}/notes", json={"kind": "message", "body": "x"}).status_code == 403   # patients are not caregivers
 
 
@@ -114,7 +99,7 @@ def test_only_the_author_can_delete_and_the_patient_stops_seeing_it(world):
     cg2, _ = link_caregiver(world.patient, world.pid, "Ravi")
     assert cg2.delete(f"/caregiver/notes/{n['id']}").status_code == 404                  # another caregiver cannot delete it
     assert world.cg.delete(f"/caregiver/notes/{n['id']}").status_code == 200
-    assert world.patient.get(f"/patients/{world.pid}/care-notes").json()["notes"] == []
+    assert world.cg.get(f"/caregiver/patients/{world.pid}/notes").json()["notes"] == []
 
 
 def test_two_caregivers_share_handover_notes_and_a_doctor_can_read_them(world):

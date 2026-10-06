@@ -1218,12 +1218,3 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .cg-form textarea { font: inherit; }
 .cg-check input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; }
 .cg-check { justify-content: flex-start; }
-
-/* notes from caregivers (patient side) */
-.cn-card { border: 1.5px solid var(--teal-soft); }
-.cn-badge { margin-left: auto; background: var(--teal-dark); color: #fff; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
-.cn-note { border-top: 1px solid var(--line, #e3e8e6); padding: 8px 0; }
-.cn-note:first-of-type { border-top: 0; }
-.cn-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.cn-body { white-space: pre-wrap; word-break: break-word; }
-.cn-medline { margin-top: 6px; background: #FFF7E0; border-radius: 10px; padding: 6px 10px; font-size: 13.5px; }
