@@ -239,3 +239,10 @@ def test_open_warnings_wait_for_combinations_still_being_looked_up():
 
 def test_open_warning_check_runs_after_the_screen_is_up():
     assert "setTimeout(showOpenWarnings" in JS
+
+
+def test_every_helper_the_add_medicine_flow_calls_still_exists():
+    """A removed neighbour once took fmtClock with it (the 'Added' screen and the clash popup call it)."""
+    for helper in ("fmtClock", "removeMedicine", "wireRemoveButtons", "compactClashHtml", "afterMedicineAdded", "medicineWizard"):
+        assert re.search(rf"^(?:async )?function {helper}\(", JS, re.M), helper
+    assert fn_body("fmtClock").count("PM") == 1
