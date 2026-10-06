@@ -62,3 +62,13 @@ def test_every_piece_of_server_text_is_escaped_before_it_is_drawn():
 
 def test_a_revoked_link_shows_a_plain_message():
     assert "no longer linked" in SHELL.lower()
+
+
+def test_page_links_live_in_the_left_menu_not_in_a_tab_bar_on_the_page():
+    assert "cg-tabs" not in PAGES and "<nav class=\"cg-tabs\"" not in PAGES
+    assert 'id="drawerNav"' in HTML
+    body = fn("renderDrawerNav", SHELL)
+    for label in ("Today", "Medicines", "Notes", "History", "Emergency"):
+        assert label in SHELL, label
+    assert "Your patients" in body and "Settings" in body and "#/p/" in body
+    assert "renderDrawerNav(" in fn("route", SHELL)

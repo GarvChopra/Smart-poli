@@ -1218,3 +1218,6 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .cg-form textarea { font: inherit; }
 .cg-check input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; }
 .cg-check { justify-content: flex-start; }
+
+.cg-menu-head { margin: 14px 4px 4px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); word-break: break-word; }
+.cg-section { margin: 6px 0 12px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }

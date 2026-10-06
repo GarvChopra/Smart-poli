@@ -33,13 +33,10 @@ const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes']
 
 /** The frame every patient page shares: back link, name, the tab bar, and a body to fill. */
 function patientFrame(root, o, active, bodyHtml) {
-  const pid = o.patient.id;
   root.innerHTML = `
     <a class="cg-back" href="#/">← All patients</a>
     <div class="cg-title"><h2>${esc(o.patient.name)}</h2>${cgBadge(o.priority)}</div>
-    <nav class="cg-tabs" aria-label="Patient pages">
-      ${TABS.map(([key, label]) => `<a href="#/p/${pid}/${key}" class="${key === active ? 'active' : ''}">${label}</a>`).join('')}
-    </nav>
+    <div class="cg-section">${esc((TABS.find(([key]) => key === active) || [])[1] || '')}</div>
     <div class="cg-body">${bodyHtml}</div>`;
 }
 
