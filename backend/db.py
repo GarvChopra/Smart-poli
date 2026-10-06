@@ -351,6 +351,47 @@ class AIGapCache(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class CareNote(Base):
+    """A note written by someone on the care team (caregiver / doctor) about a patient. kind 'message' goes to the patient,
+    'medicine' is attached to one of their medicines (patient sees it too), 'handover' is for the care team only."""
+    __tablename__ = "care_notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    author_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    author_role = Column(String, nullable=False)
+    author_name = Column(String, nullable=False)       # copied at write time: the note keeps its author's name
+    kind = Column(String, nullable=False)              # 'message' | 'medicine' | 'handover'
+    medicine_id = Column(Integer, ForeignKey("medicines.id"), nullable=True)
+    body = Column(Text, nullable=False)
+    visibility = Column(String, nullable=False)        # 'patient' | 'care_team'
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    seen_by_patient_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class UserPushSubscription(Base):
+    """A caregiver's (or any user's) own phone for Web Push. Separate from push_subscriptions, which belong to a patient."""
+    __tablename__ = "user_push_subscriptions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(String, nullable=False)
+    auth = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_success_at = Column(DateTime, nullable=True)
+
+
+class CaregiverPrefs(Base):
+    """Per caregiver, per patient alert switches. No row = the defaults (alerts on)."""
+    __tablename__ = "caregiver_prefs"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), primary_key=True)
+    notify_missed = Column(Boolean, nullable=False, default=True)
+
+
 class PushSubscription(Base):
     """A browser/TWA Web Push endpoint for one patient (RFC 8030 / VAPID).
     `endpoint` is unique: re-subscribing the same device updates the row."""
