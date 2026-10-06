@@ -64,7 +64,7 @@ from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
 from schemas import (
-    PatientCreate, PatientEdit, ManualMedicine, ShiftMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
+    PatientCreate, PatientEdit, ManualMedicine, FeedbackCreate, ShiftMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
     PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
@@ -102,6 +102,7 @@ import safety_service
 import safety_engine
 import webpush_service
 import medicine_info
+import feedback
 import pair_check
 from timeline import friendly_entries
 
@@ -536,6 +537,32 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
             "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
             "first_dose": first.scheduled_at.isoformat() if first else None,
             "conflicts": conflicts, "interactions": interactions}
+
+
+@app.post("/feedback")
+def send_feedback(body: FeedbackCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
+    """A rating and message from any signed-in person (patient, caregiver or doctor)."""
+    try:
+        row = feedback.create(db, user, body.rating, body.category, body.message, body.contact_ok, body.source)
+    except feedback.FeedbackRateLimited as e:
+        raise HTTPException(429, str(e))
+    except feedback.FeedbackError as e:
+        raise HTTPException(422, str(e))
+    return {"id": row.id, "thanks": "Thank you - we read every message."}
+
+
+@app.get("/feedback/mine")
+def my_feedback(user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
+    return {"items": feedback.mine(db, user)}
+
+
+@app.get("/internal/feedback", include_in_schema=False)
+def all_feedback(x_admin_secret: Optional[str] = Header(None), db: Session = Depends(get_db_session)):
+    """The owner's view of all feedback. Needs SMARTPOLI_ADMIN_SECRET in the X-Admin-Secret header; answers 404 otherwise."""
+    secret = os.getenv("SMARTPOLI_ADMIN_SECRET", "")
+    if not secret or not x_admin_secret or not hmac.compare_digest(secret.encode(), x_admin_secret.encode()):
+        raise HTTPException(404, "Not Found")
+    return feedback.summary(db)
 
 
 @app.get("/medicines/{medicine_id}/pair-check")

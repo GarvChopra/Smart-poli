@@ -351,6 +351,21 @@ class AIGapCache(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Feedback(Base):
+    """A rating and message sent by a patient or caregiver from the Feedback page or the occasional rate-the-app popup."""
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String, nullable=False)              # 'patient' | 'caregiver' | 'doctor'
+    rating = Column(Integer, nullable=False)           # 1..5
+    category = Column(String, nullable=False)          # 'problem' | 'idea' | 'praise' | 'other'
+    message = Column(Text, nullable=False, default="")
+    contact_ok = Column(Boolean, nullable=False, default=False)
+    source = Column(String, nullable=False, default="page")   # 'page' | 'popup'
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class CareNote(Base):
     """A note written by someone on the care team (caregiver / doctor) about a patient. kind 'message' goes to the patient,
     'medicine' is attached to one of their medicines (patient sees it too), 'handover' is for the care team only."""

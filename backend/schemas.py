@@ -30,6 +30,14 @@ class ManualMedicine(BaseModel):
     duration_days: Optional[int] = Field(None, ge=1, le=365)              # None = ongoing
 
 
+class FeedbackCreate(BaseModel):
+    rating: int
+    category: str = "other"
+    message: str = Field("", max_length=4000)          # the real limit (1000) is enforced with a plain message in feedback.py
+    contact_ok: bool = False
+    source: str = "page"
+
+
 class CareNoteCreate(BaseModel):
     kind: str = Field(..., max_length=20)
     body: str = Field(..., max_length=2000)            # the real limit (500) is enforced, with a plain message, in care_notes.py
