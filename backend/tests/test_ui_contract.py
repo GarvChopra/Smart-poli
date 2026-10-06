@@ -90,14 +90,14 @@ def test_whatsapp_is_a_popup_not_a_dashboard_card():
     assert "renderDashboardWhatsApp" not in JS
 
 
-def test_prescription_tab_has_enter_manually_then_small_choose_file_then_type_it_in_then_my_medicines():
+def test_prescription_tab_is_enter_manually_then_small_choose_file_then_type_it_in():
     body = fn_body("renderPrescriptions")
-    order = [body.index(x) for x in ('id="manualBtn"', 'id="chooseFileBtn"', "Or type it in", 'id="myMedicines"')]
+    order = [body.index(x) for x in ('id="manualBtn"', 'id="chooseFileBtn"', "Or type it in")]
     assert order == sorted(order)                                            # top to bottom, in that order
-    assert "Enter manually" in body and "Choose file" in body and "Medicines you take" in body
-    assert "medicineWizard({ step: 'details' })" in body and "wireRemoveButtons" in body
+    assert "Enter manually" in body and "Choose file" in body
+    assert "medicineWizard({ step: 'details' })" in body
     assert 'id="rxImageInput" accept="image/*" hidden' in body and "rxInput.click()" in body       # opens the phone's files
-    for gone in ("Scan medicine", "scanInput", "scanBtn", 'capture="environment"', "or-divider"):
+    for gone in ("Scan medicine", "scanInput", "scanBtn", 'capture="environment"', "or-divider", "myMedicines", "Medicines you take"):
         assert gone not in body, gone
 
 

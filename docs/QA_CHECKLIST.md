@@ -34,7 +34,7 @@ Mark each line PASS / FAIL / N/A with the device, Android version and date.
 - [ ] A dose >2 h overdue becomes **Missed** (check after waiting, or via the cron call), sits in "Missed recently", and the guidance popup opens once.
 - [ ] Popup: states "never take a double dose", shows the label sentence + source link, and for warfarin/insulin shows **no** catch-up time.
 - [ ] Try to mark a dose that is hours/days away: **no button** on the list, and if forced you get the popup "Not yet — don't take this now … from HH:MM". Tapping Take many times never takes more than the due dose.
-- [ ] Prescription tab ("Your medicines") shows **Enter manually**, a small **Choose file**, **Or type it in**, then your medicines with **Remove** (no Scan medicine). Add one: it is scheduled at once; adding a clashing pair shows the "Don't take these together" popup.
+- [ ] Prescription tab shows **Enter manually**, a small **Choose file**, **Or type it in** (no Scan medicine, no medicine list). Add one: it is scheduled at once; adding a clashing pair shows the "Don't take these together" popup.
 - [ ] Settings → My daily routine: change the morning time, "Save & move my current medicines" → upcoming doses move; today's past/taken ones do not; repeat → "already match". Turn off the 10-min and follow-up reminders → they stop; the at-dose-time reminder still arrives.
 - [ ] Care report: Export calendar and Download PDF both download a file (no error page); no "needs confirmation" rows or alerts.
 - [ ] Dashboard shows **only today's** medicines (taken / missed / due / upcoming); no 30-day list; "Left today" tile. After midnight (or changing the phone date) the next day's doses appear as the new "today".

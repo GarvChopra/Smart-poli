@@ -418,13 +418,14 @@ async function renderGlance() {
 
 // ---------------------------------------------------------------- prescriptions (Feature 1)
 
-async function renderPrescriptions(lastResult) {
+function renderPrescriptions(lastResult) {
   const view = document.getElementById('view-prescriptions');
   view.innerHTML = `
-    <h2>Your medicines</h2>
-    <div class="card rx-add">
+    <h2>${t('prescriptionHeading')}</h2>
+    <p style="color:var(--ink-soft)">Add a medicine in one tap, or type it in.</p>
+
+    <div class="card">
       <button class="primary add-big add-full" id="manualBtn"><span class="icon">${ICONS.pill}</span>Enter manually</button>
-      <div class="reg-meta" style="margin-top:8px;text-align:center;">Add a medicine and set when you take it, like an alarm.</div>
       <div style="text-align:center;margin-top:12px;">
         <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
         <span class="reg-meta">&nbsp;a photo of a whole prescription</span>
@@ -445,7 +446,6 @@ Syrup Crocin 5ml SOS"></textarea>
       </div>
     </div>
     <div id="rxResult"></div>
-    <div id="myMedicines"><div class="empty">Loading…</div></div>
   `;
 
   document.getElementById('manualBtn').addEventListener('click', () => medicineWizard({ step: 'details' }));
@@ -503,28 +503,6 @@ Syrup Crocin 5ml SOS"></textarea>
 
   if (lastResult) renderRxResult(lastResult);
 
-  const mount = document.getElementById('myMedicines');
-  const report = await api('GET', `/patients/${state.patientId}/report`).catch(() => null);
-  if (!report) { mount.innerHTML = '<div class="empty">Could not load your medicines.</div>'; return; }
-  const seen = new Set();
-  const meds = report.prescriptions.flatMap((p) => p.medicines).filter((m) => {      // the same medicine entered twice shows once
-    const k = `${(m.name || m.raw_text || '').toLowerCase()}|${m.dose_amount}|${m.dose_unit}|${m.when}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  mount.innerHTML = meds.length ? `
-    <h3 class="rx-title">Medicines you take</h3>
-    ${meds.map((m) => `
-      <div class="card rx-med">
-        <div class="rx-med-main">
-          <div class="rx-med-name">${escHtml(m.name || m.raw_text)} <span class="rx-med-dose">${escHtml(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
-          ${m.when ? `<div class="rx-med-when">${escHtml(m.when)}</div>` : ''}
-        </div>
-        <button class="ghost small" data-remove-med="${escHtml(m.id)}" data-name="${escHtml(m.name || m.raw_text)}">Remove</button>
-      </div>`).join('')}`
-    : '<div class="empty">No medicines yet. Tap “Enter manually” to add your first one.</div>';
-  wireRemoveButtons(mount, () => { renderPrescriptions(); renderGlance(); });
 }
 
 // ---------------------------------------------------------------- add a medicine: name, then "how do you take it"

@@ -77,8 +77,8 @@ the ≤5.5 h skew is immaterial there).
 * **Patient's own routine** (Settings): morning/afternoon/evening/night/bedtime times, before-food = 30 min earlier,
   optional reminders (last heads-up, follow-up); new medicines follow it and "Save & move my current medicines"
   re-times only future untouched doses. See `docs/SCHEDULING.md` for the design, sources and limits.
-* **Simpler screens**: Prescription tab = *Your medicines*: *Enter manually* (name, then alarm-style times / repeat days / food / duration; added and
-  scheduled at once), a small *Choose file* (prescription photo), *Or type it in*, then the list of current medicines with *Remove*.
+* **Simpler screens**: Prescription tab: *Enter manually* (name, then alarm-style times / repeat days / food / duration; added and
+  scheduled at once), a small *Choose file* (prescription photo), *Or type it in*.
   The camera *Scan medicine* feature was removed (2026-10-06). Dashboard = next dose + today's medicines (+ a one-line timing hint, WhatsApp as a popup).
   Adherence/progress moved to the Care report; interactions/food/timing stay in Safety center. The "70 medicines need
   confirmation" came from abandoned drafts piling up forever — they now age out after 3 days and are no longer listed in the

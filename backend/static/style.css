@@ -1300,12 +1300,3 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .fb-foot { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-soft); }
 .fb-link { background: none; border: 0; padding: 4px; color: var(--ink-soft); font: inherit; text-decoration: underline; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .fb-blob, .fb-bubble, .fb-heart, .fb-star, .fb-plus, .fb-send::after, .fb-face.pop, .fb-confetti i { animation: none !important; } .fb-check-svg circle, .fb-check-svg path { animation: none; stroke-dashoffset: 0; } .fb-confetti { display: none; } }
-
-/* Prescription tab = "Your medicines" */
-.rx-add { text-align: center; }
-.rx-title { margin: 20px 0 4px; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
-.rx-med { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
-.rx-med-main { min-width: 0; }
-.rx-med-name { font-weight: 800; font-size: 17px; word-break: break-word; }
-.rx-med-dose { font-weight: 600; color: var(--ink-soft); }
-.rx-med-when { color: var(--ink-soft); font-size: 14px; margin-top: 2px; }
