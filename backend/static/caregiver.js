@@ -1,36 +1,16 @@
-// SmartPoli — caregiver dashboard (Part 2 of the brief).
-//
-// Every request here goes through auth.js's apiFetch, which attaches the
-// caregiver's real bearer token. The backend (caregiver_router.py) is what
-// actually enforces that this caregiver only ever sees patients they hold
-// an ACTIVE CaregiverLink for — this file has no access logic of its own,
-// it just renders what the server was willing to return.
+// SmartPoli — caregiver portal shell: session, menu, larger text, and the page router.
+// The pages themselves are in caregiver-pages.js (loaded first). Access is enforced by the server on every request
+// (caregiver_router.py); this file has no access logic of its own.
 
 const currentUser = requireRole('caregiver');
-const api = apiFetch;
-
-const state = { patients: [], patientId: null };
-
-const PRIORITY_LABELS = { emergency: 'Emergency', high: 'High', medium: 'Medium', routine: 'Routine' };
-
-function renderPriorityBadge(priority) {
-  if (!priority) return '';
-  return `<span class="badge ${priority.level}">${PRIORITY_LABELS[priority.level] || priority.level}</span>`;
-}
-
-function renderPriorityReasons(priority) {
-  if (!priority || !priority.reasons.length) return '';
-  return `<ul class="priority-reasons">${priority.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`;
-}
 
 function renderSessionChip() {
   const chip = document.getElementById('sessionChip');
   if (!chip || !currentUser) return;
   chip.innerHTML = `
-    <span class="who">${currentUser.name}</span>
+    <span class="who">${esc(currentUser.name)}</span>
     <span class="role-tag">Caregiver</span>
-    <button class="ghost small" id="logoutBtn">Log out</button>
-  `;
+    <button class="ghost small" id="logoutBtn">Log out</button>`;
   document.getElementById('logoutBtn').addEventListener('click', logout);
 }
 
@@ -45,170 +25,44 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
   applyA11yMode();
 });
 
-// Header is brand + hamburger only — settings (a11y, link patient, session)
-// live in an off-canvas drawer, same pattern as doctor.js.
+// Header is brand + hamburger only; the menu holds the page links, text size and the session.
 const hamburgerBtn = document.getElementById('hamburgerBtn');
 const navDrawer = document.getElementById('navDrawer');
 const navOverlay = document.getElementById('navOverlay');
-const closeDrawerBtn = document.getElementById('closeDrawerBtn');
-function openDrawer() {
-  navDrawer.classList.add('open');
-  navOverlay.classList.add('open');
-  hamburgerBtn.setAttribute('aria-expanded', 'true');
-}
-function closeDrawer() {
-  navDrawer.classList.remove('open');
-  navOverlay.classList.remove('open');
-  hamburgerBtn.setAttribute('aria-expanded', 'false');
-}
+function openDrawer() { navDrawer.classList.add('open'); navOverlay.classList.add('open'); hamburgerBtn.setAttribute('aria-expanded', 'true'); }
+function closeDrawer() { navDrawer.classList.remove('open'); navOverlay.classList.remove('open'); hamburgerBtn.setAttribute('aria-expanded', 'false'); }
 hamburgerBtn.addEventListener('click', openDrawer);
-closeDrawerBtn.addEventListener('click', closeDrawer);
+document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+navDrawer.addEventListener('click', (e) => { if (e.target.closest('a')) closeDrawer(); });
 
-document.getElementById('linkPatientBtn').addEventListener('click', () => {
-  document.getElementById('linkForm').style.display = 'block';
-});
-document.getElementById('cancelLinkBtn').addEventListener('click', () => {
-  document.getElementById('linkForm').style.display = 'none';
-});
-document.getElementById('redeemLinkBtn').addEventListener('click', async () => {
-  const code = document.getElementById('linkCodeInput').value.trim();
-  const status = document.getElementById('linkStatus');
-  if (!code) return;
+// ---------------------------------------------------------------- router: #/  #/settings  #/p/:id/(today|medicines|notes|history|emergency)
+
+const PAGE_FOR = { today: pageToday, medicines: pageMedicines, notes: pageNotes, history: pageHistory, emergency: pageEmergency };
+
+async function route() {
+  const root = document.getElementById('page');
+  const path = (window.location.hash || '#/').replace(/^#/, '') || '/';
+  document.querySelectorAll('#navDrawer [data-route]').forEach((a) => a.classList.toggle('active', a.dataset.route === (path === '/settings' ? 'settings' : 'home')));
   try {
-    const result = await api('POST', '/caregiver/link/redeem', { code });
-    status.style.color = 'var(--teal-dark)';
-    status.textContent = `Linked to ${result.patient.name}.`;
-    document.getElementById('linkCodeInput').value = '';
-    await loadPatients();
-    selectPatient(result.patient.id);
+    let m;
+    if (path === '/') await pagePatients(root);
+    else if (path === '/settings') await pageSettings(root);
+    else if ((m = path.match(/^\/p\/(\d+)\/(today|medicines|notes|history|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
+    else window.location.hash = '#/';
+    window.scrollTo(0, 0);
   } catch (e) {
-    status.style.color = 'var(--alarm)';
-    status.textContent = e.message;
+    const gone = /not linked|403/i.test(e.message || '') || e.status === 403;
+    root.innerHTML = gone
+      ? `<div class="card"><h3>You're no longer linked to this patient</h3><p class="reg-meta">The patient may have removed your access.</p><a class="primary" href="#/">Back to your patients</a></div>`
+      : `<div class="card"><h3>Something went wrong</h3><p class="reg-meta">${esc(e.message || 'Please try again.')}</p><a href="#/">Back to your patients</a></div>`;
   }
-});
-
-async function loadPatients() {
-  state.patients = await api('GET', '/caregiver/patients');
-  if (!state.patients.length) {
-    document.getElementById('patientPicker').innerHTML = '<div class="empty">No linked patients yet — use "+ Link a patient" above.</div>';
-    document.getElementById('overview').innerHTML = '';
-    return;
-  }
-  renderPatientPicker(state.patients);
-  if (!state.patientId) selectPatient(state.patients[0].id);
 }
+window.addEventListener('hashchange', route);
 
-function renderPatientPicker(patients) {
-  const picker = document.getElementById('patientPicker');
-  picker.innerHTML = patients.map(p => `
-    <button type="button" class="patient-picker-card ${p.id === state.patientId ? 'active' : ''}" data-pid="${p.id}">
-      <div class="name">${p.name}</div>
-      <div class="meta">${p.age ? p.age + ' yrs' : ''}${p.sex ? ', ' + p.sex : ''}</div>
-      <div class="priority-row">
-        ${renderPriorityBadge(p.priority)}
-        ${renderPriorityReasons(p.priority)}
-      </div>
-    </button>
-  `).join('') || '<div class="empty">No patients match that search.</div>';
-  picker.querySelectorAll('[data-pid]').forEach(btn => {
-    btn.addEventListener('click', () => selectPatient(Number(btn.dataset.pid)));
-  });
-}
-
-document.getElementById('patientSearchInput').addEventListener('input', (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  const filtered = q ? state.patients.filter(p => p.name.toLowerCase().includes(q)) : state.patients;
-  renderPatientPicker(filtered);
-});
-
-function selectPatient(id) {
-  state.patientId = id;
-  document.querySelectorAll('#patientPicker [data-pid]').forEach(btn => {
-    btn.classList.toggle('active', Number(btn.dataset.pid) === id);
-  });
-  renderOverview();
-}
-
-async function renderOverview() {
-  const view = document.getElementById('overview');
-  view.innerHTML = '<div class="empty">Loading...</div>';
-  const o = await api('GET', `/caregiver/patients/${state.patientId}/overview`);
-
-  const nudgesHtml = (o.nudges || []).map(n => `<div class="nudge-banner ${n.level}">${n.text}</div>`).join('');
-  const alertsHtml = o.alerts.map(a => `<div class="alert-item">${a}</div>`).join('') || '<div class="empty">Nothing needs attention.</div>';
-
-  const upcomingHtml = o.upcoming_doses.map(d => `
-    <div class="dose-row">
-      <div class="time">${new Date(d.scheduled_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</div>
-      <div style="flex:1;padding:0 10px;">${d.medicine_name}</div>
-      <span class="badge ${d.state}">${d.state}</span>
-    </div>
-  `).join('') || '<div class="empty">Nothing scheduled.</div>';
-
-  const perMedHtml = o.per_medicine.map(m => `
-    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:13px;padding:6px 0;border-top:1px solid var(--line);">
-      <span>${m.name}</span>
-      <span style="color:var(--ink-soft);">${m.adherence_percent === null ? '—' : m.adherence_percent + '%'} · ${m.taken} taken / ${m.missed} missed</span>
-    </div>
-  `).join('') || '<div class="empty">No medicines yet.</div>';
-
-  const symptomsHtml = o.recent_symptom_checks.map(c => `
-    <div class="dose-row">
-      <div class="time">${new Date(c.created_at).toLocaleDateString()}</div>
-      <div style="flex:1;padding:0 10px;">${c.action}</div>
-      <span class="badge ${c.severity.toLowerCase()}">${c.severity}</span>
-    </div>
-  `).join('') || '<div class="empty">No symptom checks recorded.</div>';
-
-  const ec = o.emergency_card;
-  const emergencyUrl = `${window.location.origin}${ec.card_path}`;
-
-  view.innerHTML = `
-    <h2 style="margin-top:26px;">${o.patient.name}'s overview</h2>
-    <div style="margin-bottom:14px;">${renderPriorityBadge(o.priority)}${renderPriorityReasons(o.priority)}</div>
-    ${nudgesHtml}
-
-    <div class="card">
-      <div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>
-      ${alertsHtml}
-    </div>
-
-    <div class="stat-row" style="margin-bottom:16px;">
-      <div class="stat">${iconBadge('teal', 'chartBar')}<div><div class="num">${o.adherence.adherence_percent ?? '—'}${o.adherence.adherence_percent !== null ? '%' : ''}</div><div class="label">Adherence</div></div></div>
-      <div class="stat">${iconBadge('blue', 'pill')}<div><div class="num">${o.adherence.taken}</div><div class="label">Taken</div></div></div>
-      <div class="stat">${iconBadge('alarm', 'alertCircle')}<div><div class="num">${o.adherence.missed}</div><div class="label">Missed</div></div></div>
-      <div class="stat">${iconBadge('blue', 'clock')}<div><div class="num">${o.adherence.skipped}</div><div class="label">Skipped</div></div></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Per-medicine adherence</h3></div>
-      ${perMedHtml}
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('blue', 'clock')}<h3>Upcoming doses</h3></div>
-      ${upcomingHtml}
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Recent symptom checks</h3></div>
-      ${symptomsHtml}
-    </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('alarm', 'siren')}<h3>Emergency information</h3></div>
-      ${ec.has_emergency_triage_history ? '<div class="alert-item">Has a history of an EMERGENCY-graded symptom check.</div>' : ''}
-      <div><strong>Allergies:</strong> ${ec.patient.allergies || 'none recorded'}</div>
-      <div><strong>Emergency contact:</strong> ${ec.patient.emergency_contact || 'none recorded'}</div>
-      <div style="margin-top:10px;"><a href="${emergencyUrl}" target="_blank">Open full emergency card →</a></div>
-    </div>
-  `;
-}
-
-(async function boot() {
+(function boot() {
   if (!currentUser) return;
   renderSessionChip();
   applyA11yMode();
-  await loadPatients();
+  route();
 })();

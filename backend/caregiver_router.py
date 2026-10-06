@@ -162,7 +162,19 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
     if dash["unconfirmed_medicines"]:
         alerts.append(f"{len(dash['unconfirmed_medicines'])} medicine(s) are unconfirmed and were never scheduled.")
 
+    from emergency_page import _split_contact
+    label, ec_phone = _split_contact(patient.emergency_contact)
+    own_phone = db.query(User.phone).filter(User.id == patient.user_id).scalar() if patient.user_id else None
+    missed_cutoff = datetime.utcnow() - timedelta(days=14)
+    recent_missed = sorted(
+        ({"dose_id": d.id, "medicine_name": med.name or med.raw_text, "scheduled_at": d.scheduled_at.isoformat()}
+         for pres in dash["prescriptions"] for med in pres.medicines for d in med.doses
+         if d.state == "missed" and d.scheduled_at >= missed_cutoff),
+        key=lambda x: x["scheduled_at"], reverse=True)[:15]
+
     return {
+        "phones": {"patient": own_phone, "emergency_contact": {"label": label, "phone": ec_phone} if ec_phone else None},
+        "recent_missed": recent_missed,
         "patient": serialize_patient(patient),
         "priority": compute_priority(db, patient_id),
         "adherence": dash["adherence"],

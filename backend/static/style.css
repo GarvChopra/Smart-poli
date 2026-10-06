@@ -1188,3 +1188,42 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .cw-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cw-actions .small { padding: 7px 10px; font-size: 13px; }
 .cw-modal .sm-actions { margin-top: 12px; }
+
+/* ---------- caregiver portal pages ---------- */
+.cg-menu-link { display: block; padding: 12px 14px; border-radius: 12px; font-weight: 700; text-decoration: none; color: var(--ink); }
+.cg-menu-link.active { background: var(--teal-soft); color: var(--teal-dark); }
+.cg-back { display: inline-block; margin-bottom: 6px; font-weight: 600; text-decoration: none; color: var(--teal-dark); }
+.cg-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cg-title h2 { margin: 0; }
+.cg-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 12px 0; padding-bottom: 4px; scrollbar-width: none; }
+.cg-tabs a { flex: none; padding: 9px 14px; border-radius: 999px; font-weight: 700; font-size: 14px; text-decoration: none; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line, #e3e8e6); }
+.cg-tabs a.active { background: var(--teal-dark); color: #fff; border-color: var(--teal-dark); }
+.cg-body > * + * { margin-top: 12px; }
+.cg-patient { display: block; text-decoration: none; color: inherit; text-align: left; }
+.cg-next { background: var(--teal-soft); border-radius: 16px; padding: 14px 16px; }
+.cg-next-name { font-size: 24px; font-weight: 800; color: var(--teal-dark); }
+.cg-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.cg-link { text-decoration: none; display: inline-flex; align-items: center; }
+.cg-note { border-top: 1px solid var(--line, #e3e8e6); padding: 10px 0; }
+.cg-note:first-child { border-top: 0; }
+.cg-note-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cg-note-body { white-space: pre-wrap; word-break: break-word; margin: 4px 0 6px; }
+.cg-notes { margin-top: 10px; }
+.cg-form textarea { width: 100%; resize: vertical; }
+.cg-form-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.cg-err { color: #8E2018; font-size: 13px; min-height: 18px; margin-top: 4px; }
+.cg-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+.cg-med-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.cg-permed { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line, #e3e8e6); font-size: 14px; }
+.cg-form textarea { font: inherit; }
+.cg-check input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; }
+.cg-check { justify-content: flex-start; }
+
+/* notes from caregivers (patient side) */
+.cn-card { border: 1.5px solid var(--teal-soft); }
+.cn-badge { margin-left: auto; background: var(--teal-dark); color: #fff; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+.cn-note { border-top: 1px solid var(--line, #e3e8e6); padding: 8px 0; }
+.cn-note:first-of-type { border-top: 0; }
+.cn-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cn-body { white-space: pre-wrap; word-break: break-word; }
+.cn-medline { margin-top: 6px; background: #FFF7E0; border-radius: 10px; padding: 6px 10px; font-size: 13.5px; }

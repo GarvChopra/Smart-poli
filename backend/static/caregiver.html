@@ -19,42 +19,27 @@
   </header>
 
   <div class="nav-drawer-overlay no-print" id="navOverlay"></div>
-  <div class="nav-drawer no-print" id="navDrawer" aria-label="Settings">
+  <div class="nav-drawer no-print" id="navDrawer" aria-label="Menu">
     <div class="nav-drawer-head">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
       <button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button>
     </div>
     <div class="nav-drawer-body">
+      <a class="cg-menu-link" href="#/" data-route="home">Your patients</a>
+      <a class="cg-menu-link" href="#/settings" data-route="settings">Settings</a>
       <button class="ghost" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa Larger text</button>
-      <button class="primary" id="linkPatientBtn">+ Link a patient</button>
       <div class="session-chip" id="sessionChip"></div>
     </div>
   </div>
 
   <div class="body-row">
-    <main class="content" style="max-width:900px;">
-      <h2>Linked patients</h2>
-      <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
-      <div id="patientPicker" class="patient-picker-grid"></div>
-      <div id="linkForm" style="display:none;" class="card">
-        <h3>Link a patient</h3>
-        <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
-          SmartPoli app (Emergency card tab → Link caregiver), then enter it here.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
-          <button class="primary" id="redeemLinkBtn">Link</button>
-          <button class="ghost" id="cancelLinkBtn">Cancel</button>
-        </div>
-        <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
-      </div>
-
-      <section id="overview"></section>
-    </main>
+    <main class="content" id="page" style="max-width:900px;"></main>
   </div>
 </div>
 
 <script src="/static/auth.js"></script>
 <script src="/static/icons.js"></script>
+<script src="/static/caregiver-pages.js"></script>
 <script src="/static/caregiver.js"></script>
 </body>
 </html>
