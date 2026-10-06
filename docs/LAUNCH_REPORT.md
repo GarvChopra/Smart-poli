@@ -194,3 +194,21 @@ Manual device pass: `docs/QA_CHECKLIST.md`.
 7. Real-device test of camera scan and OCR quality on actual Indian packaging; tune or add manual-entry nudges.
 8. Move the login throttle and the reminder lock to a shared store before running more than one instance.
 9. Offline dose logging, image-vs-fields confirmation screen, doctor-side timing view (nice-to-have).
+
+## 11. Caregiver portal (added 2026-10-06)
+
+Spec: `docs/superpowers/specs/2026-10-06-caregiver-portal-design.md` · Plan: `docs/superpowers/plans/2026-10-06-caregiver-portal.md`
+
+* **Pages** (hash routes in `caregiver.html`): `#/` patients, `#/p/:id/today|medicines|notes|history|emergency`, `#/settings`.
+* **Caregiver can write**: notes to the patient (optionally pushed to their phone), notes on a medicine, and care-team-only
+  handover notes. Caregivers still cannot change medicines, doses, schedules or the profile.
+* **Alerts**: a missed dose pushes to each linked caregiver who turned phone alerts on (once per dose per caregiver);
+  **Remind now** nudges the patient (once per 15 min per patient, audited).
+* **New tables** (created automatically, no ALTER): `care_notes`, `user_push_subscriptions`, `caregiver_prefs`.
+* **Patient side**: "From your caregiver" card on the dashboard (unread only), notes under each medicine in the Safety center,
+  all notes in Settings. Handover notes are never shown to the patient.
+* **Limits**: 500 characters per note, 30 notes/hour per author; a revoked link is refused everywhere.
+* **Not built yet** (suggested next): refill tracker, appointments, health log / weekly digest.
+* Tests: `test_care_notes.py`, `test_care_notes_api.py`, `test_caregiver_alerts.py`, `test_caregiver_overview.py`,
+  `test_caregiver_ui_contract.py`, plus patient-side contracts in `test_ui_contract.py`. **Not reviewed by a clinician; caregiver
+  alerts have not been tried on real phones yet.**
