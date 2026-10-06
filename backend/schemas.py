@@ -30,6 +30,13 @@ class ManualMedicine(BaseModel):
     duration_days: Optional[int] = Field(None, ge=1, le=365)              # None = ongoing
 
 
+class CareNoteCreate(BaseModel):
+    kind: str = Field(..., max_length=20)
+    body: str = Field(..., max_length=2000)            # the real limit (500) is enforced, with a plain message, in care_notes.py
+    medicine_id: Optional[int] = None
+    notify: bool = False                                # message only: also push it to the patient's phone
+
+
 class ShiftMedicine(BaseModel):
     """Move every upcoming dose of one medicine later by a number of minutes (the 'keep these apart' suggestion)."""
     minutes: int = Field(..., ge=15, le=720)

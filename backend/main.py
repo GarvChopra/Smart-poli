@@ -102,6 +102,7 @@ import safety_service
 import safety_engine
 import webpush_service
 import medicine_info
+import care_notes
 import pair_check
 from timeline import friendly_entries
 
@@ -536,6 +537,20 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
             "doses_scheduled": sum(s["doses_generated"] for s in out["scheduled"]["scheduled"]),
             "first_dose": first.scheduled_at.isoformat() if first else None,
             "conflicts": conflicts, "interactions": interactions}
+
+
+@app.get("/patients/{patient_id}/care-notes")
+def patient_care_notes(patient_id: int, user: User = Depends(require_patient_write_access), db: Session = Depends(get_db_session)):
+    """Notes from the patient's caregivers (and doctor) meant for the patient. Care-team-only handover notes never appear."""
+    get_patient_or_404(db, patient_id)
+    return {"notes": care_notes.list_notes(db, patient_id, "patient"), "unread": care_notes.unread_count(db, patient_id),
+            "disclaimer": care_notes.DISCLAIMER}
+
+
+@app.post("/patients/{patient_id}/care-notes/seen")
+def patient_care_notes_seen(patient_id: int, user: User = Depends(require_patient_write_access), db: Session = Depends(get_db_session)):
+    get_patient_or_404(db, patient_id)
+    return {"seen": care_notes.mark_seen(db, patient_id)}
 
 
 @app.get("/medicines/{medicine_id}/pair-check")
