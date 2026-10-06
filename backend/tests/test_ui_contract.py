@@ -246,3 +246,28 @@ def test_every_helper_the_add_medicine_flow_calls_still_exists():
     for helper in ("fmtClock", "removeMedicine", "wireRemoveButtons", "compactClashHtml", "afterMedicineAdded", "medicineWizard"):
         assert re.search(rf"^(?:async )?function {helper}\(", JS, re.M), helper
     assert fn_body("fmtClock").count("PM") == 1
+
+
+def test_settings_has_personal_information_then_notifications_as_closed_arrow_rows():
+    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+    i_personal = html.index("<summary>Personal information</summary>")
+    i_notif = html.index("<summary>Notifications</summary>")
+    i_routine = html.index("<summary>Daily routine</summary>")
+    assert i_personal < i_notif < i_routine                                            # the order asked for
+    for summary in ("<summary>Personal information</summary>", "<summary>Notifications</summary>"):
+        opening = html[html.rfind("<details", 0, html.index(summary)):html.index(summary)]
+        assert " open" not in opening, summary                                         # both start closed
+    assert 'id="settingsPersonal"' in html and 'id="settingsNotifications"' in html
+    # the rows that were not asked about are unchanged
+    assert '<details class="set-group" open><summary>Daily routine</summary>' in html
+    assert "<summary>Care team</summary>" in html and "<summary>Chat on WhatsApp</summary>" in html
+
+
+def test_personal_information_form_edits_the_profile_and_refreshes_the_app():
+    assert "renderSettingsPersonal" in re.search(r"function renderActiveTab\(\)[\s\S]*?\n\}", JS).group(0)
+    body = fn_body("renderSettingsPersonal")
+    for field in ("spName", "spAge", "spSex", "spBlood", "spAllergy", "spContact"):
+        assert field in body, field
+    assert "'PATCH'" in body and "/patients/${state.patientId}" in body
+    assert "Saved" in body and "loadPatients()" in body and "renderGlance()" in body
+    assert "escHtml(" in body                                                          # existing values are escaped into the form

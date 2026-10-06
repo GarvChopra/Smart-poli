@@ -287,6 +287,7 @@ function renderActiveTab() {
     renderSettingsCareTeam(); renderSettingsWhatsApp();
     renderNotificationsCard(document.getElementById('settingsNotifications'), state.patientId);
     renderRoutineCard(document.getElementById('settingsRoutine'), state.patientId);
+    renderSettingsPersonal();
   }
   renderGlance();
 }
@@ -684,6 +685,65 @@ const removeButtonsHtml = (names, ids) => {
     ? `<div class="rm-row"><span>${escHtml(n)}</span><button class="ghost small rm-btn" data-remove-med="${ids[i]}" data-name="${escHtml(n)}">Remove</button></div>` : '').join('');
   return rows ? `<div class="rm-box"><div class="rm-title">Remove one of them?</div>${rows}</div>` : '';
 };
+
+// ---------------------------------------------------------------- Settings: personal information
+
+/** The same details asked at first login, editable here. Saving updates the profile and refreshes the names shown around the app. */
+async function renderSettingsPersonal() {
+  const mount = document.getElementById('settingsPersonal');
+  if (!mount || !state.patientId) return;
+  const p = await api('GET', `/patients/${state.patientId}`).catch(() => null);
+  if (!p) { mount.innerHTML = '<div class="empty">Could not load your details.</div>'; return; }
+  const sexOption = (v, l) => `<option value="${v}" ${p.sex === v ? 'selected' : ''}>${l}</option>`;
+  mount.innerHTML = `
+    <form class="sp-form" id="spForm" autocomplete="off">
+      <label for="spName">Name</label>
+      <input id="spName" type="text" required maxlength="80" value="${escHtml(p.name || '')}">
+      <div class="fp-row">
+        <div><label for="spAge">Age</label>
+          <input id="spAge" type="number" inputmode="numeric" required min="0" max="120" value="${escHtml(p.age == null ? '' : p.age)}"></div>
+        <div><label for="spSex">Sex</label>
+          <select id="spSex" required><option value="">Select</option>${sexOption('F', 'Female')}${sexOption('M', 'Male')}${sexOption('Other', 'Other')}</select></div>
+      </div>
+      <label for="spBlood" style="margin-top:10px;display:block;">Blood group <span class="reg-meta">(optional)</span></label>
+      <select id="spBlood"><option value="">Not sure</option>${['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((g) => `<option ${p.blood_group === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
+      <label for="spAllergy" style="margin-top:10px;display:block;">Allergies <span class="reg-meta">(optional)</span></label>
+      <input id="spAllergy" type="text" maxlength="200" placeholder="e.g. Penicillin" value="${escHtml(p.allergies || '')}">
+      <label for="spContact" style="margin-top:10px;display:block;">Emergency contact <span class="reg-meta">(optional)</span></label>
+      <input id="spContact" type="text" maxlength="120" placeholder="Name, phone number" value="${escHtml(p.emergency_contact || '')}">
+      <div class="sp-msg" id="spMsg" role="status"></div>
+      <button class="primary" type="submit" id="spSave" style="margin-top:10px;">Save</button>
+    </form>`;
+  const form = mount.querySelector('#spForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = form.querySelector('#spMsg');
+    msg.className = 'sp-msg';
+    const name = form.querySelector('#spName').value.trim();
+    const age = Number(form.querySelector('#spAge').value);
+    const sex = form.querySelector('#spSex').value;
+    if (!name) { msg.textContent = 'Please enter your name.'; return; }
+    if (!Number.isFinite(age) || age < 0 || age > 120) { msg.textContent = 'Please enter a valid age.'; return; }
+    if (!sex) { msg.textContent = 'Please choose your sex.'; return; }
+    const btn = form.querySelector('#spSave');
+    btn.disabled = true;
+    try {
+      await api('PATCH', `/patients/${state.patientId}`, {
+        name, age: Math.round(age), sex,
+        blood_group: form.querySelector('#spBlood').value,
+        allergies: form.querySelector('#spAllergy').value.trim(),
+        emergency_contact: form.querySelector('#spContact').value.trim(),
+      });
+      await loadPatients();
+      renderGlance();
+      msg.className = 'sp-msg ok';
+      msg.textContent = 'Saved ✓';
+    } catch (err) {
+      msg.textContent = err.message || 'Could not save. Please try again.';
+    }
+    btn.disabled = false;
+  });
+}
 
 // ---------------------------------------------------------------- when the app is opened: medicines that shouldn't be taken together
 

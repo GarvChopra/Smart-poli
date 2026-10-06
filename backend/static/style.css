@@ -1300,3 +1300,8 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .fb-foot { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-soft); }
 .fb-link { background: none; border: 0; padding: 4px; color: var(--ink-soft); font: inherit; text-decoration: underline; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .fb-blob, .fb-bubble, .fb-heart, .fb-star, .fb-plus, .fb-send::after, .fb-face.pop, .fb-confetti i { animation: none !important; } .fb-check-svg circle, .fb-check-svg path { animation: none; stroke-dashoffset: 0; } .fb-confetti { display: none; } }
+
+/* Settings: personal information form */
+.sp-form input, .sp-form select { width: 100%; }
+.sp-msg { min-height: 20px; margin-top: 8px; font-size: 13.5px; color: #8E2018; }
+.sp-msg.ok { color: var(--teal-dark); font-weight: 700; }
