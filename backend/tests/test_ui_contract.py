@@ -90,15 +90,14 @@ def test_whatsapp_is_a_popup_not_a_dashboard_card():
     assert "renderDashboardWhatsApp" not in JS
 
 
-def test_prescription_tab_has_scan_or_enter_manually_choose_file_and_type():
+def test_prescription_tab_is_one_enter_manually_button_and_the_list_of_my_medicines():
     body = fn_body("renderPrescriptions")
-    assert "Scan medicine" in body and "Enter manually" in body and 'class="or-divider"' in body
-    assert "Choose file" in body and "Or type it in" in body
-    for gone in ("Upload a photo", "upload-zone", "uploadBtn", "Drag &amp; drop", "Read prescription"):
+    assert "Your medicines" in body and "Enter manually" in body and 'id="manualBtn"' in body
+    assert "medicineWizard({ step: 'details' })" in body
+    assert 'id="myMedicines"' in body and "data-remove-med" in body or "wireRemoveButtons" in body
+    for gone in ("Scan medicine", "Choose file", "Or type it in", "scanInput", "rxImageInput", "rxInput", "decodeBtn",
+                 "or-divider", "capture=\"environment\"", "Upload a photo"):
         assert gone not in body, gone
-    assert 'id="scanInput" accept="image/*" capture="environment" hidden' in body       # opens the camera
-    assert 'id="rxImageInput" accept="image/*" hidden' in body                          # opens the phone's files
-    assert "scanInput.click()" in body and "rxInput.click()" in body
 
 
 def test_patient_never_sees_the_pile_of_unconfirmed_drafts():
@@ -189,14 +188,12 @@ def test_push_is_sent_with_high_urgency_so_android_delivers_it_while_dozing():
     assert '"Urgency": "high"' in src
 
 
-def test_scan_flow_has_failure_popup_confirm_popup_and_schedule_step():
-    assert "Scan failed" in fn_body("scanFailedPopup") and "Enter manually" in fn_body("scanFailedPopup")
+def test_adding_a_medicine_is_manual_only_name_then_alarm_style_schedule():
     wiz = fn_body("medicineWizard")
-    assert "Is this your medicine?" in wiz and "No, enter manually" in wiz
-    assert "How many times a day?" in wiz and "At what time?" in wiz and "Repeat" in wiz and "Choose days" in wiz
-    assert "With food?" in wiz and "For how long?" in wiz
-    assert "'/medicines/manual'" in wiz and "/confirm" not in wiz        # added and scheduled in one step: no confirm
-    assert "scanFailedPopup()" in fn_body("scanMedicinePhoto")
+    assert "Add a medicine" in wiz and "How many times a day?" in wiz and "At what time?" in wiz and "Repeat" in wiz
+    assert "'/medicines/manual'" in wiz and "/confirm" not in wiz
+    for gone in ("Is this your medicine?", "Scan failed", "scanMedicinePhoto", "scanFailedPopup", "/medicines/scan"):
+        assert gone not in JS, gone
 
 
 def test_adding_a_medicine_checks_it_against_the_others_and_shows_a_warning_popup():

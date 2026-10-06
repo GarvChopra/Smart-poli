@@ -59,7 +59,6 @@ import voice_stt
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions, normalize_for_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import read_prescription_image, read_image_text_lines, OCRUnavailable
-import medicine_scan
 from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
@@ -467,39 +466,6 @@ async def _read_image_upload(file: UploadFile) -> bytes:
     if not _looks_like_image(data):
         raise HTTPException(415, "That file is not a supported image (JPEG, PNG, WebP, BMP or TIFF).")
     return data
-
-
-@app.post("/medicines/scan")
-async def scan_medicine(
-    patient_id: int = Form(...),
-    file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
-):
-    """
-    Camera scan of a medicine strip or box. Returns CANDIDATE names read from
-    the packaging for the patient to confirm - nothing is added here, no
-    schedule is guessed and the photo is not stored. The patient then adds the
-    medicine through the normal prescription path (POST /prescriptions), which
-    applies the usual review/confirm gate.
-    """
-    get_patient_or_404(db, patient_id)
-    if not has_write_access(db, user, patient_id):
-        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
-    image_bytes = await _read_image_upload(file)
-    # 1) a vision model reads the box (the main way); 2) the older OCR + name matching is only the backup.
-    result = await run_in_threadpool(medicine_scan.identify_with_vision, image_bytes)
-    if result is None:
-        try:
-            lines = await run_in_threadpool(read_image_text_lines, image_bytes)
-        except OCRUnavailable:
-            lines = []
-        result = medicine_scan.candidates_from_lines(lines) if lines else None
-    if result is None or not result["candidates"]:
-        raise HTTPException(422, "We could not read a medicine from that photo. Enter it manually instead.")
-    log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
-              f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
-    return result
 
 
 @app.post("/medicines/manual")

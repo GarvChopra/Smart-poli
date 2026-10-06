@@ -418,136 +418,46 @@ async function renderGlance() {
 
 // ---------------------------------------------------------------- prescriptions (Feature 1)
 
-function renderPrescriptions(lastResult) {
+async function renderPrescriptions() {
   const view = document.getElementById('view-prescriptions');
   view.innerHTML = `
-    <h2>${t('prescriptionHeading')}</h2>
-    <p style="color:var(--ink-soft)">Add a medicine in one tap, or type it in.</p>
-
-    <div class="card">
-      <button class="primary add-big add-full" id="scanBtn"><span class="icon">${ICONS.pill}</span>Scan medicine</button>
-      <div class="or-divider"><span>or</span></div>
-      <button class="ghost add-big add-full" id="manualBtn"><span class="icon">${ICONS.fileText}</span>Enter manually</button>
-      <div class="reg-meta" style="margin-top:10px;text-align:center;">Scan opens the camera. Point it at the strip or box.</div>
-      <div style="text-align:center;margin-top:10px;">
-        <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
-        <span class="reg-meta">&nbsp;a photo of a whole prescription</span>
-      </div>
-      <input type="file" id="scanInput" accept="image/*" capture="environment" hidden>
-      <input type="file" id="rxImageInput" accept="image/*" hidden>
-      <div id="uploadStatus"></div>
-      <div id="scanResult"></div>
+    <h2>Your medicines</h2>
+    <div class="card rx-add">
+      <button class="primary add-big add-full" id="manualBtn"><span class="icon">${ICONS.pill}</span>Enter manually</button>
+      <div class="reg-meta" style="margin-top:8px;text-align:center;">Add a medicine and set when you take it, like an alarm.</div>
     </div>
-
-    <div class="card">
-      <div class="card-head">${iconBadge('teal', 'pill')}<h3>Or type it in</h3></div>
-      <label for="rxInput">Enter the prescription exactly as written</label>
-      <textarea id="rxInput" placeholder="Tab Dolo 650mg 1-0-1 PC x5d
-Cap Amoxicillin 500mg TDS AC 7 days
-Syrup Crocin 5ml SOS"></textarea>
-      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="primary" id="decodeBtn"><span class="icon">${ICONS.shield}</span>Decode</button>
-        <button class="ghost" id="fillExampleBtn">Fill example</button>
-      </div>
-    </div>
-    <div id="rxResult"></div>
-  `;
-
-  const scanInput = document.getElementById('scanInput');
-  document.getElementById('scanBtn').addEventListener('click', () => scanInput.click());   // opens the camera
+    <div id="myMedicines"><div class="empty">Loading…</div></div>`;
   document.getElementById('manualBtn').addEventListener('click', () => medicineWizard({ step: 'details' }));
-  scanInput.addEventListener('change', async () => {
-    if (!scanInput.files.length) return;
-    const file = scanInput.files[0];
-    scanInput.value = '';
-    await scanMedicinePhoto(file);
-  });
 
-  document.getElementById('fillExampleBtn').addEventListener('click', () => {
-    document.getElementById('rxInput').value =
-      'Tab Dolo 650mg 1-0-1 PC x5d\nCap Amoxicillin 500mg TDS AC 7 days\nSyrup Crocin 5ml SOS\nTab X 1-?-1';
+  const mount = document.getElementById('myMedicines');
+  const report = await api('GET', `/patients/${state.patientId}/report`).catch(() => null);
+  if (!report) { mount.innerHTML = '<div class="empty">Could not load your medicines.</div>'; return; }
+  const seen = new Set();
+  const meds = report.prescriptions.flatMap((p) => p.medicines).filter((m) => {      // the same medicine entered twice shows once
+    const k = `${(m.name || m.raw_text || '').toLowerCase()}|${m.dose_amount}|${m.dose_unit}|${m.when}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
   });
-
-  document.getElementById('decodeBtn').addEventListener('click', async () => {
-    const lines = document.getElementById('rxInput').value.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return;
-    const result = await api('POST', '/prescriptions', { patient_id: state.patientId, lines });
-    renderRxResult(result);
-  });
-
-  const rxInput = document.getElementById('rxImageInput');
-  const chooseBtn = document.getElementById('chooseFileBtn');
-  chooseBtn.addEventListener('click', () => rxInput.click());                              // opens the phone's files
-  rxInput.addEventListener('change', async () => {
-    if (!rxInput.files.length) return;
-    const status = document.getElementById('uploadStatus');
-    const setStatus = (kind, text) => {
-      status.className = kind ? `upload-status-banner ${kind}` : '';
-      status.innerHTML = kind === 'loading' ? `<span class="upload-spinner"></span><span>${text}</span>` : text;
-    };
-    chooseBtn.disabled = true;
-    setStatus('loading', 'Reading photo — a full-size phone photo can take up to a minute…');
-    const form = new FormData();
-    form.append('patient_id', state.patientId);
-    form.append('file', rxInput.files[0]);
-    try {
-      const auth = getAuth();
-      dashboardCache = null;  // the photo becomes a draft prescription
-      const res = await fetch('/prescriptions/from-image', {
-        method: 'POST', body: form,
-        headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
-      });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        setStatus('error', escHtml(detail.detail || `Could not read that photo (${res.status}).`));
-        return;
-      }
-      const result = await res.json();
-      setStatus(null, '');
-      showQuickPopup('Photo read successfully', null, `${result.ocr_lines_found} medicine line(s) found`);
-      renderRxResult(result);
-    } catch (e) {
-      setStatus('error', 'Could not reach the server. Use manual entry instead.');
-    } finally {
-      chooseBtn.disabled = false;
-      rxInput.value = '';
-    }
-  });
-
-  if (lastResult) renderRxResult(lastResult);
+  mount.innerHTML = meds.length ? `
+    <h3 class="rx-title">Medicines you take</h3>
+    ${meds.map((m) => `
+      <div class="card rx-med">
+        <div class="rx-med-main">
+          <div class="rx-med-name">${escHtml(m.name || m.raw_text)} <span class="rx-med-dose">${escHtml(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
+          ${m.when ? `<div class="rx-med-when">${escHtml(m.when)}</div>` : ''}
+        </div>
+        <button class="ghost small" data-remove-med="${escHtml(m.id)}" data-name="${escHtml(m.name || m.raw_text)}">Remove</button>
+      </div>`).join('')}`
+    : '<div class="empty">No medicines yet. Tap “Enter manually” to add your first one.</div>';
+  wireRemoveButtons(mount, () => { renderPrescriptions(); renderGlance(); });
 }
 
-// ---------------------------------------------------------------- add a medicine: scan or type, then confirm, then "how do you take it"
+// ---------------------------------------------------------------- add a medicine: name, then "how do you take it"
 //
-//   photo -> "Reading..." -> "Is this your medicine?" (yes / no, enter manually) -> "How do you take it?"
-//   a failed scan -> "Scan failed" popup with Enter manually.
+//   Enter manually -> name, strength, form -> times a day, at what time, repeat days, with food, for how long.
 // Nothing is added until the person answers the last step; the line then goes through the normal prescription
 // review gate, so SmartPoli never invents a dose or schedule.
-
-async function scanMedicinePhoto(file) {
-  const loading = showSafetyModal(`
-    <h3>Reading your medicine…</h3>
-    <div class="upload-status-banner loading" style="margin-top:10px;"><span class="upload-spinner"></span><span>This takes a few seconds.</span></div>`);
-  try {
-    const form = new FormData();
-    form.append('patient_id', state.patientId);
-    form.append('file', file);
-    const auth = getAuth();
-    const res = await fetch('/medicines/scan', {
-      method: 'POST', body: form,
-      headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
-    });
-    const body = await res.json().catch(() => ({}));
-    loading.remove();
-    const cand = res.ok && body.candidates && body.candidates[0];
-    if (!cand) { scanFailedPopup(); return; }
-    medicineWizard({ step: 'confirm', cand, form: body.form_guess });
-  } catch (e) {
-    loading.remove();
-    scanFailedPopup();
-  }
-}
-
 
 // ---------------------------------------------------------------- after adding: what it is for, and any clash with the other medicines
 
@@ -758,23 +668,6 @@ async function showOpenWarnings() {
   wireRemoveButtons(overlay, () => { overlay.remove(); renderActiveTab(); renderGlance(); showOpenWarnings(); });
 }
 
-function scanFailedPopup() {
-  const m = showSafetyModal(`
-    <h3>Scan failed</h3>
-    <div class="sm-headline" style="font-weight:500;">We couldn’t read this medicine. Please enter it manually.</div>
-    <div class="sm-actions">
-      <button class="primary small" id="sfManual">Enter manually</button>
-      <button class="ghost small" id="sfRetry">Try again</button>
-    </div>`);
-  m.querySelector('#sfManual').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
-  m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); document.getElementById('scanInput').click(); });
-}
-
-function fmtClock(hhmm) {
-  const [h, mi] = hhmm.split(':').map(Number);
-  return `${((h + 11) % 12) + 1}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
-
 const MED_FORMS = [['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']];
 const FREQUENCIES = [
   ['once', 'Once a day'], ['twice', 'Twice a day'], ['thrice', 'Three times a day'], ['four', 'Four times a day'], ['sos', 'Only when needed'],
@@ -786,27 +679,6 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function medicineWizard(ctx) {
   const med = ctx.med || {};
-  if (ctx.step === 'confirm') {
-    const c = ctx.cand;
-    const formLabel = (MED_FORMS.find(([v]) => v === (c.form || ctx.form)) || [])[1] || '';
-    const m = showSafetyModal(`
-      <h3>Is this your medicine?</h3>
-      <div class="wz-card">
-        <div class="wz-name">${escHtml(c.name)}</div>
-        <div class="wz-meta">${[c.strength, formLabel, c.generic].filter(Boolean).map(escHtml).join(' · ')}</div>
-      </div>
-      <div class="sm-actions">
-        <button class="primary small" id="wzYes">Yes, this is it</button>
-        <button class="ghost small" id="wzNo">No, enter manually</button>
-      </div>`);
-    m.querySelector('#wzYes').addEventListener('click', () => {
-      m.remove();
-      medicineWizard({ step: 'schedule', med: { name: c.name, strength: c.strength || '', form: c.form || ctx.form || 'tab' } });
-    });
-    m.querySelector('#wzNo').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
-    return;
-  }
-
   if (ctx.step === 'details') {
     const m = showSafetyModal(`
       <h3>Add a medicine</h3>
