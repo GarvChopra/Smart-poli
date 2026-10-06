@@ -282,6 +282,7 @@ function renderActiveTab() {
   if (state.activeTab === 'report') renderReport();
   if (state.activeTab === 'timeline') renderTimeline();
   if (state.activeTab === 'emergency') renderEmergencyCard();
+  if (state.activeTab === 'feedback') SmartFeedback.renderFeedbackPage(document.getElementById('view-feedback'));
   if (state.activeTab === 'settings') {
     renderSettingsCareTeam(); renderSettingsWhatsApp();
     renderNotificationsCard(document.getElementById('settingsNotifications'), state.patientId);
@@ -2186,5 +2187,6 @@ function openTabFromHash() {
   // Straight to the tab in the URL (#tab=… from the voice page); rendering the
   // dashboard first and then switching would load both.
   if (!openTabFromHash()) renderActiveTab();
-  setTimeout(showOpenWarnings, 3500);            // after the screen is up: the check makes many database calls
+  setTimeout(showOpenWarnings, 3500);
+  SmartFeedback.init({ goFeedback: () => document.querySelector('nav.pill-nav button[data-tab="feedback"]').click() });            // after the screen is up: the check makes many database calls
 })();

@@ -273,6 +273,10 @@ async function pageEmergency(root, pid) {
     </div>`);
 }
 
+// ---------------------------------------------------------------- Feedback
+
+function pageFeedback(root) { SmartFeedback.renderFeedbackPage(root); }
+
 // ---------------------------------------------------------------- Settings
 
 function _b64ToBytes(b64) {

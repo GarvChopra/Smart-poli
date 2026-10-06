@@ -53,6 +53,7 @@ function renderDrawerNav(path) {
     html += `<div class="cg-menu-head">${esc(name)}</div>` + MENU_PAGES.map(([key, label]) => link(`#/p/${pid}/${key}`, label, m[2] === key)).join('');
   }
   html += link('#/settings', 'Settings', path === '/settings');
+  html += link('#/feedback', 'Feedback', path === '/feedback');
   nav.innerHTML = html;
 }
 
@@ -65,6 +66,7 @@ async function route() {
     let m;
     if (path === '/') await pagePatients(root);
     else if (path === '/settings') await pageSettings(root);
+    else if (path === '/feedback') pageFeedback(root);
     else if ((m = path.match(/^\/p\/(\d+)\/(today|medicines|notes|history|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
     else window.location.hash = '#/';
     renderDrawerNav(path);
@@ -83,4 +85,5 @@ window.addEventListener('hashchange', route);
   renderSessionChip();
   applyA11yMode();
   route();
+  SmartFeedback.init({ goFeedback: () => { window.location.hash = '#/feedback'; } });
 })();

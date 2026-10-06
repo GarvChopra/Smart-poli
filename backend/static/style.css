@@ -1221,3 +1221,82 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 
 .cg-menu-head { margin: 14px 4px 4px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); word-break: break-word; }
 .cg-section { margin: 6px 0 12px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
+
+/* ---------- feedback page + rate popup (patient app and caregiver portal) ---------- */
+.fb-hero { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: linear-gradient(135deg, #E3F4EC 0%, #F4FBF8 60%, #FFF7E3 100%); border: 1px solid #D5EBE1; border-radius: 22px; padding: 18px 18px 8px; margin-bottom: 14px; overflow: hidden; }
+.fb-hero-text { flex: 1 1 55%; min-width: 0; }
+.fb-hero h2 { margin: 0 0 6px; font-size: clamp(20px, 5vw, 26px); line-height: 1.15; }
+.fb-hero p { margin: 0 0 10px; color: var(--ink-soft); font-size: 14px; line-height: 1.45; }
+.fb-art { flex: 0 0 min(44%, 210px); width: min(44%, 210px); height: auto; }
+.fb-blob { fill: #CDEBDD; opacity: .7; animation: fbDrift 9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.fb-blob.b2 { fill: #FBE7B5; animation-duration: 12s; animation-direction: reverse; }
+.fb-bubble { animation: fbBob 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.fb-heart { animation: fbBeat 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.fb-star { animation: fbTwinkle 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.fb-star.s2 { animation-delay: .7s; } .fb-star.s3 { animation-delay: 1.4s; }
+.fb-plus { animation: fbTwinkle 3.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.fb-plus.p2 { animation-delay: 1s; }
+@keyframes fbBob { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-6px) rotate(1.5deg); } }
+@keyframes fbBeat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.18); } 30% { transform: scale(1); } 45% { transform: scale(1.1); } }
+@keyframes fbTwinkle { 0%, 100% { transform: scale(1) rotate(0); opacity: .9; } 50% { transform: scale(1.35) rotate(14deg); opacity: 1; } }
+@keyframes fbDrift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(8px, -8px); } }
+
+.fb-card { max-width: 620px; padding: 20px 18px; border-radius: 22px; }
+.fb-label { font-weight: 800; margin: 18px 0 8px; font-size: 15px; }
+.fb-label:first-child { margin-top: 0; }
+.fb-face { font-size: 64px; line-height: 1; text-align: center; margin: 6px 0 2px; min-height: 72px; }
+.fb-face.big { font-size: 56px; margin-bottom: 4px; min-height: 0; }
+.fb-face.pop { animation: fbPop .45s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes fbPop { 0% { transform: scale(.4) rotate(-12deg); opacity: .3; } 60% { transform: scale(1.18) rotate(6deg); opacity: 1; } 100% { transform: scale(1) rotate(0); } }
+.fb-stars { display: flex; justify-content: center; gap: 4px; }
+.fb-star-btn { background: none; border: 0; padding: 2px 4px; font-size: 44px; line-height: 1; color: #D5DDD9; cursor: pointer; transition: transform .12s, color .12s; }
+.fb-star-btn.on { color: #F2B01E; text-shadow: 0 3px 10px rgba(242, 176, 30, .45); }
+.fb-star-btn:hover { transform: scale(1.18) rotate(-6deg); }
+.fb-star-btn:active { transform: scale(.92); }
+.fb-word { text-align: center; min-height: 22px; font-weight: 800; color: var(--teal-dark); margin-top: 2px; }
+.fb-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (min-width: 560px) { .fb-tiles { grid-template-columns: repeat(4, 1fr); } }
+.fb-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px; border-radius: 16px; border: 2px solid var(--line, #dfe6e3); background: #fff; color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; transition: transform .12s, border-color .12s, background .12s; }
+.fb-tile-icon { font-size: 26px; line-height: 1; }
+.fb-tile:hover { transform: translateY(-2px); }
+.fb-tile.on { border-color: var(--teal-dark); background: var(--teal-soft); color: var(--teal-dark); box-shadow: 0 6px 16px rgba(18, 135, 111, .18); }
+.fb-card textarea, .fb-modal textarea { width: 100%; font: inherit; resize: vertical; border-radius: 14px; padding: 12px 14px; }
+.fb-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+.fb-count { background: var(--teal-soft); color: var(--teal-dark); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+.fb-switch { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; font-size: 14.5px; cursor: pointer; }
+.fb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.fb-switch-track { flex: none; width: 46px; height: 28px; border-radius: 999px; background: #CBD5D1; position: relative; transition: background .15s; }
+.fb-switch-track i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0, 0, 0, .25); transition: transform .15s; }
+.fb-switch input:checked + .fb-switch-track { background: var(--teal-dark); }
+.fb-switch input:checked + .fb-switch-track i { transform: translateX(18px); }
+.fb-switch input:focus-visible + .fb-switch-track { outline: 3px solid rgba(18, 135, 111, .35); }
+.fb-err { color: #8E2018; font-size: 13px; min-height: 18px; margin: 6px 0; }
+.fb-send { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; font-size: 17px; font-weight: 800; border-radius: 16px; position: relative; overflow: hidden; }
+.fb-send::after { content: ""; position: absolute; top: 0; bottom: 0; left: -80px; width: 50px; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .4), transparent); transform: skewX(-20deg); animation: fbSweep 3.6s ease-in-out infinite; }
+@keyframes fbSweep { 0%, 55% { left: -80px; } 100% { left: 120%; } }
+
+.fb-thanks { position: relative; text-align: center; padding: 22px 8px 14px; }
+.fb-check-svg { width: 76px; height: 76px; }
+.fb-check-svg circle { stroke-dasharray: 145; stroke-dashoffset: 145; animation: fbDraw .6s ease-out forwards; }
+.fb-check-svg path { stroke-dasharray: 40; stroke-dashoffset: 40; animation: fbDraw .4s .45s ease-out forwards; }
+@keyframes fbDraw { to { stroke-dashoffset: 0; } }
+.fb-thanks h3 { margin: 6px 0 2px; font-size: 24px; }
+.fb-confetti { position: absolute; left: 50%; top: 52px; width: 0; height: 0; pointer-events: none; }
+.fb-confetti i { position: absolute; width: 8px; height: 12px; border-radius: 2px; background: var(--c); opacity: 0; animation: fbConfetti 1.1s var(--t) ease-out forwards; }
+@keyframes fbConfetti { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 100% { transform: translate(var(--x), calc(var(--y) + 60px)) rotate(var(--r)); opacity: 0; } }
+
+.fb-earlier { margin: 22px 0 4px; }
+.fb-item { margin-top: 10px; border-radius: 16px; }
+.fb-item-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fb-stars-ro { color: #F2B01E; letter-spacing: 2px; }
+.fb-item-body { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
+
+.fb-modal .safety-modal { max-width: 360px; text-align: center; border-radius: 24px; }
+.fb-modal .fb-star-btn { font-size: 40px; }
+.fb-pop-art { margin: -6px auto 0; max-width: 200px; }
+.fb-pop-art .fb-art { width: 100%; }
+.fb-modal h3 { margin: 4px 0 4px; }
+.fb-modal .sm-actions { justify-content: center; margin-top: 10px; }
+.fb-foot { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-soft); }
+.fb-link { background: none; border: 0; padding: 4px; color: var(--ink-soft); font: inherit; text-decoration: underline; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .fb-blob, .fb-bubble, .fb-heart, .fb-star, .fb-plus, .fb-send::after, .fb-face.pop, .fb-confetti i { animation: none !important; } .fb-check-svg circle, .fb-check-svg path { animation: none; stroke-dashoffset: 0; } .fb-confetti { display: none; } }
