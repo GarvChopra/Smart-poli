@@ -278,12 +278,3 @@ def get_medicine_corrections(medicine_id: int, user: User = Depends(require_doct
          "reason": c.reason, "doctor_user_id": c.doctor_user_id, "created_at": c.created_at.isoformat()}
         for c in corrections
     ]
-
-
-@router.get("/doctor/patients/{patient_id}/care-notes")
-def doctor_care_notes(patient_id: int, user: User = Depends(require_doctor_role), db: Session = Depends(get_db_session)):
-    """Everything the caregivers wrote about a linked patient (messages, medicine notes and handover notes)."""
-    import care_notes
-    if not has_read_access(db, user, patient_id):
-        raise HTTPException(403, "You are not linked to this patient.")
-    return {"notes": care_notes.list_notes(db, patient_id, "doctor")}

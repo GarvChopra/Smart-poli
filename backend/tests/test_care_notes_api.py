@@ -102,16 +102,10 @@ def test_only_the_author_can_delete_and_the_patient_stops_seeing_it(world):
     assert world.cg.get(f"/caregiver/patients/{world.pid}/notes").json()["notes"] == []
 
 
-def test_two_caregivers_share_handover_notes_and_a_doctor_can_read_them(world):
+def test_two_caregivers_of_the_same_patient_share_handover_notes(world):
     cg2, _ = link_caregiver(world.patient, world.pid, "Ravi")
     post(world.cg, world.pid, kind="handover", body="gave tea")
     assert [n["body"] for n in cg2.get(f"/caregiver/patients/{world.pid}/notes?kind=handover").json()["notes"]] == ["gave tea"]
-    dr = link_doctor(world.patient, world.pid)
-    notes = dr.get(f"/doctor/patients/{world.pid}/care-notes").json()["notes"]
-    assert [n["body"] for n in notes] == ["gave tea"]
-    other = TestClient(app)
-    register_and_login(other, role="doctor")
-    assert other.get(f"/doctor/patients/{world.pid}/care-notes").status_code == 403       # an unlinked doctor
 
 
 def test_a_message_can_notify_the_patients_phone_and_script_text_stays_inert(world):
