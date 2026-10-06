@@ -418,16 +418,90 @@ async function renderGlance() {
 
 // ---------------------------------------------------------------- prescriptions (Feature 1)
 
-async function renderPrescriptions() {
+async function renderPrescriptions(lastResult) {
   const view = document.getElementById('view-prescriptions');
   view.innerHTML = `
     <h2>Your medicines</h2>
     <div class="card rx-add">
       <button class="primary add-big add-full" id="manualBtn"><span class="icon">${ICONS.pill}</span>Enter manually</button>
       <div class="reg-meta" style="margin-top:8px;text-align:center;">Add a medicine and set when you take it, like an alarm.</div>
+      <div style="text-align:center;margin-top:12px;">
+        <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
+        <span class="reg-meta">&nbsp;a photo of a whole prescription</span>
+      </div>
+      <input type="file" id="rxImageInput" accept="image/*" hidden>
+      <div id="uploadStatus"></div>
     </div>
-    <div id="myMedicines"><div class="empty">Loading…</div></div>`;
+
+    <div class="card">
+      <div class="card-head">${iconBadge('teal', 'pill')}<h3>Or type it in</h3></div>
+      <label for="rxInput">Enter the prescription exactly as written</label>
+      <textarea id="rxInput" placeholder="Tab Dolo 650mg 1-0-1 PC x5d
+Cap Amoxicillin 500mg TDS AC 7 days
+Syrup Crocin 5ml SOS"></textarea>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="primary" id="decodeBtn"><span class="icon">${ICONS.shield}</span>Decode</button>
+        <button class="ghost" id="fillExampleBtn">Fill example</button>
+      </div>
+    </div>
+    <div id="rxResult"></div>
+    <div id="myMedicines"><div class="empty">Loading…</div></div>
+  `;
+
   document.getElementById('manualBtn').addEventListener('click', () => medicineWizard({ step: 'details' }));
+
+  document.getElementById('fillExampleBtn').addEventListener('click', () => {
+    document.getElementById('rxInput').value =
+      'Tab Dolo 650mg 1-0-1 PC x5d\nCap Amoxicillin 500mg TDS AC 7 days\nSyrup Crocin 5ml SOS\nTab X 1-?-1';
+  });
+
+  document.getElementById('decodeBtn').addEventListener('click', async () => {
+    const lines = document.getElementById('rxInput').value.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    const result = await api('POST', '/prescriptions', { patient_id: state.patientId, lines });
+    renderRxResult(result);
+  });
+
+  const rxInput = document.getElementById('rxImageInput');
+  const chooseBtn = document.getElementById('chooseFileBtn');
+  chooseBtn.addEventListener('click', () => rxInput.click());                              // opens the phone's files
+  rxInput.addEventListener('change', async () => {
+    if (!rxInput.files.length) return;
+    const status = document.getElementById('uploadStatus');
+    const setStatus = (kind, text) => {
+      status.className = kind ? `upload-status-banner ${kind}` : '';
+      status.innerHTML = kind === 'loading' ? `<span class="upload-spinner"></span><span>${text}</span>` : text;
+    };
+    chooseBtn.disabled = true;
+    setStatus('loading', 'Reading photo — a full-size phone photo can take up to a minute…');
+    const form = new FormData();
+    form.append('patient_id', state.patientId);
+    form.append('file', rxInput.files[0]);
+    try {
+      const auth = getAuth();
+      dashboardCache = null;  // the photo becomes a draft prescription
+      const res = await fetch('/prescriptions/from-image', {
+        method: 'POST', body: form,
+        headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        setStatus('error', escHtml(detail.detail || `Could not read that photo (${res.status}).`));
+        return;
+      }
+      const result = await res.json();
+      setStatus(null, '');
+      showQuickPopup('Photo read successfully', null, `${result.ocr_lines_found} medicine line(s) found`);
+      renderRxResult(result);
+    } catch (e) {
+      setStatus('error', 'Could not reach the server. Use manual entry instead.');
+    } finally {
+      chooseBtn.disabled = false;
+      rxInput.value = '';
+    }
+  });
+
+  if (lastResult) renderRxResult(lastResult);
 
   const mount = document.getElementById('myMedicines');
   const report = await api('GET', `/patients/${state.patientId}/report`).catch(() => null);
