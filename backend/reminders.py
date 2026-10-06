@@ -214,6 +214,39 @@ def notify_missed(db: Session, missed: list[Dose], utc_now: Optional[datetime] =
                    "body": f"You missed {dose.medicine.name or dose.medicine.raw_text}. Don't take a double dose; "
                            "ask your pharmacist or doctor what to do."}
         sent += _notify(db, patient_id, dose, "missed", msg, push_fn, wa_fn, wa_on)
+        try:
+            notify_caregivers_missed(db, dose, push_fn)
+        except Exception:  # noqa: BLE001 - a caregiver alert problem must never stop the patient's own notice
+            logger.exception("caregiver missed-dose alert failed for dose %s", dose.id)
+    return sent
+
+
+def notify_caregivers_missed(db: Session, dose: Dose, push_fn: Callable = webpush_service.send) -> int:
+    """Tell every linked caregiver (who turned phone alerts on and has not switched this patient off) that a dose was
+    missed. Once per (dose, caregiver): the unique ReminderLog row, channel 'caregiver:<user id>', is the dedupe."""
+    import care_push
+    from db import CaregiverLink, CaregiverPrefs, Patient, UserPushSubscription
+    patient_id = dose.medicine.prescription.patient_id
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    med_name = dose.medicine.name or dose.medicine.raw_text
+    sent = 0
+    for link in db.query(CaregiverLink).filter(CaregiverLink.patient_id == patient_id, CaregiverLink.status == "active",
+                                               CaregiverLink.caregiver_user_id.isnot(None)).all():
+        uid = link.caregiver_user_id
+        prefs = db.query(CaregiverPrefs).filter(CaregiverPrefs.user_id == uid, CaregiverPrefs.patient_id == patient_id).first()
+        if prefs is not None and not prefs.notify_missed:
+            continue
+        if not db.query(UserPushSubscription).filter(UserPushSubscription.user_id == uid).count():
+            continue                                    # no phone to alert: do not use up the once-only record
+        channel = f"caregiver:{uid}"
+        if not _claim(db, dose.id, "missed", channel):
+            continue
+        n = care_push.push_to_user(db, uid, f"{patient.name if patient else 'Your patient'} missed a dose",
+                                   f"{med_name} at {dose.scheduled_at.strftime('%I:%M %p').lstrip('0')}",
+                                   tag=f"caregiver-missed-{dose.id}", url="/caregiver", push_fn=push_fn)
+        if n == 0:
+            _release(db, dose.id, "missed", channel)
+        sent += n
     return sent
 
 

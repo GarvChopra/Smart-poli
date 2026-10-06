@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from db import get_db_session, log_audit, User, CaregiverLink, SymptomCheck, Dose
 from auth import get_current_user, require_patient_write_access, require_caregiver_role, has_read_access, gen_link_code
-from schemas import LinkRedeem, CareNoteCreate
+from schemas import LinkRedeem, CareNoteCreate, CaregiverPrefsUpdate, PushSubscribeRequest, PushUnsubscribeRequest
 from serializers import get_patient_or_404, serialize_patient, gather_dashboard_data, emergency_card_data
 from doctor_intelligence import compute_priority
 from nudges import compute_nudges
@@ -248,3 +248,51 @@ def caregiver_nudge(patient_id: int, user: User = Depends(require_caregiver_role
     log_audit(db, patient_id, f"caregiver:{user.id}", "caregiver_nudge", f"reminder sent to {sent} device(s)")
     return {"sent": sent, "patient": patient.name,
             "note": None if sent else f"{patient.name} has not turned on phone reminders, so nothing could be delivered. Try calling."}
+
+
+# ---------------------------------------------------------------- phone alerts
+
+@router.post("/caregiver/push/subscribe")
+def caregiver_push_subscribe(body: PushSubscribeRequest, user: User = Depends(require_caregiver_role),
+                             db: Session = Depends(get_db_session)):
+    """Remember this phone for the caregiver's alerts. The same device subscribing again just updates its row."""
+    from db import UserPushSubscription
+    row = db.query(UserPushSubscription).filter(UserPushSubscription.endpoint == body.endpoint).first()
+    if row is None:
+        db.add(UserPushSubscription(user_id=user.id, endpoint=body.endpoint, p256dh=body.keys.p256dh, auth=body.keys.auth))
+    else:
+        row.user_id, row.p256dh, row.auth = user.id, body.keys.p256dh, body.keys.auth
+    db.commit()
+    return {"subscribed": True}
+
+
+@router.post("/caregiver/push/unsubscribe")
+def caregiver_push_unsubscribe(body: PushUnsubscribeRequest, user: User = Depends(require_caregiver_role),
+                               db: Session = Depends(get_db_session)):
+    from db import UserPushSubscription
+    db.query(UserPushSubscription).filter(UserPushSubscription.endpoint == body.endpoint,
+                                          UserPushSubscription.user_id == user.id).delete()
+    db.commit()
+    return {"subscribed": False}
+
+
+@router.get("/caregiver/patients/{patient_id}/prefs")
+def caregiver_get_prefs(patient_id: int, user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+    from db import CaregiverPrefs
+    _require_link(db, user, patient_id)
+    row = db.query(CaregiverPrefs).filter(CaregiverPrefs.user_id == user.id, CaregiverPrefs.patient_id == patient_id).first()
+    return {"notify_missed": True if row is None else bool(row.notify_missed)}
+
+
+@router.put("/caregiver/patients/{patient_id}/prefs")
+def caregiver_put_prefs(patient_id: int, body: CaregiverPrefsUpdate, user: User = Depends(require_caregiver_role),
+                        db: Session = Depends(get_db_session)):
+    from db import CaregiverPrefs
+    _require_link(db, user, patient_id)
+    row = db.query(CaregiverPrefs).filter(CaregiverPrefs.user_id == user.id, CaregiverPrefs.patient_id == patient_id).first()
+    if row is None:
+        db.add(CaregiverPrefs(user_id=user.id, patient_id=patient_id, notify_missed=body.notify_missed))
+    else:
+        row.notify_missed = body.notify_missed
+    db.commit()
+    return {"notify_missed": body.notify_missed}

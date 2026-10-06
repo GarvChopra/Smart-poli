@@ -37,6 +37,10 @@ class CareNoteCreate(BaseModel):
     notify: bool = False                                # message only: also push it to the patient's phone
 
 
+class CaregiverPrefsUpdate(BaseModel):
+    notify_missed: bool
+
+
 class ShiftMedicine(BaseModel):
     """Move every upcoming dose of one medicine later by a number of minutes (the 'keep these apart' suggestion)."""
     minutes: int = Field(..., ge=15, le=720)
