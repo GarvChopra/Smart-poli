@@ -5,7 +5,7 @@
 # Tesseract engine (requirements.txt + backend/Dockerfile's tesseract-ocr
 # apt package) — see ocr_plugin.py's read_prescription_image(), which tries
 # TrOCR first (best accuracy, where installed) and falls back to Tesseract.
-transformers==4.44.0
+transformers==5.18.0
 sentencepiece==0.2.2
 torch==2.3.1
 torchvision==0.18.1
