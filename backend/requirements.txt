@@ -35,4 +35,4 @@ pytesseract==0.3.13
 # Dose-reminder push notifications (Web Push + VAPID) and patient-local time zones.
 # tzdata: slim Docker images and Windows ship no IANA zone database of their own.
 pywebpush==2.5.0
-tzdata==2026.2
+tzdata==2026.5
