@@ -62,6 +62,9 @@
     });
   }
 
+  // On an iPhone the sheet opens by itself, so nobody has to hunt for how to install.
+  if (isIOS && !standalone) setTimeout(showIosSheet, 1000);
+
   btn.addEventListener('click', async () => {
     if (standalone) { window.location.href = '/'; return; }
     if (isIOS) { showIosSheet(); return; }
