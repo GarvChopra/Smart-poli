@@ -3,7 +3,7 @@
 # `tesseract-ocr` system binary, and Render's native runtime can only
 # `pip install`, with no way to install a non-Python system package.
 # See ocr_plugin.py / ocr_engine/ocr_tesseract.py for how it's used.
-FROM python:3.12.7-slim
+FROM python:3.14.7-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
