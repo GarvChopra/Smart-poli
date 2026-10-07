@@ -4,6 +4,7 @@ Web-layer hardening that does not belong to any one feature:
   * security headers on every response (CSP, no-sniff, no framing, referrer, permissions, HSTS)
   * a small per-IP rate limiter for endpoints that need no login but cost money or can be abused (LLM calls, triage)
   * one 404 page for unknown browser URLs (JSON stays JSON for the API)
+  * a cap on request body size, and a catch-all 500 answer that never shows a stack trace or internals
 
 Everything here is in-memory and per-process, which is what a single Render instance needs. If the app ever runs on
 several instances, move the limiter to a shared store.
@@ -114,3 +115,32 @@ async def not_found_handler(request: Request, exc):
     if exc.status_code == 404 and wants_html(request):
         return HTMLResponse(NOT_FOUND_HTML, status_code=404)
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+
+
+# ---------------------------------------------------------------- request size cap + safe 500
+
+MAX_BODY_BYTES = int(os.getenv("SMARTPOLI_MAX_BODY_BYTES", str(12 * 1024 * 1024)))   # the biggest legitimate body is a 10 MB photo
+
+
+class BodySizeLimitMiddleware:
+    """Refuse a request whose declared size is over the cap, before any of it is read (413)."""
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
+        self.app, self.max_bytes = app, max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            declared = dict(scope.get("headers") or []).get(b"content-length")
+            if declared and declared.isdigit() and int(declared) > self.max_bytes:
+                resp = JSONResponse({"detail": "That request is too large."}, status_code=413)
+                return await resp(scope, receive, send)
+        await self.app(scope, receive, send)
+
+
+async def unhandled_error_handler(request: Request, exc: Exception):
+    """Any crash answers with a plain message and a short reference; the details go to the server log only."""
+    import logging
+    import secrets
+    ref = secrets.token_hex(4)
+    logging.getLogger("smartpoli.errors").error("unhandled error ref=%s %s %s: %s", ref, request.method, request.url.path, type(exc).__name__)
+    return JSONResponse({"detail": "Something went wrong on our side. Please try again.", "ref": ref}, status_code=500)

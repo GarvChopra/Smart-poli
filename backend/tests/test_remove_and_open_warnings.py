@@ -122,3 +122,43 @@ def test_open_warnings_need_read_access():
         from conftest import register_and_login
         register_and_login(stranger)
         assert stranger.get(f"/patients/{pid}/open-warnings").status_code == 403
+
+
+def test_a_removed_medicine_leaves_todays_list_and_the_missed_popup_data():
+    from datetime import datetime, timedelta
+    from clock import patient_now
+    from db import SessionLocal
+    from timing_helpers import add_medicine, new_patient
+    c = TestClient(app)
+    pid, _ = new_patient(c, "Remover")
+    db = SessionLocal()
+    now = patient_now(db, pid)
+    db.close()
+    keep, _ = add_medicine(pid, "Keeper", [now + timedelta(minutes=1)])
+    gone, _ = add_medicine(pid, "Goner", [now + timedelta(minutes=2), now - timedelta(minutes=90)], states=["pending", "missed"])
+    assert c.delete(f"/medicines/{gone}").status_code == 200
+    dash = c.get(f"/patients/{pid}/dashboard").json()
+    assert "Goner" not in {d["medicine_name"] for d in dash["today_doses"]}
+    assert "Goner" not in {d["medicine_name"] for d in dash["recent_doses"]}
+    assert "Keeper" in {d["medicine_name"] for d in dash["today_doses"]} or now.date() != (now + timedelta(minutes=1)).date()
+
+
+def test_a_dose_taken_or_skipped_before_the_two_hours_never_becomes_missed():
+    from datetime import timedelta
+    from clock import patient_now
+    from db import Dose, SessionLocal
+    from scheduler import sweep_missed
+    from timing_helpers import add_medicine, new_patient
+    c = TestClient(app)
+    pid, _ = new_patient(c, "Acts Early")
+    db = SessionLocal()
+    now = patient_now(db, pid)
+    db.close()
+    _, (skipped, taken) = add_medicine(pid, "Creatine", [now - timedelta(minutes=30), now - timedelta(minutes=20)])
+    assert c.post(f"/doses/{skipped}/skip", json={"reason": "x"}).status_code == 200
+    assert c.post(f"/doses/{taken}/take").status_code == 200
+    db = SessionLocal()
+    sweep_missed(db, now + timedelta(hours=5))                     # long after the 2-hour mark
+    states = {d.id: d.state for d in db.query(Dose).filter(Dose.id.in_([skipped, taken])).all()}
+    db.close()
+    assert states[skipped] == "skipped" and states[taken] == "taken"

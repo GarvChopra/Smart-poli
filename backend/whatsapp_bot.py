@@ -34,6 +34,12 @@ from ocr_plugin import read_prescription_image, OCRUnavailable
 
 logger = logging.getLogger(__name__)
 
+
+def _mask_phone(p) -> str:
+    """+91••••••3210 - enough to tell two numbers apart in a log, not enough to call anyone."""
+    p = str(p or "")
+    return (p[:3] + "•" * max(len(p) - 7, 0) + p[-4:]) if len(p) > 7 else "•••"
+
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")  # e.g. "whatsapp:+14155238886"
@@ -492,10 +498,15 @@ def send_whatsapp_message(to_phone: str, body: str) -> bool:
         # e itself only has the status line -- the response body carries
         # Twilio's actual error code/message, which is what's needed to
         # diagnose a failure straight from logs instead of a local repro.
-        logger.warning(f"WhatsApp outbound send failed to {to_phone}: {e}. Response: {e.response.text}")
+        try:
+            err = e.response.json()
+            detail = f"code {err.get('code')}: {err.get('message')}"          # Twilio's own reason - no phone number in it
+        except Exception:
+            detail = "no readable error body"
+        logger.warning("WhatsApp outbound send failed to %s: HTTP %s, %s", _mask_phone(to_phone), e.response.status_code, detail)
         return False
     except Exception as e:
-        logger.warning(f"WhatsApp outbound send failed to {to_phone}: {e}")
+        logger.warning("WhatsApp outbound send failed to %s: %s", _mask_phone(to_phone), type(e).__name__)
         return False
 
 

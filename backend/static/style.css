@@ -1305,3 +1305,22 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .sp-form input, .sp-form select { width: 100%; }
 .sp-msg { min-height: 20px; margin-top: 8px; font-size: 13.5px; color: #8E2018; }
 .sp-msg.ok { color: var(--teal-dark); font-weight: 700; }
+
+
+/* Dose popups: "Time for X" and "You missed X" - compact and calm */
+.dp-overlay .safety-modal { width: min(340px, 100%); padding: 22px 20px 14px; border-radius: 22px; text-align: center; animation: dp-in .22s ease-out; }
+@keyframes dp-in { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+.dp-icon { width: 46px; height: 46px; margin: 0 auto 8px; border-radius: 50%; background: var(--amber-soft); color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.dp-icon-due { background: var(--teal-soft, #E2F3EF); color: var(--teal-dark); }
+.dp-icon svg { width: 24px; height: 24px; }
+.dp h3 { margin: 0; font-size: 19px; }
+.dp-sub { color: var(--ink-soft); font-size: 13.5px; margin: 3px 0 8px; }
+.dp-line { font-size: 14.5px; margin: 8px 0; line-height: 1.4; }
+.dp-never { font-size: 12.5px; font-weight: 600; color: var(--amber); background: var(--amber-soft); border-radius: 10px; padding: 7px 10px; margin: 8px 0; }
+.dp-more { text-align: left; margin: 6px 0; font-size: 13px; }
+.dp-more summary { cursor: pointer; color: var(--teal-dark); font-weight: 600; text-align: center; list-style: none; }
+.dp-more summary::-webkit-details-marker { display: none; }
+.dp-notes { margin: 6px 0 0 18px; font-size: 13px; }
+.dp-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.dp-actions button { width: 100%; padding: 12px; font-size: 15px; border-radius: 14px; }
+.dp-close { background: none; border: 0; color: var(--ink-faint); font-size: 13px; padding: 10px; cursor: pointer; }

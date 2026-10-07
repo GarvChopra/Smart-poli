@@ -753,7 +753,7 @@ const OPEN_WARN_KEY = 'smartpoli_open_warn';
  * they must be kept apart while they are scheduled together, or a verified timing rule is broken. Nothing minor or
  * uncertain ever appears here, and it stays silent when everything is fine. Any medicine can be removed from it. */
 async function showOpenWarnings() {
-  if (!state.patientId || document.getElementById('openWarnOverlay')) return;
+  if (!state.patientId || document.getElementById('openWarnOverlay') || document.querySelector('.dp-overlay')) return;   // a dose popup is open: that comes first
   let data = null;
   for (let attempt = 0; attempt < 3; attempt++) {                    // combinations still being looked up show up a few seconds later
     data = await api('GET', `/patients/${state.patientId}/open-warnings`).catch(() => null);
@@ -1445,47 +1445,94 @@ function showSafetyModal(innerHtml) {
 }
 
 const MISSED_SEEN_KEY = 'smartpoli_missed_seen';
-function missedSeen() {
-  try { return new Set(JSON.parse(localStorage.getItem(MISSED_SEEN_KEY) || '[]')); } catch (e) { return new Set(); }
-}
-function markMissedSeen(id) {
-  try { const s = missedSeen(); s.add(id); localStorage.setItem(MISSED_SEEN_KEY, JSON.stringify([...s].slice(-200))); } catch (e) { /* ignore */ }
-}
+// Asked about during THIS app open only: the popup comes back every time the app is opened until the dose is taken or skipped.
+const askedThisOpen = new Set();
+function missedSeen() { return askedThisOpen; }
+function markMissedSeen(id) { askedThisOpen.add(`m${id}`); }
 
-/** Calm "what now?" popup for a missed dose: facts, the label's own words, and
- * only the actions the rule engine supports. Never suggests doubling up. */
+/** Calm "what now?" popup for a missed dose: one plain line first, the label's own words tucked behind "More details",
+ * and only the actions the rule engine supports. Never suggests doubling up. */
 async function showMissedGuidance(doseId) {
   markMissedSeen(doseId);
   let g = null;
   try { g = await api('GET', `/doses/${doseId}/missed-guidance`); } catch (e) { g = null; }
   const name = g ? escHtml(g.medicine) : 'this medicine';
   const headline = g ? escHtml(g.headline)
-    : 'SmartPoli could not load guidance just now. Do not take a double dose, and ask your pharmacist or doctor what to do.';
+    : 'SmartPoli could not load guidance just now. Ask your pharmacist or doctor what to do.';
   const quote = g && g.label_quote && g.source ? `
     <div class="sm-quote">“${escHtml(g.label_quote)}”<br>
       <a href="${escHtml(g.source.url)}" target="_blank" rel="noopener noreferrer">${escHtml(g.source.title)}</a>
       · label effective ${escHtml(g.source.effective)}
       ${g.applies_to_note ? `<br>${escHtml(g.applies_to_note)}` : ''}</div>` : '';
   const notes = g && g.spacing_notes && g.spacing_notes.length
-    ? `<ul style="margin:6px 0 0 18px;font-size:13px;">${g.spacing_notes.map((n) => `<li>${escHtml(n)}</li>`).join('')}</ul>` : '';
+    ? `<ul class="dp-notes">${g.spacing_notes.map((n) => `<li>${escHtml(n)}</li>`).join('')}</ul>` : '';
+  const details = quote || notes ? `<details class="dp-more"><summary>More details</summary>${notes}${quote}
+    <div class="sm-unreviewed">From the US FDA label. Not reviewed by a clinician — confirm with your pharmacist or doctor.</div></details>` : '';
   const overlay = showSafetyModal(`
-    <h3>Missed dose: ${name}</h3>
-    ${g ? `<div class="sm-sub">Was due ${escHtml(fmtLocalTime(g.scheduled_at))}${g.next_dose_at ? ` · next dose ${escHtml(fmtLocalTime(g.next_dose_at))}` : ''}</div>` : ''}
-    <div class="sm-never">Never take a double dose to catch up.</div>
-    <div class="sm-headline">${headline}</div>
-    ${notes}${quote}
-    ${g ? `<div class="sm-unreviewed">From the US FDA label. Not reviewed by a clinician — confirm with your pharmacist or doctor.</div>` : ''}
-    <div class="sm-actions">
-      <button class="primary small" id="smTook">I took it</button>
-      <button class="ghost small" id="smSkip">Skip it</button>
-      <button class="ghost small" id="smClose">Close</button>
+    <div class="dp dp-missed">
+      <div class="dp-icon" aria-hidden="true">${ICONS.alertCircle || '!'}</div>
+      <h3>You missed ${name}</h3>
+      ${g ? `<div class="dp-sub">Was due ${escHtml(fmtLocalTime(g.scheduled_at))}${g.next_dose_at ? ` · next dose ${escHtml(fmtLocalTime(g.next_dose_at))}` : ''}</div>` : ''}
+      <p class="dp-line">${headline}</p>
+      <div class="dp-never">Never take a double dose to catch up.</div>
+      ${details}
+      <div class="dp-actions">
+        <button class="primary" id="smTook">I took it</button>
+        <button class="ghost" id="smSkip">Skip it</button>
+      </div>
+      <button class="dp-close" id="smClose" type="button">Close</button>
     </div>`);
+  overlay.classList.add('dp-overlay');
   const done = () => { overlay.remove(); dashboardCache = null; renderActiveTab(); };
   overlay.querySelector('#smClose').addEventListener('click', () => overlay.remove());
   overlay.querySelector('#smTook').addEventListener('click', async () => { await api('POST', `/doses/${doseId}/take`); done(); });
   overlay.querySelector('#smSkip').addEventListener('click', async () => {
     await api('POST', `/doses/${doseId}/skip`, { reason: 'Skipped after missed-dose guidance' }); done();
   });
+}
+
+// ---------------------------------------------------------------- a dose is due: ask once when the app is opened
+
+const DUE_SEEN_KEY = 'smartpoli_due_seen';
+function dueSeen() { return askedThisOpen; }
+function markDueSeen(id) { askedThisOpen.add(`d${id}`); }
+
+/** "Time for Creatine" - shown once per dose when the app is opened (or comes back to the front) while that dose is due and
+ * not yet taken. Take now goes through the same checks as every other take. */
+function showDuePopup(dose) {
+  markDueSeen(dose.id);
+  const name = escHtml(dose.medicine_name);
+  const overlay = showSafetyModal(`
+    <div class="dp dp-due">
+      <div class="dp-icon dp-icon-due" aria-hidden="true">${ICONS.pill || ''}</div>
+      <h3>${name} is waiting</h3>
+      <div class="dp-sub">You haven't taken it yet · was due ${escHtml(shortTime(dose.scheduled_at))}</div>
+      <div class="dp-actions">
+        <button class="primary" id="dpTake">Take now</button>
+        <button class="ghost" id="dpSkip">Skip it</button>
+      </div>
+      <button class="dp-close" id="dpLater" type="button">Later</button>
+    </div>`);
+  overlay.classList.add('dp-overlay');
+  overlay.querySelector('#dpLater').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#dpSkip').addEventListener('click', async () => {
+    overlay.remove();
+    await api('POST', `/doses/${dose.id}/skip`, { reason: 'Skipped from the due-dose popup' }).catch(() => null);
+    dashboardCache = null; renderActiveTab();
+  });
+  overlay.querySelector('#dpTake').addEventListener('click', async () => {
+    overlay.remove();
+    await takeDoseWithGuard(dose.id, dose.medicine_name, dose.scheduled_at);
+    dashboardCache = null; renderActiveTab();
+  });
+}
+
+/** The first due dose that has not been asked about yet (oldest first), or null. */
+function nextDueToAsk(dash) {
+  const now = Date.now();
+  return (dash.today_doses || []).filter((d) => (d.state === 'pending' || d.state === 'snoozed')
+    && new Date(d.scheduled_at) <= now && !dueSeen().has(`d${d.id}`))
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0] || null;
 }
 
 function conflictsHtml(data) {
@@ -1690,8 +1737,9 @@ async function renderDashboard() {
   renderPushPrompt(document.getElementById('dashPushPrompt'), state.patientId);
   view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
   // A dose that was just missed gets the calm guidance popup once.
-  const unseen = recentMissed.find((d) => !missedSeen().has(d.id));
+  const unseen = recentMissed.find((d) => !missedSeen().has(`m${d.id}`));
   if (unseen) showMissedGuidance(unseen.id);
+  else { const due = nextDueToAsk(dash); if (due) showDuePopup(due); }          // a dose that is due right now
 
   const heroTakeBtn = view.querySelector('[data-hero-take]');
   if (heroTakeBtn) {

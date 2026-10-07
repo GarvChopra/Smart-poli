@@ -1,7 +1,7 @@
-fastapi==0.111.0
+fastapi>=0.140,<0.150
 uvicorn[standard]==0.30.0
-python-multipart==0.0.9
-Pillow==10.4.0
+python-multipart>=0.0.31
+Pillow>=12.3.0
 groq==0.9.0
 openai==1.51.0
 reportlab==4.2.2
@@ -20,7 +20,7 @@ qrcode==7.4.2
 
 # SmartPoli additions — real auth/RBAC + doctor/caregiver dashboards.
 # Also no network access or API key required.
-pyjwt==2.9.0
+pyjwt>=2.15.0
 bcrypt==4.2.0
 
 # OCR (Feature 1, image-upload path) — the Tesseract engine, which runs

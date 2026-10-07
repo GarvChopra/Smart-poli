@@ -1,0 +1,32 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - run: pip install -r backend/requirements.txt
+      - name: Dependency audit
+        run: pip install pip-audit && pip-audit -r backend/requirements.txt
+        continue-on-error: true
+      - name: Tests (SQLite, no secrets)
+        working-directory: backend
+        env:
+          SMARTPOLI_DATABASE_URL: sqlite:///./ci.db
+          SMARTPOLI_DISABLE_SCHEDULER: "1"
+        run: python -m pytest -q
+  js-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node --test

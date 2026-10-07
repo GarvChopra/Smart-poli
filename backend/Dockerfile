@@ -16,6 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Run as an unprivileged user, not root.
+RUN useradd --system --no-create-home app && chown -R app /app
+USER app
+
 # Render sets $PORT at runtime; the sh -c form lets that env var expand
 # (a plain CMD ["uvicorn", ..., "$PORT"] would pass the literal string).
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]

@@ -31,7 +31,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
-from web_security import SecurityHeadersMiddleware, not_found_handler, rate_limit
+from web_security import BodySizeLimitMiddleware, SecurityHeadersMiddleware, not_found_handler, rate_limit, unhandled_error_handler
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -126,8 +126,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Accept-Language"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=600)          # app.js / style.css shrink about 4x on a slow phone connection
 app.add_exception_handler(StarletteHTTPException, not_found_handler)
+app.add_exception_handler(Exception, unhandled_error_handler)
 
 RULESET = load_ruleset()
 INTERACTION_RULESET = load_interaction_ruleset()
@@ -532,7 +534,7 @@ def all_feedback(x_admin_secret: Optional[str] = Header(None), db: Session = Dep
 
 
 @app.get("/medicines/{medicine_id}/pair-check")
-def medicine_pair_check(medicine_id: int, user: User = Depends(require_medicine_write_access),
+def medicine_pair_check(medicine_id: int, _ai=Depends(rate_limit("ai", 40, 60)), user: User = Depends(require_medicine_write_access),
                         db: Session = Depends(get_db_session)):
     """Should this medicine be kept apart from the others the patient takes? Sourced (FDA label + AI, graded), cached.
     Called right after a medicine is added; the answer is a list of warnings, each with a suggested later time."""
@@ -543,7 +545,7 @@ def medicine_pair_check(medicine_id: int, user: User = Depends(require_medicine_
 
 
 @app.get("/prescriptions/{prescription_id}/pair-check")
-def prescription_pair_check(prescription_id: int, user: User = Depends(require_prescription_write_access),
+def prescription_pair_check(prescription_id: int, _ai=Depends(rate_limit("ai", 40, 60)), user: User = Depends(require_prescription_write_access),
                             db: Session = Depends(get_db_session)):
     """Same 'keep these apart' check as for one new medicine, for every medicine of a typed / photographed prescription."""
     prescription = get_prescription_or_404(db, prescription_id)
@@ -553,7 +555,7 @@ def prescription_pair_check(prescription_id: int, user: User = Depends(require_p
 
 
 @app.get("/patients/{patient_id}/pair-check")
-def patient_pair_check(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+def patient_pair_check(patient_id: int, background: BackgroundTasks, _ai=Depends(rate_limit("ai", 40, 60)), user: User = Depends(require_patient_read_access),
                        db: Session = Depends(get_db_session)):
     """Safety center: every pair among the patient's medicines that should be kept apart, from the cache. Pairs not yet
     looked up are fetched in the background (`pending`) and show up on the next call."""
@@ -591,7 +593,7 @@ def remove_medicine(medicine_id: int, user: User = Depends(require_medicine_writ
 
 
 @app.get("/patients/{patient_id}/open-warnings")
-def patient_open_warnings(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+def patient_open_warnings(patient_id: int, background: BackgroundTasks, _ai=Depends(rate_limit("ai", 40, 60)), user: User = Depends(require_patient_read_access),
                           db: Session = Depends(get_db_session)):
     """Everything that is a REAL problem right now, for the popup shown when the app is opened: medicines that interact
     (rated MODERATE or CRITICAL), pairs a source says must be kept apart while they are scheduled together, and verified
@@ -648,7 +650,7 @@ def shift_medicine_times(medicine_id: int, body: ShiftMedicine, user: User = Dep
 
 
 @app.get("/patients/{patient_id}/medicine-info")
-def patient_medicine_info(patient_id: int, background: BackgroundTasks, user: User = Depends(require_patient_read_access),
+def patient_medicine_info(patient_id: int, background: BackgroundTasks, _ai=Depends(rate_limit("ai", 40, 60)), user: User = Depends(require_patient_read_access),
                           db: Session = Depends(get_db_session)):
     """What each of the patient's medicines is usually for (plain words, from public drug labels), plus the conditions
     that suggests. Answers come from the cache; anything missing is looked up in the background (`pending`)."""
@@ -667,6 +669,7 @@ async def create_prescription_from_image(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
+    _ai=Depends(rate_limit("ai-image", 10, 60)),
 ):
     """
     Image path: photo -> OpenCV preprocessing -> per-line TrOCR -> the SAME
@@ -1198,13 +1201,15 @@ def dashboard(patient_id: int, background: BackgroundTasks, user: User = Depends
     # Every dose from a day and a half either side of now, whatever its state:
     # the voice page works out "due now", "left today" and "did I take it" in
     # the patient's own timezone from this, with no request of its own.
-    recent = sorted(((d, m) for m, doses in medicines_with_doses for d in doses
+    # A medicine the patient removed is gone from every screen; its recorded history stays in adherence and the timeline.
+    shown = [(m, doses) for m, doses in medicines_with_doses if '"removed"' not in (m.field_confidence or "")]
+    recent = sorted(((d, m) for m, doses in shown for d in doses
                      if abs(d.scheduled_at - now) <= timedelta(hours=36)), key=lambda pair: pair[0].scheduled_at)
 
     # What the patient actually sees: TODAY (in their own timezone), every state, in time order.
     # The 30 generated days stay in the database; they are not a screen.
     today = now.date()
-    todays = sorted(((d, m) for m, doses in medicines_with_doses for d in doses if d.scheduled_at.date() == today),
+    todays = sorted(((d, m) for m, doses in shown for d in doses if d.scheduled_at.date() == today),
                     key=lambda pair: pair[0].scheduled_at)
 
     return {

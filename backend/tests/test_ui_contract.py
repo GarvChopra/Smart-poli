@@ -271,3 +271,11 @@ def test_personal_information_form_edits_the_profile_and_refreshes_the_app():
     assert "'PATCH'" in body and "/patients/${state.patientId}" in body
     assert "Saved" in body and "loadPatients()" in body and "renderGlance()" in body
     assert "escHtml(" in body                                                          # existing values are escaped into the form
+
+
+def test_a_due_dose_gets_one_popup_when_the_app_opens_and_the_missed_popup_is_compact():
+    app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"), encoding="utf-8").read()
+    assert "function showDuePopup(" in app_js and "function nextDueToAsk(" in app_js and "nextDueToAsk(dash)" in app_js
+    assert "dueSeen().has(`d${d.id}`)" in app_js and "localStorage" not in app_js[app_js.index("const askedThisOpen"):app_js.index("function conflictsHtml")] and "takeDoseWithGuard(dose.id" in app_js          # asked once per dose; Take goes through the same checks
+    missed = app_js[app_js.index("async function showMissedGuidance"):app_js.index("// ---------------------------------------------------------------- a dose is due")]
+    assert "More details" in missed and "dp-never" in missed and "sm-actions" not in missed
