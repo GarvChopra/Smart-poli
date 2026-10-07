@@ -206,6 +206,7 @@ function closeDrawer() {
 hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
 function renderNoPatientState() {
   const view = document.getElementById(`view-${state.activeTab}`);
@@ -264,6 +265,7 @@ function askFirstProfile() {
       document.getElementById('patientSelect').value = patient.id;
       renderActiveTab();
       renderGlance();
+      if (window.SmartTour) SmartTour.showFirstTime();                // a few plain cards on what the app does
     } catch (err) {
       btn.disabled = false;
       msg.textContent = err.message || 'Could not save. Please try again.';
@@ -1739,7 +1741,7 @@ async function renderDashboard() {
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(`m${d.id}`));
   if (unseen) showMissedGuidance(unseen.id);
-  else { const due = nextDueToAsk(dash); if (due) showDuePopup(due); }          // a dose that is due right now
+  else if (!document.querySelector('.tour-root')) { const due = nextDueToAsk(dash); if (due) showDuePopup(due); }          // a dose that is due right now
 
   const heroTakeBtn = view.querySelector('[data-hero-take]');
   if (heroTakeBtn) {
@@ -2225,5 +2227,6 @@ function openTabFromHash() {
   // dashboard first and then switching would load both.
   if (!openTabFromHash()) renderActiveTab();
   setTimeout(showOpenWarnings, 3500);
+  if (state.patientId && window.SmartTour) setTimeout(() => SmartTour.showFirstTime(), 1200);          // the welcome tour, once per device
   SmartFeedback.init({ goFeedback: () => document.querySelector('nav.pill-nav button[data-tab="feedback"]').click() });            // after the screen is up: the check makes many database calls
 })();
