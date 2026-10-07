@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPoli — offline</title>
+<meta name="theme-color" content="#0F8A70">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 20px; font-family: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, #F6FBF9 0%, #EAF6F1 55%, #E3F1EB 100%); color: #0E1A17; }
+  .card { width: min(340px, 100%); background: #fff; border-radius: 24px; padding: 28px 22px 20px; text-align: center; box-shadow: 0 18px 50px rgba(14,60,48,.16); }
+  .icon { width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 50%; background: #FBE6E3; color: #B3261E; display: grid; place-items: center; }
+  .icon svg { width: 32px; height: 32px; }
+  h1 { font-size: 21px; margin-bottom: 6px; }
+  p { color: #5A6B66; font-size: 15px; line-height: 1.45; margin-bottom: 18px; }
+  button { width: 100%; min-height: 48px; border: 0; border-radius: 14px; background: linear-gradient(135deg, #1FA284, #0F7A63); color: #fff; font: 700 16px system-ui, sans-serif; cursor: pointer; }
+  .brand { margin-top: 14px; font-size: 13px; color: #5A6B66; }
+  .brand b { color: #12876F; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r=".6" fill="currentColor"/><line x1="3" y1="3" x2="21" y2="21"/></svg></div>
+  <h1>No internet connection</h1>
+  <p>Check your Wi-Fi or mobile data. SmartPoli will open as soon as you are back online.</p>
+  <button type="button" id="retry">Try again</button>
+  <div class="brand">Smart<b>Poli</b></div>
+</div>
+<script>
+  document.getElementById('retry').addEventListener('click', function () { location.href = '/'; });
+  window.addEventListener('online', function () { location.href = '/'; });
+</script>
+</body>
+</html>

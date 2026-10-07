@@ -1,15 +1,19 @@
 // SmartPoli - service worker for dose-reminder notifications (Web Push).
-// Deliberately does nothing else: no caching, no fetch interception, so it
-// can never serve stale medical data. The server decides what to send and
-// when (reminders.py); this only displays it and opens the app on tap.
+// Besides notifications, the only thing kept on the phone is the plain "No internet connection" page, shown when the app is
+// opened with no connection. Nothing else is cached or intercepted, so it can never serve stale medical data.
 
-// A fetch handler is what makes Chrome treat the site as an installable app. It only passes page loads straight through
-// to the network: nothing is cached, so it can never serve stale medical data.
+const OFFLINE_URL = '/offline';
+
+// A fetch handler is what makes Chrome treat the site as an installable app. Page loads go straight to the network; only if
+// the network is unreachable do we answer with the offline page.
 self.addEventListener('fetch', (event) => {
-  if (event.request.mode === 'navigate') event.respondWith(fetch(event.request));
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith(fetch(event.request).catch(async () => (await caches.match(OFFLINE_URL)) || Response.error()));
 });
 
-self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open('smartpoli-offline-v1').then((c) => c.add(OFFLINE_URL)).catch(() => null).then(() => self.skipWaiting()));
+});
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {

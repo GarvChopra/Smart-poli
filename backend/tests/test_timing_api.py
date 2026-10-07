@@ -338,9 +338,10 @@ def test_service_worker_is_served_from_the_root_uncached_and_shows_push_notifica
         assert r.status_code == 200 and "javascript" in r.headers["content-type"]
         assert r.headers["cache-control"] == "no-cache"
         assert "addEventListener('push'" in r.text and "showNotification" in r.text and "notificationclick" in r.text
-        # It may only pass page loads straight through (Chrome needs a fetch handler to treat the site as installable);
-        # it must never cache anything or answer from a cache.
-        assert "caches." not in r.text and "cache.put" not in r.text and "respondWith(fetch(event.request))" in r.text
+        # Page loads go to the network first (Chrome needs a fetch handler to treat the site as installable). The ONLY thing it
+        # keeps is the plain "no internet" page, shown if the network is unreachable: nothing else is stored or answered from a cache.
+        assert "cache.put" not in r.text and r.text.count("c.add(") == 1 and "c.add(OFFLINE_URL)" in r.text
+        assert "respondWith(fetch(event.request).catch(" in r.text and "caches.match(OFFLINE_URL)" in r.text and "caches.match(event.request" not in r.text
 
 
 # ---------------------------------------------------------------- external cron trigger

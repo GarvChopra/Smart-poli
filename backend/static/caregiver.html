@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartPoli — caregiver</title>
 <link rel="stylesheet" href="/static/style.css">
+<script>try{if(sessionStorage.getItem("sp_splash"))document.documentElement.classList.add("no-splash")}catch(e){}</script>
+<link rel="stylesheet" href="/static/splash.css">
 </head>
 <body>
+<div id="splash" aria-hidden="true"><div class="sp-bg"><i class="sp-blob sp-b1"></i><i class="sp-blob sp-b2"></i><i class="sp-blob sp-b3"></i><b class="sp-cross sp-c1">+</b><b class="sp-cross sp-c2">+</b><b class="sp-cross sp-c3">+</b><b class="sp-cross sp-c4">+</b><b class="sp-cross sp-c5">+</b></div><div class="sp-center"><div class="sp-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><div class="sp-word">Smart<b>Poli</b></div><div class="sp-dots"><i></i><i></i><i></i></div></div></div>
 <div id="app">
 
   <header class="topbar no-print">
@@ -41,5 +44,7 @@
 <script src="/static/feedback.js"></script>
 <script src="/static/caregiver-pages.js"></script>
 <script src="/static/caregiver.js"></script>
+<script src="/static/splash.js"></script>
+<script src="/static/offline.js"></script>
 </body>
 </html>

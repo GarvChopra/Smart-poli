@@ -1,0 +1,41 @@
+/* App-opening animation (the landing page's drifting blobs and rising crosses) + the "no internet" popup. */
+#splash { position: fixed; inset: 0; z-index: 2000; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #F6FBF9 0%, #EAF6F1 55%, #E3F1EB 100%); transition: opacity .45s ease, visibility .45s; }
+#splash.sp-out { opacity: 0; visibility: hidden; }
+.no-splash #splash { display: none; }
+.sp-bg { position: absolute; inset: 0; pointer-events: none; }
+.sp-blob { position: absolute; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #CDEBDD, #A9DAC6); opacity: .55; }
+.sp-b1 { width: 340px; height: 340px; left: -140px; top: 36%; animation: sp-drift 14s ease-in-out infinite; }
+.sp-b2 { width: 420px; height: 420px; right: -180px; top: 40%; animation: sp-drift 17s ease-in-out infinite reverse; }
+.sp-b3 { width: 260px; height: 260px; left: 30%; top: -120px; opacity: .35; animation: sp-drift 20s ease-in-out infinite; }
+.sp-cross { position: absolute; color: #fff; font-weight: 800; font-size: 26px; opacity: 0; text-shadow: 0 0 12px rgba(18,135,111,.25); animation: sp-rise 6s linear infinite; }
+.sp-c1 { left: 8%; } .sp-c2 { left: 28%; animation-delay: 1.4s; font-size: 20px; } .sp-c3 { left: 52%; animation-delay: 2.8s; }
+.sp-c4 { left: 74%; animation-delay: .7s; font-size: 22px; } .sp-c5 { left: 90%; animation-delay: 3.6s; }
+.sp-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.sp-mark { width: 84px; height: 84px; border-radius: 24px; display: grid; place-items: center; background: linear-gradient(145deg, #1FA284, #0F7A63);
+  box-shadow: 0 14px 34px rgba(18,135,111,.38); animation: sp-pop .7s cubic-bezier(.2,.8,.25,1.2) both, sp-float 3.5s ease-in-out .7s infinite; }
+.sp-mark svg { width: 46px; height: 46px; animation: sp-pulse 1.8s ease-in-out .7s infinite; }
+.sp-word { font: 500 34px/1 "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: -.02em; color: #222B29; animation: sp-fade .6s ease .35s both; }
+.sp-word b { font-weight: 700; color: #12876F; }
+.sp-dots { display: flex; gap: 7px; margin-top: 6px; animation: sp-fade .5s ease .7s both; }
+.sp-dots i { width: 8px; height: 8px; border-radius: 50%; background: #12876F; opacity: .25; animation: sp-dot 1.1s ease-in-out infinite; }
+.sp-dots i:nth-child(2) { animation-delay: .18s; } .sp-dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes sp-drift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(24px, -26px) scale(1.06); } }
+@keyframes sp-rise { 0% { transform: translateY(105vh) rotate(0); opacity: 0; } 12% { opacity: .9; } 88% { opacity: .9; } 100% { transform: translateY(-10vh) rotate(180deg); opacity: 0; } }
+@keyframes sp-pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes sp-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes sp-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+@keyframes sp-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes sp-dot { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+@media (prefers-reduced-motion: reduce) { #splash *, #splash { animation: none !important; } }
+
+/* No internet */
+.net-pop { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(18,32,27,.55); animation: sp-fade .2s ease both; }
+.net-pop[hidden] { display: none; }
+.net-card { width: min(340px, 100%); background: #fff; border-radius: 24px; padding: 26px 22px 18px; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.28); }
+.net-icon { width: 60px; height: 60px; margin: 0 auto 10px; border-radius: 50%; background: #FBE6E3; color: #B3261E; display: grid; place-items: center; }
+.net-icon svg { width: 30px; height: 30px; }
+.net-card h3 { margin: 0 0 6px; font-size: 20px; color: #0E1A17; }
+.net-card p { margin: 0 0 16px; color: #5A6B66; font-size: 15px; line-height: 1.45; }
+.net-card button { width: 100%; min-height: 48px; border: 0; border-radius: 14px; background: linear-gradient(135deg, #1FA284, #0F7A63); color: #fff; font: 700 16px "Figtree", system-ui, sans-serif; cursor: pointer; }
+.net-card button:disabled { opacity: .7; }
