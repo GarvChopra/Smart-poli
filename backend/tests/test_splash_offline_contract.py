@@ -40,3 +40,11 @@ def test_the_offline_page_is_served_without_login_and_the_manifest_matches_the_s
     r = TestClient(app).get("/offline")
     assert r.status_code == 200 and "No internet connection" in r.text
     assert '"background_color": "#F6FBF9"' in read("app.webmanifest")
+
+
+def test_iphone_install_button_shows_the_two_taps_instead_of_doing_nothing():
+    js = read("install.js")
+    assert "if (isIOS) { showIosSheet(); return; }" in js and "Add to Home Screen" in js and "Open in Safari" in js
+    for page in ("index.html", "login.html", "caregiver.html", "install.html"):          # what iOS needs to make a proper home-screen app
+        html = read(page)
+        assert 'rel="apple-touch-icon"' in html and 'name="apple-mobile-web-app-capable"' in html, page
