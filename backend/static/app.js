@@ -758,7 +758,10 @@ const OPEN_WARN_KEY = 'smartpoli_open_warn';
  * they must be kept apart while they are scheduled together, or a verified timing rule is broken. Nothing minor or
  * uncertain ever appears here, and it stays silent when everything is fine. Any medicine can be removed from it. */
 async function showOpenWarnings() {
-  if (!state.patientId || document.getElementById('openWarnOverlay') || document.querySelector('.dp-overlay')) return;   // a dose popup is open: that comes first
+  if (!state.patientId || document.getElementById('openWarnOverlay')) return;
+  // A dose popup or the guided tour comes first: wait until they are closed, then show this (it used to be skipped).
+  while (document.querySelector('.tour-root, .dp-overlay')) await waitMs(800);
+  if (document.getElementById('openWarnOverlay')) return;
   let data = null;
   for (let attempt = 0; attempt < 3; attempt++) {                    // combinations still being looked up show up a few seconds later
     data = await api('GET', `/patients/${state.patientId}/open-warnings`).catch(() => null);
@@ -767,11 +770,18 @@ async function showOpenWarnings() {
   }
   if (!data || !data.has_problems) return;
   try { if (sessionStorage.getItem(OPEN_WARN_KEY) === `${state.patientId}:${data.key}`) return; } catch (e) { /* ignore */ }
+  // One card per pair of medicines: the same pair can come back as an interaction, a keep-apart warning AND a timing
+  // clash (once per scheduled dose); showing it twice looked like two different problems.
+  const seenPairs = new Set();
+  const once = (names) => { const k = names.map((n) => String(n).toLowerCase()).sort().join('|'); if (seenPairs.has(k)) return false; seenPairs.add(k); return true; };
+  const cards = [
+    ...data.interactions.filter((i) => once([i.drug_a, i.drug_b])).map((i) => compactClashHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)),
+    ...data.pair_warnings.filter((w) => once(w.medicines)).map((w) => compactClashHtml(w.medicines, w.medicine_ids, w.suggestion)),
+    ...data.timing.filter((c) => once(c.medicines)).map((c) => compactClashHtml(c.medicines, c.medicine_ids)),
+  ];
   const overlay = showSafetyModal(`
     <h3>⚠ Don’t take these together</h3>
-    ${data.interactions.map((i) => compactClashHtml([capName(i.drug_a), capName(i.drug_b)], i.medicine_ids)).join('')}
-    ${data.pair_warnings.map((w) => compactClashHtml(w.medicines, w.medicine_ids, w.suggestion)).join('')}
-    ${data.timing.map((c) => compactClashHtml(c.medicines, c.medicine_ids)).join('')}
+    ${cards.join('')}
     <div class="sm-actions"><button class="primary small" id="owOk">OK</button></div>`);
   overlay.classList.add('cw-modal');
   overlay.id = 'openWarnOverlay';
@@ -2050,7 +2060,10 @@ function formatNoteActor(actor) {
   // Real actor strings now look like "doctor:<user_id>:<name>" (auth.py-
   // derived, never client-supplied — see doctor_router.py's note endpoint).
   const parts = (actor || '').split(':');
-  if (parts[0] === 'doctor' && parts[2]) return `Dr. ${parts.slice(2).join(':')}`;
+  if (parts[0] === 'doctor' && parts[2]) {
+    const name = parts.slice(2).join(':').trim();
+    return /^dr\.?\s/i.test(name) ? name : `Dr. ${name}`;           // a name already written "Dr. Meera" is not doubled
+  }
   if (parts[0] === 'doctor') return 'Doctor';
   return actor || 'Unknown';
 }

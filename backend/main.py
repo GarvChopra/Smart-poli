@@ -1516,7 +1516,7 @@ def get_clinical_notes(patient_id: int, user: User = Depends(require_patient_rea
         .order_by(AuditLog.at.desc())
         .all()
     )
-    return [{"id": n.id, "actor": n.actor, "note": n.detail, "at": n.at.isoformat()} for n in notes]
+    return [{"id": n.id, "actor": n.actor, "note": n.detail, "at": n.at.isoformat() + "Z"} for n in notes]
 
 
 # ---------------------------------------------------------------- report (Feature 4)

@@ -29,3 +29,9 @@ def test_timeline_is_only_dose_outcomes():
         assert {e["action"] for e in events} == {"dose_taken", "dose_auto_missed"}
         assert {e["status"] for e in events} == {"taken", "missed"}
         assert all(e["summary"] == "Metformin" and e["detail"] == "" and e["actor"] == "" for e in events)
+
+
+def test_timeline_times_are_marked_utc_so_the_phone_shows_local_time():
+    import timeline
+    src = open(timeline.__file__, encoding="utf-8").read()
+    assert '"at": e.at.isoformat() + "Z"' in src        # stored in UTC; without the Z a phone showed UTC as local time

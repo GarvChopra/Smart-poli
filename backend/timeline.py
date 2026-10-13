@@ -38,6 +38,7 @@ def friendly_entries(db, entries) -> list:
         m = _DOSE_ID.search(d)
         n = _MED_ID.search(d)
         name = (doses.get(int(m.group(1))) if m else None) or (meds.get(int(n.group(1))) if n else None) or "A medicine"
-        out.append({"id": e.id, "at": e.at.isoformat(), "action": e.action, "status": STATUS[e.action],
+        # e.at is stored in UTC; the Z makes the phone show it in its own local time (it showed UTC as local before)
+        out.append({"id": e.id, "at": e.at.isoformat() + "Z", "action": e.action, "status": STATUS[e.action],
                     "summary": name, "detail": "", "actor": ""})
     return out
