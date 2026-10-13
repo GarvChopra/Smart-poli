@@ -50,7 +50,7 @@ from prescription_service import create_prescription_from_lines, confirm_prescri
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
     mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, undo_taken,
-    take_window_error, TAKE_EARLY_WINDOW,
+    take_window_error, TAKE_EARLY_WINDOW, top_up_ongoing_doses,
 )
 from triage import load_ruleset, evaluate_check, next_question
 from triage_service import record_symptom_check
@@ -59,6 +59,7 @@ import voice_stt
 from interactions import load_ruleset as load_interaction_ruleset, check_interactions, normalize_for_interactions
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import read_prescription_image, read_image_text_lines, OCRUnavailable
+import rx_reader
 from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
@@ -255,6 +256,7 @@ reminder_scheduler = BackgroundScheduler()
 
 
 _last_external_sweep = [0.0]
+_last_top_up = [0.0]
 
 
 def _in_process_sweep_job():
@@ -278,6 +280,16 @@ def _reminder_sweep_job():
     """
     db = SessionLocal()
     try:
+        import time as _time
+        if _time.time() - _last_top_up[0] > 3600:      # hourly is plenty: it keeps 30 days ahead
+            _last_top_up[0] = _time.time()
+            try:
+                added = top_up_ongoing_doses(db)
+                if added:
+                    logger.info(f"Reminder sweep: scheduled {added} more dose(s) for ongoing medicines.")
+            except Exception:
+                db.rollback()
+                logger.exception("Reminder sweep: topping up ongoing medicines failed.")
         missed = sweep_missed_doses(db)
         if missed:
             logger.info(f"Reminder sweep: auto-marked {len(missed)} overdue dose(s) as missed.")
@@ -456,17 +468,20 @@ def _looks_like_image(b: bytes) -> bool:
             or (b[:4] == b"RIFF" and b[8:12] == b"WEBP") or b[:4] in (b"II*\x00", b"MM\x00*"))
 
 
-async def _read_image_upload(file: UploadFile) -> bytes:
-    """Read an uploaded image with a hard size cap and a magic-byte type check
+async def _read_image_upload(file: UploadFile, allow_pdf: bool = False) -> bytes:
+    """Read an uploaded image (or, where allowed, a PDF) with a hard size cap and a magic-byte type check
     (the client-supplied filename and content-type are never trusted)."""
     data = await file.read(MAX_IMAGE_BYTES + 1)
     if not data:
         raise HTTPException(400, "Empty file upload.")
     if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(413, f"That image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)} MB. "
+        raise HTTPException(413, f"That file is larger than {MAX_IMAGE_BYTES // (1024 * 1024)} MB. "
                                  "Take a smaller photo or use manual entry.")
+    if allow_pdf and rx_reader.is_pdf(data):
+        return data
     if not _looks_like_image(data):
-        raise HTTPException(415, "That file is not a supported image (JPEG, PNG, WebP, BMP or TIFF).")
+        raise HTTPException(415, "That file is not a supported image (JPEG, PNG, WebP, BMP or TIFF)"
+                                 + (" or a PDF." if allow_pdf else "."))
     return data
 
 
@@ -672,55 +687,46 @@ async def create_prescription_from_image(
     _ai=Depends(rate_limit("ai-image", 10, 60)),
 ):
     """
-    Image path: photo -> OpenCV preprocessing -> per-line TrOCR -> the SAME
-    parser.py the manual path uses. No LLM extraction step and no API key —
-    OCR only turns pixels into text lines; the deterministic parser (already
-    the source of truth for the manual path) does everything after that,
-    so there is exactly one extraction/confidence/scheduling path regardless
-    of source (CLAUDE.md section 5/6).
+    Photo or PDF -> medicine lines (rx_reader: a PDF's own text, else AI vision, else Tesseract OCR) -> the SAME
+    parser.py the typed path uses, so there is exactly one extraction/confidence/scheduling path regardless of source
+    (CLAUDE.md section 5/6). The result is a draft: every medicine goes to the review screen before anything is
+    scheduled, and lines read from a picture are never marked verified on their own.
 
-    If the OCR plugin can't run at all (model failed to load, bad image),
-    this returns a clear 503 telling the caller to use manual entry —
-    it never leaves the manual path degraded.
+    If nothing can read the file at all, this answers with a clear message telling the caller to type the medicines
+    in - it never leaves the manual path degraded.
     """
     get_patient_or_404(db, patient_id)
     if not has_write_access(db, user, patient_id):
         raise HTTPException(403, "Only the patient can add a prescription to their own record.")
 
-    image_bytes = await _read_image_upload(file)
+    data = await _read_image_upload(file, allow_pdf=True)
 
     try:
-        # run_in_threadpool: OCR is synchronous, CPU-bound work (OpenCV +
-        # Tesseract) — running it inline on this async def's event loop
-        # would block every other request on this single-worker instance,
-        # including Render's own health check, for the whole duration.
-        # A real phone photo (megapixels) did exactly that in production:
-        # the health check timed out and Render killed the instance mid
-        # request, returning 502 to the caller.
-        ocr_lines = await run_in_threadpool(read_prescription_image, image_bytes)
-    except OCRUnavailable as e:
+        # run_in_threadpool: reading is slow, blocking work (an AI call, or OpenCV + Tesseract). Running it inline on
+        # this async def's event loop would block every other request on this single-worker instance, including
+        # Render's health check - a real phone photo once got the instance killed mid request that way (502).
+        result = await run_in_threadpool(rx_reader.read_prescription_file, data,
+                                         lambda b: read_prescription_image(b))
+    except rx_reader.ReadFailed as e:
+        raise HTTPException(422, str(e))
+    except OCRUnavailable:
         raise HTTPException(
             503,
-            f"OCR is unavailable right now ({e}). Use manual prescription entry instead — "
-            "it covers every feature the image path does.",
-        )
-
-    if not ocr_lines:
-        raise HTTPException(
-            422,
-            "No readable text lines were found in that image. Try a clearer photo, "
-            "or use manual entry.",
+            "Reading prescriptions is unavailable right now. Use manual entry (type the medicines in) instead — "
+            "it covers every feature the photo path does.",
         )
 
     prescription, medicines = _create_prescription_from_lines(
-        db, patient_id, doctor_name, issued_date,
-        [(line["text"], line["confidence"]) for line in ocr_lines], source="ocr", actor=f"patient:{user.id}",
+        db, patient_id, doctor_name, issued_date, result["lines"],
+        source={"ai": "ai", "pdf_text": "pdf"}.get(result["method"], "ocr"), actor=f"patient:{user.id}",
     )
+    ocr_lines = result["lines"]
 
     return {
         "prescription_id": prescription.id,
         "status": prescription.status,
         "ocr_lines_found": len(ocr_lines),
+        "read_by": result["method"],
         "medicines": [
             {**serialize_medicine(m), "plain_language": parsed["plain_language"], "notes": parsed["notes"]}
             for m, parsed in medicines

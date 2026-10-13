@@ -96,7 +96,7 @@ def test_prescription_tab_is_enter_manually_then_small_choose_file_then_type_it_
     assert order == sorted(order)                                            # top to bottom, in that order
     assert "Enter manually" in body and "Choose file" in body
     assert "medicineWizard({ step: 'details' })" in body
-    assert 'id="rxImageInput" accept="image/*" hidden' in body and "rxInput.click()" in body       # opens the phone's files
+    assert 'id="rxImageInput" accept="image/*,application/pdf,.pdf" hidden' in body and "rxInput.click()" in body       # opens the phone's files
     for gone in ("Scan medicine", "scanInput", "scanBtn", 'capture="environment"', "or-divider", "myMedicines", "Medicines you take"):
         assert gone not in body, gone
 

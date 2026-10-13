@@ -186,6 +186,26 @@ async function renderRoutineCard(mount, patientId) {
 }
 
 
+/** Every app open: if this phone already has reminders on, send its subscription to the server again. The server can
+ * lose it without the phone knowing (the push service retired it, or another account was used on this phone), and then
+ * reminders stop silently while the phone still says "on". Re-sending is harmless: the server never duplicates a device. */
+const _resynced = new Set();
+async function resyncPushSubscription(patientId) {
+  if (!patientId || _resynced.has(patientId) || !pushSupported() || Notification.permission !== 'granted') return;
+  _resynced.add(patientId);
+  try {
+    const key = await apiFetch('GET', '/push/public-key');
+    if (!key.configured || !key.public_key) return;
+    const reg = await _pushRegistration();
+    await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: _urlBase64ToUint8Array(key.public_key),
+    });
+    const json = sub.toJSON();
+    await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
+  } catch (e) { /* best effort: Settings still has the full control */ }
+}
+
 /** Dashboard nudge: shown only while reminders are possible but not yet on for this device. One tap asks Android for
  * permission and subscribes. Disappears once on, or when notifications are blocked (Settings explains how to unblock). */
 async function renderPushPrompt(mount, patientId) {
@@ -193,6 +213,7 @@ async function renderPushPrompt(mount, patientId) {
   try {
     const key = await apiFetch('GET', '/push/public-key');
     if (!key.configured || Notification.permission === 'denied') return;
+    if (Notification.permission === 'granted') { await resyncPushSubscription(patientId); return; }
     if (await currentPushSubscription()) return;
     mount.innerHTML = `
       <div class="push-prompt"><div><strong>Get dose reminders</strong><div class="reg-meta">So you never miss a medicine.</div></div>

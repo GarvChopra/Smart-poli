@@ -1357,3 +1357,20 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 
 /* Tour on a phone: respect the notch / home bar, keep buttons thumb-sized */
 @media (max-width: 600px) { .tour-tip { padding-bottom: calc(14px + env(safe-area-inset-bottom)); } .tour-actions button { min-height: 46px; } .tour-tip h3 { font-size: 17px; } }
+
+/* Continue with Google + first-time role choice (login page) */
+.google-box { margin-top: 14px; }
+.google-box[hidden] { display: none; }
+.auth-or { display: flex; align-items: center; gap: 10px; color: var(--ink-faint); font-size: 13px; margin-bottom: 12px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.google-btn { display: flex; justify-content: center; min-height: 44px; }
+.g-role { position: fixed; inset: 0; z-index: 1500; display: flex; align-items: flex-end; justify-content: center; padding: 16px; background: rgba(18,32,27,.55); }
+.g-role[hidden] { display: none; }
+.g-role-card { width: min(380px, 100%); background: #fff; border-radius: 22px; padding: 22px 18px 14px; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.28); }
+.g-role-card h3 { margin: 0 0 4px; font-size: 20px; color: var(--ink); }
+.g-role-card p { margin: 0 0 14px; color: var(--ink-soft); font-size: 15px; }
+.g-role-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 56px; margin-bottom: 10px; padding: 12px 16px; border: 1.5px solid var(--line); border-radius: 14px; background: #fff; text-align: left; cursor: pointer; font: inherit; }
+.g-role-opt b { font-size: 16px; color: var(--ink); }
+.g-role-opt span { font-size: 13px; color: var(--ink-soft); }
+.g-role-opt:hover, .g-role-opt:focus-visible { border-color: var(--teal); background: var(--teal-soft); }
+@media (min-width: 600px) { .g-role { align-items: center; } }

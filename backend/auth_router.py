@@ -1,10 +1,12 @@
 """
 SmartPoli — account endpoints: register, login, "who am I".
 
-No external identity provider, no email delivery — bcrypt + JWT only, so
-this still runs with an empty .env (CLAUDE.md section 14).
+No email delivery — bcrypt + JWT, so this still runs with an empty .env
+(CLAUDE.md section 14). "Continue with Google" is optional: it only appears
+when SMARTPOLI_GOOGLE_CLIENT_ID is set (google_auth.py).
 """
 
+import os
 import time
 from typing import Optional
 
@@ -14,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from db import get_db_session, User, Patient
 from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES
-from schemas import RegisterRequest, LoginRequest
+from schemas import RegisterRequest, LoginRequest, GoogleLoginRequest
+import google_auth
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,6 +47,11 @@ def _recent_failures(key: tuple, now: float) -> list:
     return recent
 
 
+def doctor_signup_open() -> bool:
+    """Doctor sign-up is closed for now (existing doctor accounts keep working). SMARTPOLI_DOCTOR_SIGNUP=1 reopens it."""
+    return os.getenv("SMARTPOLI_DOCTOR_SIGNUP") == "1"
+
+
 def _serialize_user(user: User, db: Session) -> dict:
     out = {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
     if user.role == "patient":
@@ -58,8 +66,12 @@ def register(body: RegisterRequest, db: Session = Depends(get_db_session), _rl=D
         raise HTTPException(400, "A valid email is required.")
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
+    if len(body.password.encode("utf-8")) > 72:          # bcrypt's limit: longer would be cut short, or crash
+        raise HTTPException(400, "Password must be at most 72 characters.")
     if body.role not in ROLES:
         raise HTTPException(400, f"role must be one of: {', '.join(ROLES)}")
+    if body.role == "doctor" and not doctor_signup_open():
+        raise HTTPException(400, "Doctor accounts are not open yet. Sign up as a patient or caregiver.")
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(409, "An account with this email already exists.")
 
@@ -71,7 +83,9 @@ def register(body: RegisterRequest, db: Session = Depends(get_db_session), _rl=D
 
 
 @router.post("/login")
-def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_session)):
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_session),
+          _rl=Depends(rate_limit("login", 30, 300))):
+    """Two limits: wrong passwords for one email (lockout below), and attempts from one device across MANY emails."""
     email = body.email.strip().lower()
     key, now = _throttle_key(request, email), time.time()
     recent = _recent_failures(key, now)
@@ -85,6 +99,33 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_ses
         _failed_logins.setdefault(key, []).append(now)
         raise HTTPException(401, "Incorrect email or password.")
     _failed_logins.pop(key, None)
+    return {"token": create_token(user), "user": _serialize_user(user, db)}
+
+
+@router.get("/google/config")
+def google_config():
+    """Whether to show "Continue with Google", and the (public) client id the button needs."""
+    return {"enabled": google_auth.is_enabled(), "client_id": google_auth.client_id() or None}
+
+
+@router.post("/google")
+def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db_session),
+                 _rl=Depends(rate_limit("google", 20, 300))):
+    """Sign in (or sign up) with a Google ID token the server verifies itself. An existing account with the same,
+    Google-verified email is opened. Someone new is asked once whether they are a patient or a caregiver."""
+    try:
+        info = google_auth.verify_id_token(body.credential)
+    except google_auth.GoogleTokenError as e:
+        raise HTTPException(401, str(e))
+    user = db.query(User).filter(User.email == info["email"]).first()
+    if user is None:
+        if not body.role:
+            return {"needs_role": True, "name": info["name"]}
+        if body.role not in ("patient", "caregiver") and not (body.role == "doctor" and doctor_signup_open()):
+            raise HTTPException(400, "Choose patient or caregiver.")
+        user = User(email=info["email"], password_hash=None, role=body.role, name=info["name"])
+        db.add(user)
+        db.commit()
     return {"token": create_token(user), "user": _serialize_user(user, db)}
 
 

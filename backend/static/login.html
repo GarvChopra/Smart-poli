@@ -34,7 +34,6 @@
         <select id="role">
           <option value="patient">Patient</option>
           <option value="caregiver">Caregiver</option>
-          <option value="doctor">Doctor</option>
         </select>
       </div>
 
@@ -48,6 +47,21 @@
       <button type="submit" class="primary" id="submitBtn" style="margin-top:18px;width:100%;">Log in</button>
       <div id="authError" class="auth-error" role="alert"></div>
     </form>
+
+    <div id="googleBox" class="google-box" hidden>
+      <div class="auth-or"><span>or</span></div>
+      <div id="googleBtn" class="google-btn"></div>
+    </div>
+  </div>
+
+  <div id="googleRole" class="g-role" hidden role="dialog" aria-modal="true" aria-labelledby="gRoleTitle">
+    <div class="g-role-card">
+      <h3 id="gRoleTitle">Welcome<span id="gRoleName"></span></h3>
+      <p>Who will use SmartPoli?</p>
+      <button type="button" class="g-role-opt" data-role="patient"><b>I take medicines</b><span>Patient</span></button>
+      <button type="button" class="g-role-opt" data-role="caregiver"><b>I look after someone</b><span>Caregiver</span></button>
+      <button type="button" class="ghost small" id="gRoleCancel">Cancel</button>
+    </div>
   </div>
 
   <a class="auth-install" href="/install"><span aria-hidden="true">&#128241;</span> Install the SmartPoli app</a>

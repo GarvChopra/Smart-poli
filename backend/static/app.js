@@ -277,6 +277,7 @@ function renderActiveTab() {
   // No profile yet (first login): the name-and-age popup opens; nothing else can render without one.
   if (!state.patientId) { renderNoPatientState(); return; }
   syncPatientTimezone(state.patientId);
+  resyncPushSubscription(state.patientId);   // reminders keep reaching this phone even if the server lost it
   if (state.activeTab === 'prescriptions') renderPrescriptions();
   if (state.activeTab === 'dashboard') renderDashboard();
   if (state.activeTab === 'safety') renderSafetyCenter();
@@ -431,9 +432,10 @@ function renderPrescriptions(lastResult) {
       <button class="primary add-big add-full" id="manualBtn"><span class="icon">${ICONS.pill}</span>Enter manually</button>
       <div style="text-align:center;margin-top:12px;">
         <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
-        <span class="reg-meta">&nbsp;a photo of a whole prescription</span>
+        <span class="reg-meta">&nbsp;a photo or PDF of a prescription</span>
+        <div class="reg-meta" style="margin-top:6px;">Read by an AI service. You check every medicine before it is added.</div>
       </div>
-      <input type="file" id="rxImageInput" accept="image/*" hidden>
+      <input type="file" id="rxImageInput" accept="image/*,application/pdf,.pdf" hidden>
       <div id="uploadStatus"></div>
     </div>
 
@@ -476,7 +478,8 @@ Syrup Crocin 5ml SOS"></textarea>
       status.innerHTML = kind === 'loading' ? `<span class="upload-spinner"></span><span>${text}</span>` : text;
     };
     chooseBtn.disabled = true;
-    setStatus('loading', 'Reading photo — a full-size phone photo can take up to a minute…');
+    const isPdf = /\.pdf$/i.test(rxInput.files[0].name) || rxInput.files[0].type === 'application/pdf';
+    setStatus('loading', isPdf ? 'Reading the PDF…' : 'Reading the photo — this can take up to a minute…');
     const form = new FormData();
     form.append('patient_id', state.patientId);
     form.append('file', rxInput.files[0]);
@@ -489,12 +492,12 @@ Syrup Crocin 5ml SOS"></textarea>
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        setStatus('error', escHtml(detail.detail || `Could not read that photo (${res.status}).`));
+        setStatus('error', escHtml(detail.detail || `Could not read that file (${res.status}).`));
         return;
       }
       const result = await res.json();
       setStatus(null, '');
-      showQuickPopup('Photo read successfully', null, `${result.ocr_lines_found} medicine line(s) found`);
+      showQuickPopup(isPdf ? 'PDF read' : 'Photo read', null, `${result.ocr_lines_found} medicine line(s) found — check each one below`);
       renderRxResult(result);
     } catch (e) {
       setStatus('error', 'Could not reach the server. Use manual entry instead.');

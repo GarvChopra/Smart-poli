@@ -30,6 +30,14 @@ _CSP = ("default-src 'self'; "
         "worker-src 'self'; manifest-src 'self'; "
         "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 
+# The login page alone also lets Google's sign-in button load (script, its iframe, its stylesheet, its calls). Google
+# needs the page's origin in the Referer and a popup it can talk back to, hence the two relaxed headers there too.
+_GSI = "https://accounts.google.com/gsi/"
+_CSP_LOGIN = (_CSP.replace("script-src 'self' 'unsafe-inline'", f"script-src 'self' 'unsafe-inline' {_GSI}client")
+              .replace("style-src 'self' 'unsafe-inline'", f"style-src 'self' 'unsafe-inline' {_GSI}style")
+              .replace("connect-src 'self'", f"connect-src 'self' {_GSI}")
+              + f"; frame-src {_GSI}")
+
 
 _STATIC_ASSET_EXT = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".woff", ".woff2")
 
@@ -49,12 +57,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         h = response.headers
-        h.setdefault("Content-Security-Policy", _CSP)
+        login = request.url.path == "/login"
+        h.setdefault("Content-Security-Policy", _CSP_LOGIN if login else _CSP)
         h.setdefault("X-Content-Type-Options", "nosniff")
         h.setdefault("X-Frame-Options", "DENY")
-        h.setdefault("Referrer-Policy", "no-referrer")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin" if login else "no-referrer")
         h.setdefault("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(), payment=()")
-        h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        h.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups" if login else "same-origin")
         if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
             h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # Private pages and API answers must not be kept by shared caches or the back button.

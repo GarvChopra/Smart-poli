@@ -211,6 +211,45 @@ def sweep_missed(db: Session, now: Optional[datetime] = None) -> int:
     return len(sweep_missed_doses(db, now))
 
 
+ONGOING_HORIZON_DAYS = 30
+
+
+def top_up_ongoing_doses(db: Session, utc_now: Optional[datetime] = None) -> int:
+    """
+    Ongoing medicines (no end date) are scheduled 30 days ahead at confirmation. Without this, their reminders simply
+    stopped a month after the medicine was added. Keeps every ongoing, still-scheduled medicine 30 days ahead of the
+    patient's own today, using the medicine's CURRENT times and weekday rule. Only adds future doses after the last one
+    that exists, so it never duplicates or back-fills; removed medicines (needs_confirmation) and PRN/STAT are skipped.
+    Returns how many doses were added.
+    """
+    from clock import local_now, patient_timezone
+
+    utc_now = utc_now or datetime.utcnow()
+    meds = (db.query(Medicine).filter(Medicine.duration_days.is_(None), Medicine.is_prn.is_(False),
+                                      Medicine.status != "needs_confirmation").all())
+    clocks: dict[int, datetime] = {}
+    added = 0
+    for med in meds:
+        if med.schedule_code == "STAT" or not med.doses:
+            continue                                    # never scheduled (draft) or a one-off
+        patient_id = med.prescription.patient_id
+        if patient_id not in clocks:
+            clocks[patient_id] = local_now(patient_timezone(db, patient_id), utc_now)
+        now = clocks[patient_id]
+        horizon = now.date() + timedelta(days=ONGOING_HORIZON_DAYS)
+        last = max(d.scheduled_at for d in med.doses)
+        if last.date() >= horizon - timedelta(days=1):
+            continue
+        start = datetime.combine(max(last.date() + timedelta(days=1), now.date()), datetime.min.time())
+        for dose in generate_doses(med, start_at=start):
+            if last < dose.scheduled_at and dose.scheduled_at >= now and dose.scheduled_at.date() <= horizon:
+                db.add(dose)
+                added += 1
+    if added:
+        db.commit()
+    return added
+
+
 # ---------------------------------------------------------------- adherence
 
 def compute_adherence(doses: list[Dose]) -> dict:

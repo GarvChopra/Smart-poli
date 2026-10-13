@@ -114,15 +114,20 @@ class FreeTextTriageRequest(BaseModel):
 # ---------------------------------------------------------------- auth
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=128)
+    name: str = Field(max_length=100)
     role: str  # 'patient' | 'caregiver' | 'doctor'
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=128)
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(max_length=4096)          # the ID token Google's button hands the page
+    role: Optional[str] = None                          # only needed the first time (new account)
 
 
 # ---------------------------------------------------------------- caregiver/doctor linking
