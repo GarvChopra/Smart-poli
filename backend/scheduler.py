@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from db import Medicine, Dose
 
@@ -182,7 +182,8 @@ def sweep_missed_doses(db: Session, now: Optional[datetime] = None,
     utc_now = utc_now or datetime.utcnow()
     # Coarse SQL filter: nobody's local clock is more than 14h ahead of UTC.
     coarse = (now if now is not None else utc_now + MAX_UTC_OFFSET) - MISSED_AFTER
-    candidates = db.query(Dose).filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at < coarse).all()
+    candidates = (db.query(Dose).options(joinedload(Dose.medicine).joinedload(Medicine.prescription))
+                  .filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at < coarse).all())
 
     clocks: dict[int, datetime] = {}
     missed: list[Dose] = []

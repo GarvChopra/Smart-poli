@@ -1374,3 +1374,11 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .g-role-opt span { font-size: 13px; color: var(--ink-soft); }
 .g-role-opt:hover, .g-role-opt:focus-visible { border-color: var(--teal); background: var(--teal-soft); }
 @media (min-width: 600px) { .g-role { align-items: center; } }
+
+/* A dose button that is waiting for the server: looks pressed, shows a small spinner, ignores more taps. */
+button.is-busy { position: relative; color: transparent !important; pointer-events: none; }
+button.is-busy::after { content: ""; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; border: 2.5px solid rgba(18,135,111,.25); border-top-color: #12876F; animation: busy-spin .7s linear infinite; }
+button.primary.is-busy::after { border-color: rgba(255,255,255,.35); border-top-color: #fff; }
+button[data-busy="1"]:not(.is-busy) { opacity: .55; }
+@keyframes busy-spin { to { transform: rotate(360deg); } }

@@ -30,13 +30,13 @@ from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 import safety_engine
 import safety_service
 import webpush_service
 from clock import MAX_UTC_OFFSET, local_now, resolve_timezone
-from db import Dose, PatientSettings, PushSubscription, ReminderLog, WhatsAppSession
+from db import Dose, Medicine, PatientSettings, PushSubscription, ReminderLog, WhatsAppSession
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +172,8 @@ def run_reminder_sweep(db: Session, utc_now: Optional[datetime] = None,
     # Coarse filter on the server clock: local time is within +-14h of UTC.
     lo = utc_now - MAX_UTC_OFFSET - FOLLOWUP_UNTIL - timedelta(hours=1)
     hi = utc_now + MAX_UTC_OFFSET + timedelta(hours=3)
-    doses = (db.query(Dose).filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at >= lo,
-                                   Dose.scheduled_at <= hi).all())
+    doses = (db.query(Dose).options(joinedload(Dose.medicine).joinedload(Medicine.prescription))   # one query, not 2 per dose
+             .filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at >= lo, Dose.scheduled_at <= hi).all())
     prefs: dict = {}
     sent_total = 0
     for dose in doses:

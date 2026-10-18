@@ -1233,6 +1233,22 @@ function earlyLabel(mins) {
  *     patient can answer "I already took it" - which is recorded as an override.
  * The button is always visible so tapping it always explains itself instead of doing nothing.
  */
+/** Run a button's action once: the button (and its siblings in the same group) show they are working and ignore more
+ * taps until the server answers. On a slow connection people tapped "I took it" again and again, thinking it did nothing. */
+async function withBusy(btn, fn) {
+  if (!btn || btn.dataset.busy === '1') return undefined;
+  const group = btn.closest('.dp-actions, .dose-calendar-actions, .sm-actions') || btn.parentElement;
+  const btns = group ? [...group.querySelectorAll('button')] : [btn];
+  btns.forEach((b) => { b.disabled = true; b.dataset.busy = '1'; });
+  btn.classList.add('is-busy');
+  btn.setAttribute('aria-busy', 'true');
+  try { return await fn(); } finally {
+    btns.forEach((b) => { b.disabled = false; delete b.dataset.busy; });
+    btn.classList.remove('is-busy');
+    btn.removeAttribute('aria-busy');
+  }
+}
+
 async function takeDoseWithGuard(doseId, medName, scheduledAt, override = false) {
   const minsEarly = (new Date(scheduledAt) - Date.now()) / 60000;
   if (!override && minsEarly > 30 && minsEarly <= TAKE_EARLY_MS / 60000) {
@@ -1500,10 +1516,18 @@ async function showMissedGuidance(doseId) {
   overlay.classList.add('dp-overlay');
   const done = () => { overlay.remove(); dashboardCache = null; renderActiveTab(); };
   overlay.querySelector('#smClose').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#smTook').addEventListener('click', async () => { await api('POST', `/doses/${doseId}/take`); done(); });
-  overlay.querySelector('#smSkip').addEventListener('click', async () => {
-    await api('POST', `/doses/${doseId}/skip`, { reason: 'Skipped after missed-dose guidance' }); done();
-  });
+  // Taking a missed dose can be refused (too soon after another dose, or too old to record): the shared take flow explains
+  // why instead of the button silently doing nothing.
+  const tookBtn = overlay.querySelector('#smTook');
+  tookBtn.addEventListener('click', () => withBusy(tookBtn, async () => {
+    const ok = await takeDoseWithGuard(doseId, g ? g.medicine : "this medicine", g ? g.scheduled_at : new Date().toISOString());
+    if (ok) done();
+  }));
+  const skipBtn = overlay.querySelector('#smSkip');
+  skipBtn.addEventListener('click', () => withBusy(skipBtn, async () => {
+    try { await api('POST', `/doses/${doseId}/skip`, { reason: 'Skipped after missed-dose guidance' }); done(); }
+    catch (e) { showNotice('Not possible right now', e.message); }
+  }));
 }
 
 // ---------------------------------------------------------------- a dose is due: ask once when the app is opened
@@ -1530,16 +1554,17 @@ function showDuePopup(dose) {
     </div>`);
   overlay.classList.add('dp-overlay');
   overlay.querySelector('#dpLater').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#dpSkip').addEventListener('click', async () => {
-    overlay.remove();
-    await api('POST', `/doses/${dose.id}/skip`, { reason: 'Skipped from the due-dose popup' }).catch(() => null);
-    dashboardCache = null; renderActiveTab();
-  });
-  overlay.querySelector('#dpTake').addEventListener('click', async () => {
-    overlay.remove();
+  const dpSkip = overlay.querySelector('#dpSkip');
+  dpSkip.addEventListener('click', () => withBusy(dpSkip, async () => {
+    try { await api('POST', `/doses/${dose.id}/skip`, { reason: 'Skipped from the due-dose popup' }); }
+    catch (e) { showNotice('Not possible right now', e.message); }
+    overlay.remove(); dashboardCache = null; renderActiveTab();
+  }));
+  const dpTake = overlay.querySelector('#dpTake');
+  dpTake.addEventListener('click', () => withBusy(dpTake, async () => {
     await takeDoseWithGuard(dose.id, dose.medicine_name, dose.scheduled_at);
-    dashboardCache = null; renderActiveTab();
-  });
+    overlay.remove(); dashboardCache = null; renderActiveTab();
+  }));
 }
 
 /** The first due dose that has not been asked about yet (oldest first), or null. */
@@ -1758,25 +1783,26 @@ async function renderDashboard() {
 
   const heroTakeBtn = view.querySelector('[data-hero-take]');
   if (heroTakeBtn) {
-    heroTakeBtn.addEventListener('click', async () => {
+    heroTakeBtn.addEventListener('click', () => withBusy(heroTakeBtn, async () => {
       await takeDoseWithGuard(heroTakeBtn.dataset.heroTake, next.medicine_name, next.scheduled_at);
       renderDashboard();
       renderGlance();
-    });
+    }));
   }
 
   view.querySelectorAll('[data-prn-id]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await api('POST', `/medicines/${btn.dataset.prnId}/log-prn`);
+    btn.addEventListener('click', () => withBusy(btn, async () => {
+      try { await api('POST', `/medicines/${btn.dataset.prnId}/log-prn`); }
+      catch (e) { showNotice('Not possible right now', e.message); }
       renderDashboard();
       renderGlance();
-    });
+    }));
   });
 
   view.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
     const doseId = row.dataset.doseId;
     row.querySelectorAll('[data-act]').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => withBusy(btn, async () => {
         const act = btn.dataset.act;
         try {
           if (act === 'take') {
@@ -1793,7 +1819,7 @@ async function renderDashboard() {
         }
         renderDashboard();
         renderGlance();
-      });
+      }));
     });
   });
 }
