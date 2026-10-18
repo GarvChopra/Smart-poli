@@ -192,11 +192,26 @@ def only_lines_in_source(lines: list[str], source: str) -> list[str]:
 
 # ---------------------------------------------------------------- entrypoint
 
+NOT_A_PRESCRIPTION = ("This doesn't look like a prescription - no medicines were found in it. "
+                      "Upload a photo or PDF of the doctor's prescription, or type the medicines in.")
+
+
 def read_prescription_file(data: bytes, ocr_fn: Optional[Callable] = None,
                            images_fn: Callable = ai_read_images,
                            text_fn: Callable = ai_pick_lines_from_text) -> dict:
     """Returns {"lines": [(text, confidence or None)], "method": "pdf_text" | "ai" | "ocr"}.
-    Raises ReadFailed (message safe to show) when nothing could be read."""
+    Raises ReadFailed (message safe to show) when nothing could be read, or when the file has text but none of it
+    looks like a medicine (a random photo, a screenshot, a bill) - so it never becomes a list of fake medicines."""
+    from parser import looks_like_medicine_line
+
+    result = _read_any(data, ocr_fn, images_fn, text_fn)
+    lines = [(text, conf) for text, conf in result["lines"] if looks_like_medicine_line(text)]
+    if not lines:
+        raise ReadFailed(NOT_A_PRESCRIPTION)
+    return {**result, "lines": lines}
+
+
+def _read_any(data: bytes, ocr_fn: Optional[Callable], images_fn: Callable, text_fn: Callable) -> dict:
     from parser import is_likely_header_line
 
     if is_pdf(data):

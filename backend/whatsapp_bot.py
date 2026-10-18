@@ -333,6 +333,11 @@ def _handle_prescription_photo(
 
     if not ocr_lines:
         return "I couldn't find any readable text in that photo. Try a clearer, well-lit picture, one line per medicine."
+    from parser import looks_like_medicine_line
+    ocr_lines = [line for line in ocr_lines if looks_like_medicine_line(line["text"])]
+    if not ocr_lines:
+        return ("That doesn't look like a prescription - I couldn't find any medicines in it. "
+                "Send a photo of the doctor's prescription, or type the medicines as plain text.")
 
     prescription, medicines = create_prescription_from_lines(
         db, patient_id, None, None,

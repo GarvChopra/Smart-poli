@@ -146,6 +146,29 @@ def is_likely_header_line(raw_text: str) -> bool:
     return bool(_HEADER_KEYWORDS.search(raw_text))
 
 
+def looks_like_medicine_line(raw_text: str) -> bool:
+    """True when a line read off a picture has something a medicine line has: a form word (Tab/Cap/Syp...),
+    a strength (500mg), a dose code (1-0-1, BD, SOS) or a name that closely matches a known medicine. Used to
+    drop the text of a photo that is not a prescription (a screenshot, a bill, a selfie with a T-shirt slogan)
+    instead of turning every word into a 'medicine'."""
+    text = fix_dose_code_lookalikes((raw_text or '').strip())
+    tokens = [t for t in text.split() if t]
+    if not tokens:
+        return False
+    if tokens[0].strip('.').lower() in FORM_WORDS:
+        return True
+    if any((m := _DOSE_RE.match(t)) and m.group(2) != '%' for t in tokens):
+        return True
+    # a date (2026-10-05) is not a dose code: every part of a real one is one or two characters
+    if any(_looks_like_schedule_token(t) and all(len(part) <= 2 for part in t.split('-')) for t in tokens):
+        return True
+    name = extract_form_name_dose(text)['name']
+    if len(name.replace(' ', '')) < 4:
+        return False
+    _, score = match_drug_name(name)
+    return score >= 0.9
+
+
 def compute_status(confidence: float) -> str:
     if confidence >= VERIFIED_THRESHOLD:
         return 'verified'

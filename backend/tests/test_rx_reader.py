@@ -130,3 +130,18 @@ def test_upload_endpoint_accepts_a_pdf_and_makes_a_draft_for_review():
         r = client.post("/prescriptions/from-image", data={"patient_id": pid},
                         files={"file": ("rx.pdf", b"hello world, not a pdf", "application/pdf")})
         assert r.status_code == 415
+
+
+def test_random_photo_text_is_not_turned_into_medicines():
+    # a photo that is not a prescription: OCR finds words, none of them a medicine
+    junk = [{"text": t, "confidence": 0.9} for t in
+            ["Happy Birthday Rahul", "Screenshot 2026-10-05", "Total amount Rs 450", "Battery 45%"]]
+    with pytest.raises(rx_reader.ReadFailed, match="doesn't look like a prescription"):
+        rx_reader.read_prescription_file(b"\xff\xd8\xff not really a jpeg", ocr_fn=lambda b: junk)
+
+
+def test_non_medicine_lines_dropped_but_medicines_kept():
+    mixed = [{"text": t, "confidence": 0.9} for t in
+             ["City Care Hospital", "Happy Diwali", "Tab Dolo 650 1-0-1 x5d", "Cap Rabekind DSR SOS"]]
+    out = rx_reader.read_prescription_file(b"\xff\xd8\xff not really a jpeg", ocr_fn=lambda b: mixed)
+    assert [t for t, _ in out["lines"]] == ["Tab Dolo 650 1-0-1 x5d", "Cap Rabekind DSR SOS"]
