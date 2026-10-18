@@ -32,7 +32,7 @@ opencv-python-headless==4.10.0.84
 numpy==1.26.4
 pytesseract==0.3.13
 # PDF prescriptions: copies a computer-made PDF's text exactly, draws scanned pages as pictures.
-pypdfium2>=4.30,<6
+pypdfium2==5.13.0
 
 # Dose-reminder push notifications (Web Push + VAPID) and patient-local time zones.
 # tzdata: slim Docker images and Windows ship no IANA zone database of their own.
