@@ -227,6 +227,14 @@ def sw_voice():
                         headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/voice"})
 
 
+@app.get("/sw-emergency.js", include_in_schema=False)
+def sw_emergency():
+    """The emergency card's offline worker, served from the root so its scope can be /emergency/ (from /static/ the
+    browser refused that scope, and the card never worked offline)."""
+    return FileResponse("static/sw-emergency.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/emergency/"})
+
+
 @app.get("/sw-push.js", include_in_schema=False)
 def push_service_worker():
     """Served from the site root so its scope can be "/". Never cached, so a

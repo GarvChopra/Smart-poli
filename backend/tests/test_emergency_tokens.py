@@ -188,3 +188,15 @@ def test_last_updated_ignores_dose_activity():
         finally:
             db.close()
         assert client.get(f"/patients/{pid}/emergency-card").json()["last_updated"] == before
+
+
+def test_emergency_offline_worker_is_allowed_its_scope():
+    """The card's offline worker lived under /static/ but asked for scope /emergency/, which browsers refuse - so the card
+    never worked offline. It is now served from the root with an explicit Service-Worker-Allowed header."""
+    from fastapi.testclient import TestClient
+    from main import app
+    import emergency_page
+    r = TestClient(app).get("/sw-emergency.js")
+    assert r.status_code == 200 and r.headers["service-worker-allowed"] == "/emergency/"
+    src = open(emergency_page.__file__, encoding="utf-8").read()
+    assert "register('/sw-emergency.js'" in src and "/static/sw-emergency.js" not in src

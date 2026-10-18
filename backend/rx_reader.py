@@ -146,7 +146,7 @@ def _groq_json(content: list) -> list[str]:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=1, timeout=45)
     model = os.getenv("GROQ_VISION_MODEL", DEFAULT_VISION_MODEL)
     resp = client.chat.completions.create(
-        model=model, temperature=0, max_tokens=1500,
+        model=model, temperature=0, max_tokens=600,          # answers are ~100 tokens; Groq counts the reserve against the per-minute limit
         messages=[{"role": "user", "content": content}],
         response_format={"type": "json_object"},
     )

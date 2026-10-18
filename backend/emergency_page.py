@@ -232,7 +232,7 @@ def render_public_card(data: dict) -> str:
     window.addEventListener('offline', updateOfflineBadge);
     updateOfflineBadge();
     if ('serviceWorker' in navigator) {{
-      navigator.serviceWorker.register('/static/sw-emergency.js', {{ scope: '/emergency/' }}).catch(() => {{}});
+      navigator.serviceWorker.register('/sw-emergency.js', {{ scope: '/emergency/' }}).catch(() => {{}});
     }}
   </script>
 </div></body></html>"""

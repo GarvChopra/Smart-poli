@@ -82,3 +82,19 @@ def test_lines_with_medicine_shape_are_never_treated_as_headers():
         "Syrup Crocin 5ml SOS",
     ]:
         assert not is_likely_header_line(line), line
+
+
+def test_dose_codes_read_with_letters_for_digits_are_understood():
+    """Handwriting readers often return O for 0 and I / l for 1 inside a dose code ("O-O-1"). The code means the same thing;
+    the medicine must not be blocked or mis-named because of it. Words that merely contain O or I are left alone."""
+    from parser import parse_medicine_line
+    for written, slots in [("Cap Rabekind DSR O-O-1 before food", ["night"]),
+                           ("Tab Cetzine 10 1-O-O PC for 7 days", ["morning"]),
+                           ("Tab Amlokind 5 I-O-I", ["morning", "night"]),
+                           ("Tab Dolo 650 l-0-l x5d", ["morning", "night"])]:
+        p = parse_medicine_line(written)
+        assert p["slots"] == slots, (written, p["slots"])
+        assert p["raw_text"] == written                    # what the patient sees is still exactly what was read
+    assert parse_medicine_line("Tab Rabekind DSR O-O-1")["name"].startswith("Rabekind")
+    p = parse_medicine_line("Tab Otrivin OD")                # an O inside a word is not a dose code
+    assert p["name"].startswith("Otrivin") and p["slots"] == ["morning"]

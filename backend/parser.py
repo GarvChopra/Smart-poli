@@ -41,6 +41,17 @@ VERIFIED_THRESHOLD = 0.85
 REVIEW_THRESHOLD = 0.70
 
 
+# A dose code like 1-0-1 / 0-0-1 / 1-1-1-1 written or read with look-alike letters: O for 0, I or l for 1. Handwriting
+# readers (and some typists) produce "O-O-1"; the shorthand engine then sees no schedule and the medicine is blocked.
+_DOSE_CODE_LOOKALIKE = re.compile(r'(?<![A-Za-z0-9])([0-9OoIl½]{1,2}(?:\s*-\s*[0-9OoIl½]{1,2}){2,3})(?![A-Za-z0-9])')
+
+
+def fix_dose_code_lookalikes(text: str) -> str:
+    """Only whole hyphenated codes are touched, so a word that merely contains O, I or l never changes."""
+    return _DOSE_CODE_LOOKALIKE.sub(
+        lambda m: m.group(1).translate(str.maketrans({'O': '0', 'o': '0', 'I': '1', 'l': '1'})), text or '')
+
+
 def _looks_like_schedule_token(token: str) -> bool:
     code = normalise_code(token)
     if code in FREQUENCY_CODES or code in INTERVAL_CODES or code in PRN_CODES or code in STAT_CODES:
@@ -153,9 +164,10 @@ def parse_medicine_line(raw_text: str, slot_times: Optional[dict] = None) -> dic
     a disabled UI button is not a safety control).
     """
     raw_text = (raw_text or '').strip()
+    text = fix_dose_code_lookalikes(raw_text)
 
-    extracted = extract_form_name_dose(raw_text)
-    schedule = decode_schedule(raw_text, {'slotTimes': slot_times} if slot_times else None)
+    extracted = extract_form_name_dose(text)
+    schedule = decode_schedule(text, {'slotTimes': slot_times} if slot_times else None)
 
     name_match, name_confidence = match_drug_name(extracted['name'])
     schedule_confidence = schedule['confidence']
