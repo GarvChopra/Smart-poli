@@ -379,16 +379,19 @@ def _providers() -> list:
     return out
 
 
-def identify_with_vision(image_bytes: bytes) -> Optional[dict]:
+def identify_with_vision(image_bytes: bytes, why: Optional[dict] = None) -> Optional[dict]:
     """Ask a vision model to read the packaging. None = it could not (no key, errors, unreadable) - the caller then
     offers manual entry. Rate limits are handled: a short pause is waited out once, otherwise the next provider
     (Groq, then Gemini) is tried. The photo is sent for this one call and is not stored."""
+    why = why if why is not None else {}
     if not vision_available():
+        why["ai"] = "off"
         return None
     try:
         url = _prepare_image(image_bytes)
     except Exception as e:  # noqa: BLE001
         logger.warning("Vision scan could not prepare the image: %s", type(e).__name__)
+        why["ai"] = "bad_image"
         return None
     messages = [{"role": "user", "content": [{"type": "text", "text": VISION_PROMPT},
                                              {"type": "image_url", "image_url": {"url": url}}]}]
@@ -396,13 +399,16 @@ def identify_with_vision(image_bytes: bytes) -> Optional[dict]:
         for attempt in (1, 2):
             try:
                 resp = client.chat.completions.create(model=model, temperature=0, max_tokens=300, messages=messages)
-                return parse_vision_answer(_json_from(resp.choices[0].message.content))
+                answer = parse_vision_answer(_json_from(resp.choices[0].message.content))
+                why["ai"] = "read" if answer else "no_medicine_seen"
+                return answer
             except Exception as e:  # noqa: BLE001 - never raise into the request
                 name = type(e).__name__
                 wait = _retry_after_seconds(e) if name == "RateLimitError" else None
                 if wait is None and name in ("InternalServerError", "APIConnectionError", "APITimeoutError"):
                     wait = 1.0                            # a one-off server hiccup: try the same provider once more
                 logger.warning("Vision scan via %s failed: %s%s", label, name, f" (retry in {wait}s)" if wait else "")
+                why["ai"] = f"{label}:{name}"
                 if attempt == 1 and wait is not None and wait <= MAX_WAIT_SECONDS:
                     time.sleep(wait + 0.3)
                     continue

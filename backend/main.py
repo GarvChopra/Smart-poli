@@ -518,13 +518,19 @@ async def scan_medicine(
     image_bytes = await _read_image_upload(file)
     # Two readers side by side, so a scan never depends on the AI alone: the vision model, and the printed keywords
     # (Tesseract, tuned for print) matched against the known-medicine list.
+    why: dict = {}
+
     def keywords():
         try:
-            return medicine_scan.candidates_from_lines(medicine_scan.read_pack_text(image_bytes))
+            lines = medicine_scan.read_pack_text(image_bytes)
+            out = medicine_scan.candidates_from_lines(lines)
+            why["keywords"] = f"{len(out['candidates'])} match(es) in {len(lines)} line(s)"
+            return out
         except Exception as e:  # noqa: BLE001 - OCRUnavailable or a bad image: the AI reading alone decides
             logger.warning("Keyword reading of a medicine pack failed: %s", type(e).__name__)
+            why["keywords"] = f"error:{type(e).__name__}"
             return None
-    ai_task = asyncio.ensure_future(run_in_threadpool(medicine_scan.identify_with_vision, image_bytes))
+    ai_task = asyncio.ensure_future(run_in_threadpool(medicine_scan.identify_with_vision, image_bytes, why))
     kw = await run_in_threadpool(keywords)
     # A slow or rate-limited AI never keeps the person waiting when the keywords already found the medicine.
     wait = SCAN_AI_EXTRA_WAIT if kw and kw["candidates"] else SCAN_AI_MAX_WAIT
@@ -532,11 +538,22 @@ async def scan_medicine(
         ai = await asyncio.wait_for(asyncio.shield(ai_task), timeout=wait)
     except asyncio.TimeoutError:
         logger.warning("Medicine scan: AI reading took longer than %ss; answering from the printed keywords.", wait)
+        why["ai"] = f"slow>{wait}s:" + why.get("ai", "waiting")
         ai = None
     result = medicine_scan.combine(ai, kw)
     if result is None or not result["candidates"]:
-        raise HTTPException(422, "We could not read a medicine from that photo. Try again with the name in focus "
-                                 "and no glare, or enter it manually instead.")
+        # Why it failed is kept (no photo, no text from it) so a failed scan in production can be diagnosed.
+        reason = f"ai={why.get('ai', '?')} keywords={why.get('keywords', '?')}"
+        log_audit(db, patient_id, f"patient:{user.id}", "medicine_scan_failed", reason)
+        logger.warning("Medicine scan found nothing: %s", reason)
+        ai_reason = why.get("ai", "")
+        if ai_reason in ("read", "no_medicine_seen"):
+            msg = ("We couldn't find a medicine name in that photo. Photograph the side with the name in big letters, "
+                   "with no glare, or enter it manually instead.")
+        else:
+            msg = ("Our reader is busy right now and couldn't read that photo. Try again in a minute, "
+                   "or enter it manually instead.")
+        raise HTTPException(422, msg)
     log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result

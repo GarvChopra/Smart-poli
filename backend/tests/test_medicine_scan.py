@@ -183,7 +183,7 @@ def test_json_is_found_inside_chatty_model_output():
 
 def test_scan_endpoint_puts_the_vision_answer_first_and_offers_a_different_keyword_reading(monkeypatch):
     vision = ms.parse_vision_answer({"found": True, "brand_name": "Telma 40", "generic_name": "Telmisartan", "strength": "40mg", "form": "tab"})
-    monkeypatch.setattr(ms, "identify_with_vision", lambda b: vision)
+    monkeypatch.setattr(ms, "identify_with_vision", lambda b, why=None: vision)
     monkeypatch.setattr(ms, "read_pack_text", lambda b: BOX)          # the keyword reader runs too, and disagrees
     with TestClient(app) as client:
         pid, _ = new_patient(client)
@@ -194,7 +194,7 @@ def test_scan_endpoint_puts_the_vision_answer_first_and_offers_a_different_keywo
 
 
 def test_vision_failure_falls_back_to_ocr_then_to_manual(monkeypatch):
-    monkeypatch.setattr(ms, "identify_with_vision", lambda b: None)
+    monkeypatch.setattr(ms, "identify_with_vision", lambda b, why=None: None)
     monkeypatch.setattr(ms, "read_pack_text", lambda b: BOX)
     with TestClient(app) as client:
         pid, _ = new_patient(client)
@@ -350,3 +350,26 @@ def test_short_scraps_of_foil_text_never_become_a_medicine():
 def test_a_long_ingredient_with_a_garbled_ending_is_still_found():
     # real strip photo: OCR read "Paracetamol" as "Paracetaened"
     assert ms.candidates_from_lines(L("Paracetaened 4"))["candidates"][0]["name"] == "paracetamol"
+
+
+def test_a_failed_scan_records_why_and_says_busy_when_the_ai_was_unavailable(monkeypatch):
+    def rate_limited(b, why=None):
+        why["ai"] = "groq:RateLimitError"
+        return None
+    monkeypatch.setattr(ms, "identify_with_vision", rate_limited)
+    monkeypatch.setattr(ms, "read_pack_text", lambda b: L("core Man daly"))
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        r = client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")})
+        assert r.status_code == 422 and "busy" in r.json()["detail"]
+        db = SessionLocal()
+        entry = db.query(AuditLog).filter_by(patient_id=pid, action="medicine_scan_failed").one()
+        assert entry.detail == "ai=groq:RateLimitError keywords=0 match(es) in 1 line(s)"
+        db.close()
+
+        def nothing_seen(b, why=None):
+            why["ai"] = "no_medicine_seen"
+            return None
+        monkeypatch.setattr(ms, "identify_with_vision", nothing_seen)
+        r = client.post("/medicines/scan", data={"patient_id": pid}, files={"file": ("b.png", PNG, "image/png")})
+        assert r.status_code == 422 and "couldn't find a medicine name" in r.json()["detail"]
