@@ -64,6 +64,23 @@ def _form_of(lines: list[str]) -> Optional[str]:
 _COMPOSITION = re.compile(r"\b(tablets?|capsules?|contains|each|ip|bp|usp|hydrochloride|sodium|gastro|resistant|syrup)\b", re.I)
 
 
+def _keyword_match(gram: str, names: list[str]) -> Optional[tuple[str, float]]:
+    """A word read off the pack -> a known medicine, strictly: a short scrap of foil text ("core") must not become a
+    medicine ("corex"), so words under 6 letters must match exactly; longer ones may differ by OCR noise. A long
+    ingredient whose ending is garbled ("Paracetaened") still counts when its first 8 letters are the name's."""
+    g = gram.lower()
+    hit = process.extractOne(g, names, scorer=fuzz.ratio)
+    if hit:
+        name, score = hit[0], float(hit[1])
+        if score >= 99.5 or (score >= MATCH_THRESHOLD and len(g.replace(" ", "")) >= 6):
+            return name, score
+    if len(g) >= 9 and " " not in g:
+        for name in names:
+            if len(name) >= 9 and name[:8] == g[:8] and abs(len(name) - len(g)) <= 3:
+                return name, 90.0
+    return None
+
+
 def candidates_from_lines(ocr_lines: list[dict]) -> dict:
     """ocr_lines: [{"text": str, "confidence": float|None}, ...] - the printed text read off the pack, no AI involved.
 
@@ -76,10 +93,10 @@ def candidates_from_lines(ocr_lines: list[dict]) -> dict:
     for line in texts:
         composition_line = bool(_COMPOSITION.search(line))
         for gram in _ngrams(_tokens(line)):
-            hit = process.extractOne(gram.lower(), names, scorer=fuzz.ratio)
-            if not hit or hit[1] < MATCH_THRESHOLD:
+            hit = _keyword_match(gram, names)
+            if not hit:
                 continue
-            name, score = hit[0], float(hit[1])
+            name, score = hit
             f = found.setdefault(name, {"name": name, "score": 0.0, "count": 0, "brand_votes": 0, "lines": set(),
                                         "read_from": line[:120], "strength": None})
             f["count"] += 1
@@ -354,9 +371,9 @@ def _providers() -> list:
             out += [("groq", client, m) for m in _vision_models()]
         if os.getenv("GEMINI_API_KEY"):
             from openai import OpenAI
-            client = OpenAI(api_key=os.environ["GEMINI_API_KEY"], max_retries=0, timeout=30,
+            client = OpenAI(api_key=os.environ["GEMINI_API_KEY"], max_retries=0, timeout=20,
                             base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
-            out.append(("gemini", client, os.getenv("GEMINI_VISION_MODEL", "gemini-flash-latest")))
+            out.append(("gemini", client, os.getenv("GEMINI_VISION_MODEL", "gemini-3.8-flash")))
     except Exception as e:  # noqa: BLE001
         logger.warning("Vision provider setup failed: %s", type(e).__name__)
     return out

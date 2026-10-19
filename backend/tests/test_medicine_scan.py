@@ -317,7 +317,7 @@ def test_scan_ui_offers_retry_tips_expiry_warning_and_name_suggestions():
     app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"),
                   encoding="utf-8").read()
     assert 'id="scanBtn"' in app_js and "Scan instead" in app_js and "Scan again" in app_js
-    assert "expired in" in app_js and 'list="wzNameList"' in app_js and "'/medicines/names'" in app_js
+    assert "may have expired" in app_js and 'list="wzNameList"' in app_js and "'/medicines/names'" in app_js
 
 
 def test_the_two_readers_agreeing_give_one_answer_and_the_keyword_reader_works_alone():
@@ -339,3 +339,14 @@ def test_keyword_reader_ranks_the_capitalised_repeated_brand_above_the_ingredien
 def test_keyword_expiry_needs_a_four_digit_year_and_reads_ocr_zero_lookalikes():
     assert ms.candidates_from_lines(L("DOLO 650", "B.No A1 MFG.12/2025 EXP.@8/2027"))["expiry"]["label"] == "Aug 2027"
     assert ms.candidates_from_lines(L("DOLO 650", "EXP 05/20"))["expiry"] is None       # "05/2027" cut short is not 2020
+
+
+def test_short_scraps_of_foil_text_never_become_a_medicine():
+    # real strip photo: "core" (from a torn warning line) was offered as Corex, a cough syrup
+    assert ms.candidates_from_lines(L("core Man daly", "Mfg Lic No 78 UA"))["candidates"] == []
+    assert ms.candidates_from_lines(L("PAN 40"))["candidates"][0]["name"] == "pan 40"         # exact short names still work
+
+
+def test_a_long_ingredient_with_a_garbled_ending_is_still_found():
+    # real strip photo: OCR read "Paracetamol" as "Paracetaened"
+    assert ms.candidates_from_lines(L("Paracetaened 4"))["candidates"][0]["name"] == "paracetamol"

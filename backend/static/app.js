@@ -870,7 +870,7 @@ function expiryHtml(expiry) {
   const now = new Date();
   const expired = expiry.year < now.getFullYear() || (expiry.year === now.getFullYear() && expiry.month < now.getMonth() + 1);
   return expired
-    ? `<div class="scan-expired">⚠ This pack expired in ${escHtml(expiry.label)}. Don’t take expired medicine — ask your pharmacist for a new one.</div>`
+    ? `<div class="scan-expired">⚠ This pack may have expired — we read the date as ${escHtml(expiry.label)}. Check the date printed on it; don’t take expired medicine.</div>`
     : `<div class="wz-meta">Expires ${escHtml(expiry.label)}</div>`;
 }
 
