@@ -429,7 +429,10 @@ function renderPrescriptions(lastResult) {
     <p style="color:var(--ink-soft)">Add a medicine in one tap, or type it in.</p>
 
     <div class="card">
-      <button class="primary add-big add-full" id="manualBtn"><span class="icon">${ICONS.pill}</span>Enter manually</button>
+      <button class="primary add-big add-full" id="scanBtn"><span class="icon">${ICONS.pill}</span>Scan a medicine</button>
+      <div class="reg-meta" style="margin-top:6px;text-align:center;">Point the camera at the back of the strip or the box. Keep the name sharp, with no glare.</div>
+      <div class="or-divider"><span>or</span></div>
+      <button class="ghost add-big add-full" id="manualBtn"><span class="icon">${ICONS.fileText}</span>Enter manually</button>
       <div style="text-align:center;margin-top:12px;">
         <button class="ghost small" id="chooseFileBtn"><span class="icon">${ICONS.fileText}</span>Choose file</button>
         <span class="reg-meta">&nbsp;a photo or PDF of a prescription</span>
@@ -454,6 +457,7 @@ Syrup Crocin 5ml SOS"></textarea>
   `;
 
   document.getElementById('manualBtn').addEventListener('click', () => medicineWizard({ step: 'details' }));
+  document.getElementById('scanBtn').addEventListener('click', openMedicineCamera);
 
   document.getElementById('fillExampleBtn').addEventListener('click', () => {
     document.getElementById('rxInput').value =
@@ -800,6 +804,82 @@ function fmtClock(hhmm) {
   return `${((h + 11) % 12) + 1}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+// ---------------------------------------------------------------- scan a medicine: photo of the strip -> "is this it?" -> how you take it
+//
+//   camera -> "Reading..." -> "Is this your medicine?" (name, strength, expiry) -> the same timing questions as Enter manually.
+// The pack only says WHAT the medicine is; how often, when, with food and for how long always come from the person.
+
+function openMedicineCamera() {
+  let input = document.getElementById('scanInput');
+  if (!input) {
+    input = el('<input type="file" id="scanInput" accept="image/*" capture="environment" hidden>');
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      if (!input.files.length) return;
+      const file = input.files[0];
+      input.value = '';
+      await scanMedicinePhoto(file);
+    });
+  }
+  input.click();
+}
+
+async function scanMedicinePhoto(file) {
+  const loading = showSafetyModal(`
+    <h3>Reading your medicine…</h3>
+    <div class="upload-status-banner loading" style="margin-top:10px;"><span class="upload-spinner"></span><span>This takes a few seconds.</span></div>`);
+  try {
+    const form = new FormData();
+    form.append('patient_id', state.patientId);
+    form.append('file', file);
+    const auth = getAuth();
+    const res = await fetch('/medicines/scan', {
+      method: 'POST', body: form,
+      headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+    });
+    const body = await res.json().catch(() => ({}));
+    loading.remove();
+    const cand = res.ok && body.candidates && body.candidates[0];
+    if (!cand) { scanFailedPopup(body.detail); return; }
+    medicineWizard({ step: 'confirm', cand, others: body.candidates.slice(1), form: body.form_guess, expiry: body.expiry });
+  } catch (e) {
+    loading.remove();
+    scanFailedPopup();
+  }
+}
+
+function scanFailedPopup(detail) {
+  const m = showSafetyModal(`
+    <h3>Couldn’t read that medicine</h3>
+    <div class="sm-headline" style="font-weight:500;">${escHtml(typeof detail === 'string' ? detail : 'We couldn’t read the medicine name from that photo.')}</div>
+    <ul class="scan-tips">
+      <li>Photograph the side with the name in big letters</li>
+      <li>Tilt the strip so the shiny foil doesn’t reflect light</li>
+      <li>Fill the frame and hold still</li>
+    </ul>
+    <div class="sm-actions">
+      <button class="primary small" id="sfRetry">Try again</button>
+      <button class="ghost small" id="sfManual">Enter manually</button>
+    </div>`);
+  m.querySelector('#sfManual').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
+  m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); openMedicineCamera(); });
+}
+
+function expiryHtml(expiry) {
+  if (!expiry) return '';
+  const now = new Date();
+  const expired = expiry.year < now.getFullYear() || (expiry.year === now.getFullYear() && expiry.month < now.getMonth() + 1);
+  return expired
+    ? `<div class="scan-expired">⚠ This pack expired in ${escHtml(expiry.label)}. Don’t take expired medicine — ask your pharmacist for a new one.</div>`
+    : `<div class="wz-meta">Expires ${escHtml(expiry.label)}</div>`;
+}
+
+let medicineNames = null;
+async function medicineNameList() {
+  if (!medicineNames) medicineNames = await api('GET', '/medicines/names').then((r) => r.names).catch(() => []);
+  return medicineNames;
+}
+
 const MED_FORMS = [['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']];
 const FREQUENCIES = [
   ['once', 'Once a day'], ['twice', 'Twice a day'], ['thrice', 'Three times a day'], ['four', 'Four times a day'], ['sos', 'Only when needed'],
@@ -811,11 +891,42 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function medicineWizard(ctx) {
   const med = ctx.med || {};
+  if (ctx.step === 'confirm') {
+    const c = ctx.cand;
+    const formLabel = (MED_FORMS.find(([v]) => v === (c.form || ctx.form)) || [])[1] || '';
+    const m = showSafetyModal(`
+      <h3>Is this your medicine?</h3>
+      <div class="wz-card">
+        <div class="wz-name">${escHtml(capName(c.name))}</div>
+        <div class="wz-meta">${[c.strength, formLabel, c.generic && capName(c.generic)].filter(Boolean).map(escHtml).join(' · ')}</div>
+        ${expiryHtml(ctx.expiry)}
+      </div>
+      ${c.known ? '' : '<div class="wz-msg">We don’t recognise this name. Check the spelling against the strip, and tap Change if it’s wrong.</div>'}
+      ${(ctx.others || []).length ? `<div class="wz-label">Or is it…</div>
+        <div class="wz-chips">${ctx.others.map((o, i) => `<button type="button" class="wz-chip" data-other="${i}">${escHtml(capName(o.name))}${o.strength ? ' ' + escHtml(o.strength) : ''}</button>`).join('')}</div>` : ''}
+      <div class="sm-actions">
+        <button class="primary small" id="wzYes">Yes, this is it</button>
+        <button class="ghost small" id="wzChange">Change</button>
+        <button class="ghost small" id="wzRescan">Scan again</button>
+      </div>`);
+    const picked = { name: capName(c.name), strength: c.strength || '', form: c.form || ctx.form || 'tab' };
+    m.querySelector('#wzYes').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'schedule', med: picked }); });
+    m.querySelector('#wzChange').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details', med: picked }); });
+    m.querySelector('#wzRescan').addEventListener('click', () => { m.remove(); openMedicineCamera(); });
+    m.querySelectorAll('[data-other]').forEach((b) => b.addEventListener('click', () => {
+      const o = ctx.others[Number(b.dataset.other)];
+      m.remove();
+      medicineWizard({ ...ctx, cand: o, others: [c, ...ctx.others.filter((x) => x !== o)] });
+    }));
+    return;
+  }
+
   if (ctx.step === 'details') {
     const m = showSafetyModal(`
       <h3>Add a medicine</h3>
       <label for="wzName">Medicine name</label>
-      <input id="wzName" type="text" maxlength="80" placeholder="e.g. Dolo 650" value="${escHtml(med.name || '')}">
+      <input id="wzName" type="text" maxlength="80" placeholder="e.g. Dolo 650" list="wzNameList" autocomplete="off" value="${escHtml(med.name || '')}">
+      <datalist id="wzNameList"></datalist>
       <div class="fp-row">
         <div><label for="wzStrength">Strength <span class="reg-meta">(optional)</span></label>
           <input id="wzStrength" type="text" maxlength="30" placeholder="e.g. 500mg" value="${escHtml(med.strength || '')}"></div>
@@ -825,9 +936,15 @@ function medicineWizard(ctx) {
       <div id="wzMsg" class="wz-msg"></div>
       <div class="sm-actions">
         <button class="primary small" id="wzNext">Next</button>
+        <button class="ghost small" id="wzScan">📷 Scan instead</button>
         <button class="ghost small" id="wzCancel">Cancel</button>
       </div>`);
     m.querySelector('#wzName').focus();
+    medicineNameList().then((names) => {
+      const list = m.querySelector('#wzNameList');
+      if (list) list.innerHTML = names.map((n) => `<option value="${escHtml(n)}">`).join('');
+    });
+    m.querySelector('#wzScan').addEventListener('click', () => { m.remove(); openMedicineCamera(); });
     m.querySelector('#wzCancel').addEventListener('click', () => m.remove());
     m.querySelector('#wzNext').addEventListener('click', () => {
       const name = m.querySelector('#wzName').value.trim();

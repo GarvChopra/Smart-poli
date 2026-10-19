@@ -19,7 +19,8 @@ os.environ["SMARTPOLI_AI_INFO"] = "0"
 os.environ["SMARTPOLI_DISABLE_RATE_LIMIT"] = "1"   # tests register many users from one IP; test_web_security turns it on
 # AI dose-gap lookups call Groq / openFDA; tests inject fakes where they want them.
 os.environ["SMARTPOLI_AI_GAPS"] = "0"
-os.environ["SMARTPOLI_AI_RX"] = "0"          # prescription photos are never sent to the real AI from tests
+os.environ["SMARTPOLI_AI_RX"] = "0"
+os.environ["SMARTPOLI_AI_SCAN"] = "0"        # medicine-strip photos are never sent to the real AI from tests          # prescription photos are never sent to the real AI from tests
 # No real outbound push/WhatsApp from tests.
 os.environ.pop("SMARTPOLI_VAPID_PRIVATE_KEY", None)
 

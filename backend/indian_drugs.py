@@ -109,4 +109,7 @@ INDIAN_DRUG_NAMES = {
     "etilaam", "calmpose", "restyl md", "hifenac", "acecloren",
     "mobizox", "flexura", "movexx", "dolo 650 mg", "crocin advance",
     "combiflam plus", "calpol 500",
+
+    # Common brands read off strips and boxes (medicine scan)
+    "ondem", "rabekind", "vomikind", "rantac", "aciloc", "levocet", "okacet", "cefakind", "novamox", "mox", "dytor", "telvas", "olmezest", "glimisave", "galvus met", "volini", "norflox tz", "oflox", "zocon", "flucos", "celin", "uprise d3", "calcimax", "dexorange", "feronia", "orofer", "livogen", "thyrox", "telma h", "telma am", "amlong", "nicardia", "met xl", "metolar", "concor", "nebicard", "deplatt", "ecosprin av", "pantocid", "razo d", "omez d", "nexpro", "esoz", "sompraz", "mucaine", "sucral", "ors", "pudin hara", "ascoril ls", "chericof", "vicks action 500", "defcort", "medrol",
 }

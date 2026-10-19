@@ -18,6 +18,7 @@ entry" rather than breaking anything else (CLAUDE.md section 5).
 import hmac
 import io
 import json
+import asyncio
 import logging
 import os
 import re
@@ -60,6 +61,8 @@ from interactions import load_ruleset as load_interaction_ruleset, check_interac
 from food_warnings import load_ruleset as load_food_ruleset, check_food_warnings
 from ocr_plugin import read_prescription_image, read_image_text_lines, OCRUnavailable
 import rx_reader
+import medicine_scan
+from indian_drugs import INDIAN_DRUG_NAMES
 from report_pdf import build_report_pdf
 from llm_helper import interpret_free_text, is_available as llm_is_available, LLMUnavailable
 from i18n import to_plain_language_hi, localized_symptom_label, localized_question_text, localized_action
@@ -491,6 +494,58 @@ async def _read_image_upload(file: UploadFile, allow_pdf: bool = False) -> bytes
         raise HTTPException(415, "That file is not a supported image (JPEG, PNG, WebP, BMP or TIFF)"
                                  + (" or a PDF." if allow_pdf else "."))
     return data
+
+
+SCAN_AI_EXTRA_WAIT = 12       # seconds the AI may still take after the keyword reader has an answer
+SCAN_AI_MAX_WAIT = 45         # ... and when it has none
+
+
+@app.post("/medicines/scan")
+async def scan_medicine(
+    patient_id: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """
+    Camera photo of a medicine strip (its back), box or bottle -> the medicine's name, strength, form and expiry for
+    the person to confirm. Nothing is added here and no schedule is guessed: the app then asks how often, when, with
+    food and for how long, and saves through POST /medicines/manual. The photo is not stored.
+    """
+    get_patient_or_404(db, patient_id)
+    if not has_write_access(db, user, patient_id):
+        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
+    image_bytes = await _read_image_upload(file)
+    # Two readers side by side, so a scan never depends on the AI alone: the vision model, and the printed keywords
+    # (Tesseract, tuned for print) matched against the known-medicine list.
+    def keywords():
+        try:
+            return medicine_scan.candidates_from_lines(medicine_scan.read_pack_text(image_bytes))
+        except Exception as e:  # noqa: BLE001 - OCRUnavailable or a bad image: the AI reading alone decides
+            logger.warning("Keyword reading of a medicine pack failed: %s", type(e).__name__)
+            return None
+    ai_task = asyncio.ensure_future(run_in_threadpool(medicine_scan.identify_with_vision, image_bytes))
+    kw = await run_in_threadpool(keywords)
+    # A slow or rate-limited AI never keeps the person waiting when the keywords already found the medicine.
+    wait = SCAN_AI_EXTRA_WAIT if kw and kw["candidates"] else SCAN_AI_MAX_WAIT
+    try:
+        ai = await asyncio.wait_for(asyncio.shield(ai_task), timeout=wait)
+    except asyncio.TimeoutError:
+        logger.warning("Medicine scan: AI reading took longer than %ss; answering from the printed keywords.", wait)
+        ai = None
+    result = medicine_scan.combine(ai, kw)
+    if result is None or not result["candidates"]:
+        raise HTTPException(422, "We could not read a medicine from that photo. Try again with the name in focus "
+                                 "and no glare, or enter it manually instead.")
+    log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
+              f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
+    return result
+
+
+@app.get("/medicines/names")
+def medicine_names(user: User = Depends(get_current_user)):
+    """The known Indian medicine names, for the suggestions shown while typing a medicine's name."""
+    return {"names": sorted(n.title() for n in INDIAN_DRUG_NAMES)}
 
 
 @app.post("/medicines/manual")

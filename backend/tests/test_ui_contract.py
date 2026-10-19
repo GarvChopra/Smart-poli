@@ -90,14 +90,15 @@ def test_whatsapp_is_a_popup_not_a_dashboard_card():
     assert "renderDashboardWhatsApp" not in JS
 
 
-def test_prescription_tab_is_enter_manually_then_small_choose_file_then_type_it_in():
+def test_prescription_tab_is_scan_then_enter_manually_then_small_choose_file_then_type_it_in():
     body = fn_body("renderPrescriptions")
-    order = [body.index(x) for x in ('id="manualBtn"', 'id="chooseFileBtn"', "Or type it in")]
+    order = [body.index(x) for x in ('id="scanBtn"', 'id="manualBtn"', 'id="chooseFileBtn"', "Or type it in")]
     assert order == sorted(order)                                            # top to bottom, in that order
     assert "Enter manually" in body and "Choose file" in body
     assert "medicineWizard({ step: 'details' })" in body
     assert 'id="rxImageInput" accept="image/*,application/pdf,.pdf" hidden' in body and "rxInput.click()" in body       # opens the phone's files
-    for gone in ("Scan medicine", "scanInput", "scanBtn", 'capture="environment"', "or-divider", "myMedicines", "Medicines you take"):
+    assert "openMedicineCamera" in body and "back of the strip" in body
+    for gone in ("myMedicines", "Medicines you take"):
         assert gone not in body, gone
 
 
@@ -189,12 +190,13 @@ def test_push_is_sent_with_high_urgency_so_android_delivers_it_while_dozing():
     assert '"Urgency": "high"' in src
 
 
-def test_adding_a_medicine_is_manual_only_name_then_alarm_style_schedule():
+def test_adding_a_medicine_is_scan_or_name_then_alarm_style_schedule():
     wiz = fn_body("medicineWizard")
     assert "Add a medicine" in wiz and "How many times a day?" in wiz and "At what time?" in wiz and "Repeat" in wiz
     assert "'/medicines/manual'" in wiz and "/confirm" not in wiz
-    for gone in ("Is this your medicine?", "Scan failed", "scanMedicinePhoto", "scanFailedPopup", "/medicines/scan"):
-        assert gone not in JS, gone
+    # a scan only fills in WHICH medicine; the person always answers the timing questions themselves
+    assert "Is this your medicine?" in wiz and "step: 'schedule', med: picked" in wiz
+    assert "'/medicines/scan'" in fn_body("scanMedicinePhoto") and "Enter manually" in fn_body("scanFailedPopup")
 
 
 def test_adding_a_medicine_checks_it_against_the_others_and_shows_a_warning_popup():
