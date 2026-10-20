@@ -417,7 +417,9 @@ def test_no_channel_means_no_send_and_no_log_rows():
         db = SessionLocal()
         try:
             assert reminders.run_reminder_sweep(db, ist_to_utc(local(8, 0)), rec.push_fn, rec.wa_fn) == 0
-            assert db.query(ReminderLog).filter_by(dose_id=dose_id).count() == 0
+            assert reminders.run_reminder_sweep(db, ist_to_utc(local(8, 1)), rec.push_fn, rec.wa_fn) == 0
+            # nothing sent - only one note that the due reminder had no phone to go to, so the gap is visible
+            assert [(r.kind, r.channel) for r in db.query(ReminderLog).filter_by(dose_id=dose_id)] == [("due", "no_device")]
         finally:
             db.close()
 
@@ -548,3 +550,53 @@ def test_a_notification_problem_never_fails_a_prescription_confirmation(monkeypa
         pid, _ = new_patient(client)
         pres = client.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650mg 1-0-1 PC x2d"]}).json()
         assert client.post(f"/prescriptions/{pres['prescription_id']}/confirm").status_code == 200
+
+
+# ---------------------------------------------------------------- a retired subscription never silently stops reminders
+
+def test_a_retired_subscription_the_phone_still_holds_is_refused_so_the_phone_makes_a_fresh_one():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        set_tz(client, pid, IST)
+        subscribe(client, pid, "https://push.example.test/old-one")
+        add_medicine(pid, "Telmisartan", [local(8)])
+        db = SessionLocal()
+        try:
+            gone = Recorder(push_status="gone")
+            reminders.run_reminder_sweep(db, ist_to_utc(local(7, 30)), gone.push_fn, gone.wa_fn)
+            assert db.query(PushSubscription).filter_by(patient_id=pid).count() == 0
+        finally:
+            db.close()
+        keys = {"p256dh": "k" * 20, "auth": "a" * 12}
+        r = client.post(f"/patients/{pid}/push/subscribe", json={"endpoint": "https://push.example.test/old-one", "keys": keys})
+        assert r.status_code == 200 and r.json() == {"subscribed": False, "stale": True}
+        r = client.post(f"/patients/{pid}/push/subscribe", json={"endpoint": "https://push.example.test/new-one", "keys": keys})
+        assert r.json()["subscribed"] is True
+        db = SessionLocal()
+        try:
+            ok = Recorder()
+            assert reminders.run_reminder_sweep(db, ist_to_utc(local(8, 0)), ok.push_fn, ok.wa_fn) >= 1
+        finally:
+            db.close()
+
+
+def test_a_subscription_the_browser_replaced_moves_to_the_same_patient_without_a_login():
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        subscribe(client, pid, "https://push.example.test/before-rotation")
+    keys = {"p256dh": "k" * 20, "auth": "a" * 12}
+    anon = TestClient(app)          # the service worker has no session
+    assert anon.post("/push/rotate", json={"old_endpoint": "https://push.example.test/never-seen",
+                                           "endpoint": "https://push.example.test/x", "keys": keys}).status_code == 404
+    r = anon.post("/push/rotate", json={"old_endpoint": "https://push.example.test/before-rotation",
+                                        "endpoint": "https://push.example.test/after-rotation", "keys": keys})
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        assert [s.endpoint for s in db.query(PushSubscription).filter_by(patient_id=pid)] == ["https://push.example.test/after-rotation"]
+    finally:
+        db.close()
+    # a rotation reported after the old one was already found dead still lands on the right patient
+    r = anon.post("/push/rotate", json={"old_endpoint": "https://push.example.test/before-rotation",
+                                        "endpoint": "https://push.example.test/third", "keys": keys})
+    assert r.status_code == 200

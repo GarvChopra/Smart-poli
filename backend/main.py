@@ -44,7 +44,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from db import (
     init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck,
-    AuditLog, User, VoiceMessage, PatientSettings, PushSubscription, ReminderLog,
+    AuditLog, User, VoiceMessage, PatientSettings, PushSubscription, ReminderLog, DeadPushEndpoint,
+    endpoint_hash, mark_push_endpoint_dead,
 )
 from parser import parse_medicine_line, compute_status
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses, create_manual_medicine
@@ -70,7 +71,7 @@ from schemas import (
     PatientCreate, PatientEdit, ManualMedicine, FeedbackCreate, ShiftMedicine, PrescriptionCreate, MedicineEdit, SkipDose, PrnLog,
     TriageCheckRequest, NextQuestionRequest, ClinicalNoteCreate, FreeTextTriageRequest,
     EmergencyProfileUpdate, VoiceTurnRequest,
-    PatientSettingsUpdate, PushSubscribeRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
+    PatientSettingsUpdate, PushSubscribeRequest, PushRotateRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
 )
 from serializers import (
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
@@ -1174,6 +1175,10 @@ def push_subscribe(patient_id: int, body: PushSubscribeRequest, user: User = Dep
     get_patient_or_404(db, patient_id)
     if not body.endpoint.startswith("https://"):
         raise HTTPException(422, "Push endpoints must be https.")
+    if db.get(DeadPushEndpoint, endpoint_hash(body.endpoint)) is not None:
+        # The push service already retired this endpoint, but the phone still holds it. Storing it again would drop
+        # every reminder without a sound: tell the app to throw it away and make a fresh subscription.
+        return {"subscribed": False, "stale": True}
     sub = db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint).first()
     if sub is None:
         sub = PushSubscription(endpoint=body.endpoint, patient_id=patient_id, user_id=user.id,
@@ -1184,6 +1189,30 @@ def push_subscribe(patient_id: int, body: PushSubscribeRequest, user: User = Dep
     db.commit()
     return {"subscribed": True,
             "count": db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count()}
+
+
+@app.post("/push/rotate")
+def push_rotate(body: PushRotateRequest, db: Session = Depends(get_db_session)):
+    """The browser replaced this phone's subscription on its own (Chrome does this from time to time) and the service
+    worker reports the new one - with no login, since it has none. Knowing the old endpoint (an unguessable URL only
+    that phone and this server have) is the proof; the new subscription goes to whoever the old one belonged to."""
+    old = db.query(PushSubscription).filter(PushSubscription.endpoint == body.old_endpoint).first()
+    dead = None if old else db.get(DeadPushEndpoint, endpoint_hash(body.old_endpoint))
+    owner = old or dead
+    if owner is None or not body.endpoint.startswith("https://"):
+        raise HTTPException(404, "Unknown subscription.")
+    patient_id, user_id = owner.patient_id, owner.user_id
+    if old is not None:
+        mark_push_endpoint_dead(db, old)
+    sub = db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint).first()
+    if sub is None:
+        db.add(PushSubscription(endpoint=body.endpoint, patient_id=patient_id, user_id=user_id,
+                                p256dh=body.keys.p256dh, auth=body.keys.auth))
+    else:
+        sub.patient_id, sub.user_id, sub.p256dh, sub.auth = patient_id, user_id, body.keys.p256dh, body.keys.auth
+    db.commit()
+    log_audit(db, patient_id, "device", "push_subscription_rotated")
+    return {"subscribed": True}
 
 
 @app.post("/patients/{patient_id}/push/unsubscribe")
@@ -1219,7 +1248,7 @@ def push_test(patient_id: int, user: User = Depends(require_patient_write_access
         if status == "sent":
             sent += 1
         elif status == "gone":
-            db.delete(sub)
+            mark_push_endpoint_dead(db, sub)
     db.commit()
     return {"devices": len(subs), "sent": sent}
 

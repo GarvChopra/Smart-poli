@@ -48,6 +48,22 @@ async function currentPushSubscription() {
   } catch (e) { return null; }
 }
 
+/** Send this phone's subscription to the server. If the server says the push service already retired it (the phone
+ * didn't notice), throw it away and send a brand-new one - otherwise every reminder would vanish without a trace. */
+async function _registerSubscription(patientId, reg, publicKey) {
+  const fresh = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _urlBase64ToUint8Array(publicKey) });
+  let sub = (await reg.pushManager.getSubscription()) || await fresh();
+  let json = sub.toJSON();
+  let r = await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
+  if (r && r.stale) {
+    try { await sub.unsubscribe(); } catch (e) { /* replaced below either way */ }
+    sub = await fresh();
+    json = sub.toJSON();
+    r = await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
+  }
+  return sub;
+}
+
 async function enablePushReminders(patientId) {
   if (!pushSupported()) throw new Error('This browser does not support push notifications.');
   const key = await apiFetch('GET', '/push/public-key');
@@ -56,16 +72,7 @@ async function enablePushReminders(patientId) {
   if (permission !== 'granted') throw new Error('Notifications are blocked. Allow them in the app/browser settings.');
   const reg = await _pushRegistration();
   await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: _urlBase64ToUint8Array(key.public_key),
-    });
-  }
-  const json = sub.toJSON();
-  await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
-  return sub;
+  return _registerSubscription(patientId, reg, key.public_key);
 }
 
 async function disablePushReminders(patientId) {
@@ -186,25 +193,28 @@ async function renderRoutineCard(mount, patientId) {
 }
 
 
-/** Every app open: if this phone already has reminders on, send its subscription to the server again. The server can
- * lose it without the phone knowing (the push service retired it, or another account was used on this phone), and then
- * reminders stop silently while the phone still says "on". Re-sending is harmless: the server never duplicates a device. */
-const _resynced = new Set();
+/** Every app open, and every time the app comes back to the front (an installed app can stay open for days): if this
+ * phone has reminders on, send its subscription to the server again. The server can lose it without the phone knowing
+ * (the push service retired it, or another account was used on this phone), and then reminders stop silently while
+ * the phone still says "on". Re-sending is harmless: the server never duplicates a device. At most once every 30 min. */
+const _resyncedAt = {};
+let _resyncPatient = null;
 async function resyncPushSubscription(patientId) {
-  if (!patientId || _resynced.has(patientId) || !pushSupported() || Notification.permission !== 'granted') return;
-  _resynced.add(patientId);
+  if (!patientId || !pushSupported() || Notification.permission !== 'granted') return;
+  _resyncPatient = patientId;
+  if (Date.now() - (_resyncedAt[patientId] || 0) < 30 * 60 * 1000) return;
+  _resyncedAt[patientId] = Date.now();
   try {
     const key = await apiFetch('GET', '/push/public-key');
     if (!key.configured || !key.public_key) return;
     const reg = await _pushRegistration();
     await navigator.serviceWorker.ready;
-    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
-      userVisibleOnly: true, applicationServerKey: _urlBase64ToUint8Array(key.public_key),
-    });
-    const json = sub.toJSON();
-    await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
-  } catch (e) { /* best effort: Settings still has the full control */ }
+    await _registerSubscription(patientId, reg, key.public_key);
+  } catch (e) { _resyncedAt[patientId] = 0; /* best effort: try again next time; Settings still has full control */ }
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _resyncPatient) resyncPushSubscription(_resyncPatient);
+});
 
 /** Dashboard nudge: shown only while reminders are possible but not yet on for this device. One tap asks Android for
  * permission and subscribes. Disappears once on, or when notifications are blocked (Settings explains how to unblock). */
@@ -212,7 +222,15 @@ async function renderPushPrompt(mount, patientId) {
   if (!mount || !patientId || !pushSupported()) return;
   try {
     const key = await apiFetch('GET', '/push/public-key');
-    if (!key.configured || Notification.permission === 'denied') return;
+    if (!key.configured) return;
+    if (Notification.permission === 'denied') {
+      // Blocked notifications mean no reminder can ever reach this phone - say so where it can't be missed.
+      mount.innerHTML = `
+        <div class="push-prompt push-blocked"><div><strong>⚠ Reminders can't reach this phone</strong>
+          <div class="reg-meta">Notifications are blocked. Open your phone's Settings → Apps → SmartPoli (or Chrome) →
+          Notifications, turn them on, then reopen SmartPoli.</div></div></div>`;
+      return;
+    }
     if (Notification.permission === 'granted') { await resyncPushSubscription(patientId); return; }
     if (await currentPushSubscription()) return;
     mount.innerHTML = `

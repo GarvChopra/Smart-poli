@@ -52,6 +52,7 @@ STEPS = [
     ("patient_routine", f"patient_id IN {P}"),
     ("patient_settings", f"patient_id IN {P}"),
     ("push_subscriptions", f"patient_id IN {P} OR user_id = :u"),
+    ("dead_push_endpoints", f"patient_id IN {P} OR user_id = :u"),
     ("symptom_checks", f"patient_id IN {P}"),
     ("voice_messages", f"patient_id IN {P}"),
     ("whatsapp_sessions", f"patient_id IN {P} OR user_id = :u"),

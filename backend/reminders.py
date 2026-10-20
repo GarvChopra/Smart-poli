@@ -36,7 +36,7 @@ import safety_engine
 import safety_service
 import webpush_service
 from clock import MAX_UTC_OFFSET, local_now, resolve_timezone
-from db import Dose, Medicine, PatientSettings, PushSubscription, ReminderLog, WhatsAppSession
+from db import Dose, Medicine, PatientSettings, PushSubscription, ReminderLog, WhatsAppSession, mark_push_endpoint_dead
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def _send_push(db: Session, patient_id: int, dose_id: int, kind: str, msg: dict,
             sub.last_success_at = datetime.utcnow()
             sent += 1
         elif status == "gone":
-            db.delete(sub)
+            mark_push_endpoint_dead(db, sub)
     db.commit()
     return sent
 
@@ -136,6 +136,10 @@ def _notify(db: Session, patient_id: int, dose: Dose, kind: str, msg: dict, push
                 if n == 0:
                     _release(db, dose.id, kind, "push")  # nothing delivered: allow a retry next minute
                 sent += n
+        elif kind == "due" and _claim(db, dose.id, kind, "no_device"):
+            # Nothing to send to: no phone of this patient has reminders on. Recorded once per dose, so a silent
+            # stretch with no reminders shows up in the log instead of being invisible.
+            logger.warning("Dose %s was due but patient %s has no device with reminders on", dose.id, patient_id)
     if wa_on:
         if db.query(WhatsAppSession).filter(WhatsAppSession.patient_id == patient_id,
                                             WhatsAppSession.notifications_opt_in.is_(True)).count():

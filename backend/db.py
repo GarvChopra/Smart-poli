@@ -422,6 +422,31 @@ class PushSubscription(Base):
     last_success_at = Column(DateTime, nullable=True)
 
 
+class DeadPushEndpoint(Base):
+    """A push endpoint the push service said is gone (404/410). Kept as a hash, not the URL, with whose it was, so a
+    phone that still holds the dead subscription is told to make a fresh one instead of re-registering the dead one
+    (which would silently drop every reminder), and a browser-rotated subscription can be moved to the right patient."""
+    __tablename__ = "dead_push_endpoints"
+
+    endpoint_hash = Column(String, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    died_at = Column(DateTime, default=datetime.utcnow)
+
+
+def endpoint_hash(endpoint: str) -> str:
+    import hashlib
+    return hashlib.sha256(endpoint.encode("utf-8")).hexdigest()
+
+
+def mark_push_endpoint_dead(db: Session, sub: "PushSubscription") -> None:
+    """Delete a gone subscription and remember it (caller commits)."""
+    h = endpoint_hash(sub.endpoint)
+    if db.get(DeadPushEndpoint, h) is None:
+        db.add(DeadPushEndpoint(endpoint_hash=h, patient_id=sub.patient_id, user_id=sub.user_id))
+    db.delete(sub)
+
+
 class ReminderLog(Base):
     """One row per (dose, kind, channel) that has been sent. The unique
     constraint is the dedupe: a 1-minute sweep, a restarted server or two

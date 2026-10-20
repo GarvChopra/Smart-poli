@@ -223,6 +223,12 @@ class PushSubscribeRequest(BaseModel):
     keys: PushKeys
 
 
+class PushRotateRequest(BaseModel):
+    old_endpoint: str = Field(..., min_length=10, max_length=2000)
+    endpoint: str = Field(..., min_length=10, max_length=2000)
+    keys: PushKeys
+
+
 class PushUnsubscribeRequest(BaseModel):
     endpoint: str = Field(..., min_length=10, max_length=2000)
 

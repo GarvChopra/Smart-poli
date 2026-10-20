@@ -33,6 +33,22 @@ self.addEventListener('push', (event) => {
   }));
 });
 
+// The browser can replace the subscription on its own. Without this, reminders would keep going to the old one (which
+// no longer exists) until the app happened to be opened. The old endpoint proves which account the phone belongs to.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const old = event.oldSubscription;
+    let sub = event.newSubscription;
+    if (!sub && old && old.options) sub = await self.registration.pushManager.subscribe(old.options);
+    if (!old || !sub) return;
+    const json = sub.toJSON();
+    await fetch('/push/rotate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_endpoint: old.endpoint, endpoint: json.endpoint, keys: json.keys }),
+    });
+  })().catch(() => null));
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || '/';
