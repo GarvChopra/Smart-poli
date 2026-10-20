@@ -159,8 +159,6 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
         alerts.append(f"{missed_recent_count} dose(s) were missed in the last 24 hours.")
     if ever_emergency:
         alerts.append("An EMERGENCY-graded symptom check is in this patient's recent history.")
-    if dash["unconfirmed_medicines"]:
-        alerts.append(f"{len(dash['unconfirmed_medicines'])} medicine(s) are unconfirmed and were never scheduled.")
 
     from emergency_page import _split_contact
     label, ec_phone = _split_contact(patient.emergency_contact)
@@ -173,8 +171,9 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
         key=lambda x: x["scheduled_at"], reverse=True)[:15]
 
     added_by = {med.id: pres.added_by_user_id for pres in dash["prescriptions"] for med in pres.medicines}
-    removed = {med.id for pres in dash["prescriptions"] for med in pres.medicines
-               if med.status == "needs_confirmation" and '"removed": true' in (med.field_confidence or "")}
+    # The same medicines the patient sees: not ones they removed, and not unconfirmed lines read off a photo.
+    active = {med.id for pres in dash["prescriptions"] for med in pres.medicines
+              if med.status != "needs_confirmation" and med.name}
 
     return {
         "phones": {"patient": own_phone, "emergency_contact": {"label": label, "phone": ec_phone} if ec_phone else None},
@@ -183,10 +182,9 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
         "priority": compute_priority(db, patient_id),
         "adherence": dash["adherence"],
         "per_medicine": [{**m, "added_by_me": added_by.get(m["medicine_id"]) == user.id} for m in dash["per_medicine"]
-                         if m["medicine_id"] not in removed],
+                         if m["medicine_id"] in active],
         "upcoming_doses": dash["upcoming_doses"],
         "prn_medicines": dash["prn_medicines"],
-        "unconfirmed_medicines": dash["unconfirmed_medicines"],
         "nudges": nudges,
         "alerts": alerts,
         "recent_symptom_checks": [

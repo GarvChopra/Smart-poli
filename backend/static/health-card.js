@@ -155,8 +155,10 @@ function hcBackHtml(data) {
     </div>`;
 }
 
-async function mountHealthCard(container, patientId) {
-  container.innerHTML = `<div class="empty">Loading your card…</div>`;
+/** opts.caregiver: the same card for a linked caregiver - read-only (Share, Download, Print; no Edit or Revoke). */
+async function mountHealthCard(container, patientId, opts = {}) {
+  const cg = !!opts.caregiver;
+  container.innerHTML = `<div class="empty">Loading ${cg ? 'the' : 'your'} card…</div>`;
   const data = await api('GET', `/patients/${patientId}/emergency-card`);
   const cardUrl = `${window.location.origin}${data.card_path}`;
 
@@ -165,15 +167,17 @@ async function mountHealthCard(container, patientId) {
       <header class="hc-head">
         <div>
           <div class="hc-eyebrow">SmartPoli</div>
-          <h2 class="hc-title">${t('emergencyHeading')}</h2>
-          <p class="hc-sub">Carry your emergency information as a card. Anyone who scans the QR sees only what you choose to share, and nothing else from your account.</p>
+          <h2 class="hc-title">${cg ? `${hcEsc(data.patient.name)}’s emergency card` : t('emergencyHeading')}</h2>
+          <p class="hc-sub">${cg
+            ? `Show this to a doctor or paramedic, or share it. Only ${hcEsc(data.patient.name)} can change what it shows.`
+            : 'Carry your emergency information as a card. Anyone who scans the QR sees only what you choose to share, and nothing else from your account.'}</p>
         </div>
-        <div class="hc-active">${hcIcon('shield')}Your card is active</div>
+        <div class="hc-active">${hcIcon('shield')}${cg ? 'Card is active' : 'Your card is active'}</div>
       </header>
 
       <div class="hc-stage">
         <div class="hc-card" tabindex="0" role="button" aria-pressed="false"
-             aria-label="Your emergency health card. Showing the front. Press Enter to flip.">
+             aria-label="${cg ? 'Emergency health card' : 'Your emergency health card'}. Showing the front. Press Enter to flip.">
           <div class="hc-edge" style="--z:-1.5px"></div>
           <div class="hc-edge" style="--z:-0.5px"></div>
           <div class="hc-edge" style="--z:0.5px"></div>
@@ -192,8 +196,8 @@ async function mountHealthCard(container, patientId) {
         <button class="hc-action" data-hc="share">${hcIcon('share')}<span>Share Card</span></button>
         <button class="hc-action" data-hc="download">${hcIcon('download')}<span>Download</span></button>
         <button class="hc-action" data-hc="print">${hcIcon('print')}<span>Print</span></button>
-        <button class="hc-action" data-hc="edit">${hcIcon('edit')}<span>Edit</span></button>
-        <button class="hc-action is-danger" data-hc="revoke">${hcIcon('trash')}<span>Revoke QR</span></button>
+        ${cg ? '' : `<button class="hc-action" data-hc="edit">${hcIcon('edit')}<span>Edit</span></button>
+        <button class="hc-action is-danger" data-hc="revoke">${hcIcon('trash')}<span>Revoke QR</span></button>`}
       </div>
       <div class="hc-panel" id="hcPanel" aria-live="polite"></div>
 
@@ -218,7 +222,7 @@ async function mountHealthCard(container, patientId) {
   });
 
   const panel = container.querySelector('#hcPanel');
-  const rerender = () => mountHealthCard(container, patientId);
+  const rerender = () => mountHealthCard(container, patientId, opts);
   container.querySelector('.hc-actions').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-hc]');
     if (!btn) return;

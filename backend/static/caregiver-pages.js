@@ -316,14 +316,10 @@ async function pageEmergency(root, pid) {
   const o = await getOverview(pid);
   const ec = o.emergency_card;
   patientFrame(root, o, 'emergency', `
-    <div class="card">
-      <div class="card-head">${iconBadge('alarm', 'siren')}<h3>Emergency information</h3></div>
-      ${ec.has_emergency_triage_history ? '<div class="alert-item">Has a history of an EMERGENCY-graded symptom check.</div>' : ''}
-      <div><strong>Allergies:</strong> ${esc(ec.patient.allergies || 'none recorded')}</div>
-      <div><strong>Blood group:</strong> ${esc(ec.patient.blood_group || 'not recorded')}</div>
-      <div><strong>Emergency contact:</strong> ${esc(ec.patient.emergency_contact || 'none recorded')}</div>
-      <div style="margin-top:10px;"><a href="${esc(window.location.origin + ec.card_path)}" target="_blank" rel="noopener">Open full emergency card →</a></div>
-    </div>`);
+    ${ec.has_emergency_triage_history ? '<div class="alert-item">Has a history of an EMERGENCY-graded symptom check.</div>' : ''}
+    <div id="cgHealthCard"></div>`);
+  // The patient's own card (front and back, flip, Share / Download / Print), read-only for the caregiver.
+  await mountHealthCard(root.querySelector('#cgHealthCard'), pid, { caregiver: true });
 }
 
 // ---------------------------------------------------------------- Feedback

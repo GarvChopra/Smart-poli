@@ -111,3 +111,35 @@ def test_with_the_doctor_role_off_there_is_no_doctor_anything(doctor_off):
     assert page.status_code == 307 and page.headers["location"] == "/login"
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"), encoding="utf-8").read()
     assert "Link a doctor" not in js and "/doctor-links" not in js
+
+
+def test_the_caregiver_sees_the_same_medicines_as_the_patient_not_unconfirmed_or_removed_ones(world):
+    pid, patient, cg, _, _ = world
+    # a line read off a photo that the patient never confirmed, like OCR noise
+    r = patient.post("/prescriptions", json={"patient_id": pid, "lines": ["Expt. No. as i Eth emus pees if Yee otek"]})
+    assert r.status_code == 200, r.text
+    kept = patient.post("/medicines/manual", json={**MED, "name": "Telma 40", "patient_id": pid}).json()["medicine"]
+    gone = patient.post("/medicines/manual", json={**MED, "name": "Pan 40", "patient_id": pid}).json()["medicine"]
+    assert patient.delete(f"/medicines/{gone['id']}").status_code == 200
+    patient_sees = sorted(m["name"] for m in patient.get(f"/patients/{pid}/safety-center").json()["medicines"])
+    caregiver_sees = sorted(m["name"] for m in cg.get(f"/caregiver/patients/{pid}/overview").json()["per_medicine"])
+    assert caregiver_sees == patient_sees == [kept["name"]]
+
+
+def test_the_caregiver_overview_never_mentions_unconfirmed_lines(world):
+    pid, patient, cg, _, _ = world
+    patient.post("/prescriptions", json={"patient_id": pid, "lines": ["Expt. No. as i Eth emus pees if Yee otek"]})
+    o = cg.get(f"/caregiver/patients/{pid}/overview").json()
+    assert "unconfirmed_medicines" not in o and not any("unconfirmed" in a for a in o["alerts"])
+
+
+def test_the_caregiver_sees_the_patients_real_emergency_card_read_only(world):
+    pid, _, cg, _, _ = world
+    assert cg.get(f"/patients/{pid}/emergency-card").status_code == 200
+    assert cg.get(f"/patients/{pid}/emergency-card/qr.png").status_code == 200
+    assert cg.put(f"/patients/{pid}/emergency-card/profile", json={"conditions": "x"}).status_code == 403
+    assert cg.post(f"/patients/{pid}/emergency-card/revoke").status_code == 403
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+    page = open(os.path.join(static, "caregiver.html"), encoding="utf-8").read()
+    js = open(os.path.join(static, "caregiver-pages.js"), encoding="utf-8").read()
+    assert "/static/health-card.js" in page and "mountHealthCard(" in js and "{ caregiver: true }" in js
