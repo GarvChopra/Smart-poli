@@ -123,3 +123,11 @@ def test_apply_needs_the_matching_host(monkeypatch, capsys):
     assert count("users", "id = :i", i=w["user"]["id"]) == 1
     monkeypatch.setattr(sys, "argv", ["delete_user.py", "--user-id", "999999"])
     assert du.main() == 1                                                                 # unknown user
+
+
+def test_every_index_the_app_adds_names_a_real_table_and_columns():
+    from db import INDEXES, Base
+    for name, table, cols in INDEXES:
+        assert table in Base.metadata.tables, name
+        for col in (c.strip() for c in cols.split(",")):
+            assert col in Base.metadata.tables[table].c, (name, col)

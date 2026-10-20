@@ -20,7 +20,7 @@ from db import (
     Patient, Prescription, Medicine, Dose, SymptomCheck, AuditLog,
     EmergencyCardProfile, CaregiverLink, DoctorLink, User,
 )
-from scheduler import compute_adherence, compute_medicine_breakdown, sweep_missed
+from scheduler import compute_adherence, compute_medicine_breakdown, sweep_missed_for_view
 from interactions import check_interactions
 from food_warnings import check_food_warnings
 from emergency_tokens import get_or_create_active_token
@@ -115,7 +115,7 @@ def gather_dashboard_data(db: Session, patient_id: int, interaction_ruleset: dic
     """The same aggregation the patient dashboard uses — reused by the
     caregiver overview and doctor detail views instead of a second query set."""
     get_patient_or_404(db, patient_id)
-    sweep_missed(db)
+    sweep_missed_for_view(db)
 
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
 
@@ -169,7 +169,7 @@ def gather_report_data(db: Session, patient_id: int, interaction_ruleset: dict, 
     detail view — one report, several renderings, never two competing
     implementations of what's in it."""
     patient = get_patient_or_404(db, patient_id)
-    sweep_missed(db)
+    sweep_missed_for_view(db)
 
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
     checks = db.query(SymptomCheck).filter(SymptomCheck.patient_id == patient_id).order_by(SymptomCheck.created_at).all()

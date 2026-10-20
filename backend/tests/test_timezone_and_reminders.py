@@ -600,3 +600,16 @@ def test_a_subscription_the_browser_replaced_moves_to_the_same_patient_without_a
     r = anon.post("/push/rotate", json={"old_endpoint": "https://push.example.test/before-rotation",
                                         "endpoint": "https://push.example.test/third", "keys": keys})
     assert r.status_code == 200
+
+
+def test_screens_sweep_at_most_once_per_interval(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler, "sweep_missed", lambda db, now=None: calls.append(1) or 0)
+    monkeypatch.setattr(scheduler, "VIEW_SWEEP_SECONDS", 20.0)
+    monkeypatch.setattr(scheduler, "_last_view_sweep", 0.0)
+    for _ in range(5):
+        scheduler.sweep_missed_for_view(None)
+    assert len(calls) == 1                      # five people opening the app at once -> one sweep
+    monkeypatch.setattr(scheduler, "_last_view_sweep", scheduler.time.monotonic() - 21)
+    scheduler.sweep_missed_for_view(None)
+    assert len(calls) == 2

@@ -107,3 +107,25 @@ def test_without_keys_nothing_is_sent(monkeypatch, subscription):
 
 def test_a_malformed_subscription_never_raises(vapid_env, monkeypatch):
     assert webpush_service.send("https://push.example.test/x", "not-a-key", "not-an-auth", {"title": "x"}) == "error"
+
+
+def test_phones_subscribe_with_the_public_key_of_the_private_key_even_if_the_variable_is_wrong(vapid_env, monkeypatch):
+    right = webpush_service.public_key()
+    monkeypatch.setenv("SMARTPOLI_VAPID_PUBLIC_KEY", "BWRONGKEYfromAnotherPairxxxxxxxxxxxxxxxxxxxx")
+    webpush_service._derived.clear()
+    assert webpush_service.public_key() == right.rstrip("=")
+    assert webpush_service.keys_match() is False
+
+
+def test_a_403_from_the_push_service_means_the_subscription_must_be_replaced(vapid_env, monkeypatch):
+    import pywebpush
+
+    class Resp:
+        status_code = 403
+        text = "the VAPID credentials in the authorization header do not correspond to the credentials used to create the subscriptions."
+
+    def boom(**kw):
+        raise pywebpush.WebPushException("refused", response=Resp())
+    monkeypatch.setattr(pywebpush, "webpush", boom)
+    assert webpush_service.send("https://fcm.googleapis.com/fcm/send/x", "k", "a", {}) == "gone"
+    assert webpush_service.last_failure("https://fcm.googleapis.com/fcm/send/x")[0] == 403

@@ -32,7 +32,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
-from web_security import BodySizeLimitMiddleware, SecurityHeadersMiddleware, not_found_handler, rate_limit, unhandled_error_handler
+from web_security import AdmissionLimitMiddleware, BodySizeLimitMiddleware, SecurityHeadersMiddleware, not_found_handler, rate_limit, unhandled_error_handler
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,13 +45,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from db import (
     init_db, get_db_session, SessionLocal, log_audit, Patient, Prescription, Medicine, Dose, SymptomCheck,
     AuditLog, User, VoiceMessage, PatientSettings, PushSubscription, ReminderLog, DeadPushEndpoint,
-    endpoint_hash, mark_push_endpoint_dead,
+    endpoint_hash, mark_push_endpoint_dead, prune_old_rows,
 )
 from parser import parse_medicine_line, compute_status
 from prescription_service import create_prescription_from_lines, confirm_prescription_doses, create_manual_medicine
 from scheduler import (
     generate_doses, SchedulingBlocked, compute_adherence, compute_medicine_breakdown,
-    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, undo_taken,
+    mark_taken, mark_missed, mark_skipped, snooze, sweep_missed, sweep_missed_doses, sweep_missed_for_view, undo_taken,
     take_window_error, TAKE_EARLY_WINDOW, top_up_ongoing_doses,
 )
 from triage import load_ruleset, evaluate_check, next_question
@@ -132,6 +132,8 @@ app.add_middleware(
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
+# Fewer requests inside at once than database connections (15), leaving room for the reminder sweep and background work.
+app.add_middleware(AdmissionLimitMiddleware, limit=int(os.getenv("SMARTPOLI_MAX_CONCURRENT_REQUESTS", "12")))
 app.add_middleware(GZipMiddleware, minimum_size=600)          # app.js / style.css shrink about 4x on a slow phone connection
 app.add_exception_handler(StarletteHTTPException, not_found_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
@@ -304,6 +306,13 @@ def _reminder_sweep_job():
             except Exception:
                 db.rollback()
                 logger.exception("Reminder sweep: topping up ongoing medicines failed.")
+            try:
+                pruned = prune_old_rows(db)
+                if any(pruned.values()):
+                    logger.info(f"Housekeeping: removed old technical rows {pruned}.")
+            except Exception:
+                db.rollback()
+                logger.exception("Housekeeping failed.")
         missed = sweep_missed_doses(db)
         if missed:
             logger.info(f"Reminder sweep: auto-marked {len(missed)} overdue dose(s) as missed.")
@@ -359,8 +368,26 @@ def internal_reminder_sweep(x_cron_secret: Optional[str] = Header(None)):
     return {"ok": True}
 
 
+def refuse_production_db_off_server() -> None:
+    """A copy of the app started on someone's computer must not quietly run against the live patient database (a
+    local .env pointing at it is an easy mistake). On Render the RENDER variable is always set; anywhere else a
+    hosted database needs SMARTPOLI_ALLOW_PRODUCTION_DB=1, said on purpose."""
+    from db import DATABASE_URL
+    on_render = any(os.getenv(v) for v in ("RENDER", "RENDER_SERVICE_ID", "RENDER_GIT_COMMIT"))  # the live site already reads RENDER_GIT_COMMIT
+    if DATABASE_URL.startswith("sqlite") or on_render or os.getenv("SMARTPOLI_ALLOW_PRODUCTION_DB") == "1":
+        return
+    host = re.sub(r"^[a-z0-9+]+://[^@]*@", "", DATABASE_URL).split("/")[0].split(":")[0]
+    if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local"):
+        return
+    raise RuntimeError(
+        f"Refusing to start: this copy of SmartPoli is not running on the server but its database is the hosted one "
+        f"({host}). Use a local database (SMARTPOLI_DATABASE_URL=sqlite:///./dev.db), or set "
+        f"SMARTPOLI_ALLOW_PRODUCTION_DB=1 if you really mean to use the live data.")
+
+
 @app.on_event("startup")
 def on_startup():
+    refuse_production_db_off_server()
     init_db()
     if os.getenv("SMARTPOLI_AUTO_SEED") == "1":
         # Opt-in only (e.g. Render, where there's no shell on the free plan
@@ -518,6 +545,7 @@ async def scan_medicine(
     get_patient_or_404(db, patient_id)
     if not can_add_medicine(db, user, patient_id):
         raise HTTPException(403, "Only the patient or their linked caregiver can add a medicine.")
+    db.commit()               # hand the database connection back while the photo is read (up to ~45 s)
     image_bytes = await _read_image_upload(file)
     # Two readers side by side, so a scan never depends on the AI alone: the vision model, and the printed keywords
     # (Tesseract, tuned for print) matched against the known-medicine list.
@@ -808,6 +836,7 @@ async def create_prescription_from_image(
     get_patient_or_404(db, patient_id)
     if not has_write_access(db, user, patient_id):
         raise HTTPException(403, "Only the patient can add a prescription to their own record.")
+    db.commit()               # hand the database connection back while the file is read (AI / OCR can take a while)
 
     data = await _read_image_upload(file, allow_pdf=True)
 
@@ -1275,9 +1304,12 @@ def push_test(patient_id: int, user: User = Depends(require_patient_write_access
             "title": "SmartPoli test", "body": "Reminders are working on this device.",
             "url": "/", "tag": "smartpoli-test", "kind": "test"})
         if status == "sent":
+            sub.last_success_at = datetime.utcnow()
             sent += 1
-        elif status == "gone":
-            mark_push_endpoint_dead(db, sub)
+        else:
+            webpush_service.note_failure(db, patient_id, sub.endpoint, status)
+            if status == "gone":
+                mark_push_endpoint_dead(db, sub)
     db.commit()
     return {"devices": len(subs), "sent": sent}
 
@@ -1326,7 +1358,7 @@ def dashboard(patient_id: int, background: BackgroundTasks, user: User = Depends
               db: Session = Depends(get_db_session)):
     get_patient_or_404(db, patient_id)
     _maybe_warm(patient_id, background)
-    sweep_missed(db)
+    sweep_missed_for_view(db)
 
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
 
@@ -1553,7 +1585,7 @@ def voice_available(user: User = Depends(get_current_user)):
 
 @app.post("/patients/{patient_id}/voice/transcribe")
 async def voice_transcribe(patient_id: int, audio: UploadFile = File(...), lang: str = Form(""),
-                           user: User = Depends(require_patient_write_access)):
+                           user: User = Depends(require_patient_write_access), db: Session = Depends(get_db_session)):
     """One recorded utterance → text, via Groq Whisper (voice_stt.py)."""
     content_type = (audio.content_type or "").split(";")[0].strip().lower()
     if content_type not in voice_stt.ALLOWED_TYPES:
@@ -1563,8 +1595,10 @@ async def voice_transcribe(patient_id: int, audio: UploadFile = File(...), lang:
         raise HTTPException(413, "That recording is too long.")
     if not voice_assistant.check_rate_limit(user.id):
         raise HTTPException(429, "Too many voice requests. Wait a moment and try again.")
+    db.commit()               # the login check's connection goes back before the (slow) speech service is called
     try:
-        text = voice_stt.transcribe(data, audio.filename or "utterance.wav", lang)
+        # off the event loop: a blocking network call here would stall every other request while Whisper works
+        text = await run_in_threadpool(voice_stt.transcribe, data, audio.filename or "utterance.wav", lang)
     except voice_stt.TranscriptionUnavailable:
         raise HTTPException(503, "Speech recognition service is not configured.")
     except Exception as e:

@@ -10,21 +10,45 @@ Two invariants enforced elsewhere in the codebase, not here:
   2. Medicine.raw_text is never discarded, even when confidence is low.
 """
 
+import logging
 import os
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey, UniqueConstraint,
-    inspect, text
+    event, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 
 DATABASE_URL = os.getenv("SMARTPOLI_DATABASE_URL", "sqlite:///./smartpoli.db")
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+logger = logging.getLogger(__name__)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+connect_args = {"check_same_thread": False} if IS_SQLITE else {}
+# Postgres: a bounded pool (one app process; the hosted pooler sits in front), connections recycled before the pooler
+# or a network box drops them, and no query may run longer than STATEMENT_TIMEOUT - one stuck query must never hold
+# a connection (and the whole app) hostage. The app's real queries take milliseconds.
+STATEMENT_TIMEOUT = os.getenv("SMARTPOLI_DB_STATEMENT_TIMEOUT", "15s")
+pool_args = {} if IS_SQLITE else {"pool_size": 5, "max_overflow": 10, "pool_timeout": 30, "pool_recycle": 1800}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True, **pool_args)
+
+if not IS_SQLITE:
+    @event.listens_for(engine, "connect")
+    def _limit_each_connection(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")
+        cur.close()
+        dbapi_conn.commit()        # a SET inside a rolled-back transaction would be undone
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Least privilege: the app can run as a database account that may only read and write rows
+# (SMARTPOLI_DATABASE_URL), while creating tables / columns / indexes at start-up uses a separate owner account
+# (SMARTPOLI_MIGRATION_DATABASE_URL). Unset, both are the same account, as before.
+MIGRATION_DATABASE_URL = os.getenv("SMARTPOLI_MIGRATION_DATABASE_URL") or DATABASE_URL
+ddl_engine = engine if MIGRATION_DATABASE_URL == DATABASE_URL else create_engine(
+    MIGRATION_DATABASE_URL, connect_args=connect_args, pool_pre_ping=True, pool_size=1, max_overflow=0)
 
 Base = declarative_base()
 
@@ -498,12 +522,12 @@ def _migrate_sqlite_add_columns() -> None:
     """
     if not DATABASE_URL.startswith("sqlite"):
         return
-    inspector = inspect(engine)
+    inspector = inspect(ddl_engine)
     table_names = inspector.get_table_names()
 
     if "patients" in table_names:
         existing = {c["name"] for c in inspector.get_columns("patients")}
-        with engine.begin() as conn:
+        with ddl_engine.begin() as conn:
             if "user_id" not in existing:
                 conn.execute(text("ALTER TABLE patients ADD COLUMN user_id INTEGER"))
             if "blood_group" not in existing:
@@ -511,7 +535,7 @@ def _migrate_sqlite_add_columns() -> None:
 
     if "users" in table_names:
         existing = {c["name"] for c in inspector.get_columns("users")}
-        with engine.begin() as conn:
+        with ddl_engine.begin() as conn:
             if "phone" not in existing:
                 conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR"))
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone ON users (phone)"))
@@ -523,7 +547,7 @@ def _migrate_sqlite_add_columns() -> None:
 
     if "doses" in table_names:
         existing = {c["name"] for c in inspector.get_columns("doses")}
-        with engine.begin() as conn:
+        with ddl_engine.begin() as conn:
             if "whatsapp_reminder_sent" not in existing:
                 conn.execute(text(
                     "ALTER TABLE doses ADD COLUMN whatsapp_reminder_sent BOOLEAN NOT NULL DEFAULT 0"
@@ -533,26 +557,93 @@ def _migrate_sqlite_add_columns() -> None:
 def _add_missing_columns() -> None:
     """Columns added to an existing table after launch, on any database (create_all never alters a table). Each is
     nullable with no default, so adding it is instant and leaves every existing row as it was."""
-    inspector = inspect(engine)
+    inspector = inspect(ddl_engine)
     if "prescriptions" in inspector.get_table_names():
         if "added_by_user_id" not in {c["name"] for c in inspector.get_columns("prescriptions")}:
-            with engine.begin() as conn:
+            with ddl_engine.begin() as conn:
                 conn.execute(text("ALTER TABLE prescriptions ADD COLUMN added_by_user_id INTEGER"))
 
 
+# Lookups the app makes all the time (a patient's prescriptions, a prescription's medicines, a medicine's doses, the
+# every-minute "which doses are due" check, ...). Without these every one of them reads the whole table.
+INDEXES = [
+    ("ix_doses_medicine_id", "doses", "medicine_id"),
+    ("ix_doses_state_scheduled_at", "doses", "state, scheduled_at"),
+    ("ix_medicines_prescription_id", "medicines", "prescription_id"),
+    ("ix_prescriptions_patient_id", "prescriptions", "patient_id"),
+    ("ix_patients_user_id", "patients", "user_id"),
+    ("ix_audit_log_patient_id_at", "audit_log", "patient_id, at"),
+    ("ix_caregiver_links_patient_id", "caregiver_links", "patient_id"),
+    ("ix_caregiver_links_caregiver_user_id", "caregiver_links", "caregiver_user_id"),
+    ("ix_caregiver_prefs_patient_id", "caregiver_prefs", "patient_id"),
+    ("ix_care_notes_medicine_id", "care_notes", "medicine_id"),
+    ("ix_symptom_checks_patient_id", "symptom_checks", "patient_id"),
+    ("ix_whatsapp_sessions_patient_id", "whatsapp_sessions", "patient_id"),
+    ("ix_whatsapp_sessions_user_id", "whatsapp_sessions", "user_id"),
+    ("ix_push_subscriptions_user_id", "push_subscriptions", "user_id"),
+    ("ix_medicine_corrections_medicine_id", "medicine_corrections", "medicine_id"),
+    ("ix_dead_push_endpoints_patient_id", "dead_push_endpoints", "patient_id"),
+]
+
+
+def _add_indexes() -> None:
+    """IF NOT EXISTS: safe on every start. Only adds indexes - never changes a row. The tables are small, so each
+    builds in milliseconds."""
+    tables = set(inspect(ddl_engine).get_table_names())
+    for name, table, cols in INDEXES:
+        if table not in tables:
+            continue
+        try:
+            with ddl_engine.begin() as conn:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols})"))
+        except Exception as e:  # noqa: BLE001 - a missing index makes the app slower, never broken: start anyway
+            logger.warning("Could not create index %s: %s", name, type(e).__name__)
+
+
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=ddl_engine)
     _migrate_sqlite_add_columns()
     _add_missing_columns()
+    _add_indexes()
 
 
-def get_db_session() -> Session:
-    """FastAPI dependency: yields a session, always closed after the request."""
+KEEP_TECHNICAL_ROWS_DAYS = 180
+
+
+def prune_old_rows(db: Session, utc_now: Optional[datetime] = None) -> dict:
+    """Housekeeping, hourly with the reminder sweep. Removes only technical rows nobody needs after half a year:
+    'this reminder was sent' records (they only stop a dose being reminded twice, and a dose is never reminded that
+    long after its time) and phone registrations the push service retired. Patients' records - medicines, doses,
+    notes, cards - and the audit log are never touched here."""
+    from datetime import timedelta
+    cutoff = (utc_now or datetime.utcnow()) - timedelta(days=KEEP_TECHNICAL_ROWS_DAYS)
+    out = {
+        "reminder_log": db.query(ReminderLog).filter(ReminderLog.sent_at < cutoff).delete(synchronize_session=False),
+        "dead_push_endpoints": db.query(DeadPushEndpoint).filter(DeadPushEndpoint.died_at < cutoff).delete(synchronize_session=False),
+    }
+    db.commit()
+    return out
+
+
+_closer = None
+
+
+async def get_db_session():
+    """FastAPI dependency: yields a session, always closed after the request.
+
+    Closed on threads of its OWN, not the shared pool the endpoints run on. With a plain sync dependency the close
+    waits for a free endpoint thread; under a burst every endpoint thread is busy waiting for a database connection,
+    and the connections can't come back because their close is waiting for a thread - the app stalls until the pool
+    timeout (seen in a 500-user load test). Closing here never waits behind the queue, so connections keep cycling."""
+    global _closer
+    import anyio
+    if _closer is None:
+        _closer = anyio.CapacityLimiter(8)
     db = SessionLocal()
     try:
         yield db
     finally:
-        db.close()
+        await anyio.to_thread.run_sync(db.close, limiter=_closer)
 
 
 def log_audit(db: Session, patient_id: int, actor: str, action: str, detail: Optional[str] = None) -> None:

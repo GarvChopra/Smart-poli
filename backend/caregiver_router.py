@@ -258,11 +258,16 @@ def caregiver_nudge(patient_id: int, user: User = Depends(require_caregiver_role
         raise HTTPException(429, f"You just sent a reminder. You can send another in {max(1, wait // 60 + (1 if wait % 60 else 0))} minute(s).",
                             headers={"Retry-After": str(wait)})
     patient = get_patient_or_404(db, patient_id)
+    from db import PushSubscription
+    phones = db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count()
     sent = care_push.push_to_patient(db, patient_id, f"{user.name} is thinking of you",
                                      "Have you taken your medicine? Open SmartPoli to check.", tag=f"care-nudge-{patient_id}")
     log_audit(db, patient_id, f"caregiver:{user.id}", "caregiver_nudge", f"reminder sent to {sent} device(s)")
     return {"sent": sent, "patient": patient.name,
-            "note": None if sent else f"{patient.name} has not turned on phone reminders, so nothing could be delivered. Try calling."}
+            "note": None if sent else (
+                f"{patient.name}'s phone could not be reached just now. It will reconnect the next time "
+                f"{patient.name} opens SmartPoli. Try calling." if phones else
+                f"{patient.name} has not turned on phone reminders, so nothing could be delivered. Try calling.")}
 
 
 # ---------------------------------------------------------------- phone alerts

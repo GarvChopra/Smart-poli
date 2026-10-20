@@ -138,3 +138,18 @@ def test_remind_now_pushes_to_the_patient_once_per_fifteen_minutes(world, monkey
 def test_remind_now_says_so_when_the_patient_has_no_phone_reminders(world):
     out = world.cg1.post(f"/caregiver/patients/{world.pid}/nudge").json()
     assert out["sent"] == 0 and "not turned on" in out["note"]
+
+
+def test_remind_now_says_the_phone_could_not_be_reached_when_it_is_registered_but_fails(world, monkeypatch):
+    world.patient.post(f"/patients/{world.pid}/push/subscribe",
+                       json={"endpoint": f"https://push.example.test/p-{world.pid}", "keys": {"p256dh": "k" * 20, "auth": "a" * 12}})
+    monkeypatch.setattr(care_push.webpush_service, "send", lambda *a: "error")
+    monkeypatch.setattr(care_push.webpush_service, "is_configured", lambda: True)
+    r = world.cg1.post(f"/caregiver/patients/{world.pid}/nudge")
+    assert r.json()["sent"] == 0 and "could not be reached" in r.json()["note"] and "not turned on" not in r.json()["note"]
+    from db import AuditLog
+    db = SessionLocal()
+    try:
+        assert db.query(AuditLog).filter_by(patient_id=world.pid, action="push_delivery_failed").count() == 1
+    finally:
+        db.close()

@@ -114,8 +114,10 @@ def _send_push(db: Session, patient_id: int, dose_id: int, kind: str, msg: dict,
         if status == "sent":
             sub.last_success_at = datetime.utcnow()
             sent += 1
-        elif status == "gone":
-            mark_push_endpoint_dead(db, sub)
+        else:
+            webpush_service.note_failure(db, patient_id, sub.endpoint, status)
+            if status == "gone":
+                mark_push_endpoint_dead(db, sub)
     db.commit()
     return sent
 

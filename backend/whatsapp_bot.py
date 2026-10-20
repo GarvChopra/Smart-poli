@@ -430,8 +430,8 @@ def _handle_emergency(db: Session, patient_id: int) -> str:
 
 
 def _handle_today(db: Session, patient_id: int) -> str:
-    from scheduler import sweep_missed
-    sweep_missed(db)
+    from scheduler import sweep_missed_for_view
+    sweep_missed_for_view(db)
     from clock import patient_now
     prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
     now = patient_now(db, patient_id)

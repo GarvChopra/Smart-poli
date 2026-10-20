@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from sqlalchemy.orm import Session
 
 import webpush_service
-from db import PushSubscription, UserPushSubscription
+from db import PushSubscription, UserPushSubscription, mark_push_endpoint_dead
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,10 @@ def _deliver(db: Session, subs: list, payload: dict, push_fn: Optional[Callable]
         if status == "sent":
             sub.last_success_at = datetime.utcnow()
             sent += 1
+        elif isinstance(sub, PushSubscription):        # a patient's phone: remember why, and never re-use a dead one
+            webpush_service.note_failure(db, sub.patient_id, sub.endpoint, status)
+            if status == "gone":
+                mark_push_endpoint_dead(db, sub)
         elif status == "gone":
             db.delete(sub)
     db.commit()

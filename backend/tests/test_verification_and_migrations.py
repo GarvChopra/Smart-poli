@@ -176,6 +176,7 @@ def test_new_tables_are_added_to_an_existing_database_without_touching_its_data(
     from sqlalchemy import create_engine, inspect
     engine = create_engine(f"sqlite:///{tmp.name}", connect_args={"check_same_thread": False})
     monkeypatch.setattr(dbmod, "engine", engine)
+    monkeypatch.setattr(dbmod, "ddl_engine", engine)        # start-up schema changes go through the migration engine
     monkeypatch.setattr(dbmod, "DATABASE_URL", f"sqlite:///{tmp.name}")
     dbmod.init_db()
     dbmod.init_db()                       # running it twice must be harmless

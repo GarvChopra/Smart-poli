@@ -131,6 +131,40 @@ async def not_found_handler(request: Request, exc):
 MAX_BODY_BYTES = int(os.getenv("SMARTPOLI_MAX_BODY_BYTES", str(12 * 1024 * 1024)))   # the biggest legitimate body is a 10 MB photo
 
 
+class AdmissionLimitMiddleware:
+    """At most `limit` requests inside the app at once; the rest wait their turn here, cheaply, in the event loop.
+
+    Why: each request holds one database connection from its login check to its end, and there are only so many
+    connections. Without a door, a burst lets in more requests than connections: some hold a connection while waiting
+    for a worker thread, others hold a thread while waiting for a connection, and everything stalls until the pool
+    times out. A request that waits longer than `max_wait` seconds gets a quick 503 "busy, try again" instead of
+    hanging. Static files and the slow AI uploads (which give their connection back while the AI works) skip the door."""
+
+    SKIP_PREFIXES = ("/static/", "/medicines/scan", "/prescriptions/from-image", "/whatsapp/")
+
+    def __init__(self, app, limit: int = 12, max_wait: float = 20.0):
+        self.app, self.limit, self.max_wait = app, limit, max_wait
+        self._sem = None
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if scope["type"] != "http" or path.startswith(self.SKIP_PREFIXES) or path.endswith("/voice/transcribe"):
+            return await self.app(scope, receive, send)
+        import asyncio
+        if self._sem is None:
+            self._sem = asyncio.Semaphore(self.limit)
+        try:
+            await asyncio.wait_for(self._sem.acquire(), timeout=self.max_wait)
+        except asyncio.TimeoutError:
+            resp = JSONResponse({"detail": "SmartPoli is very busy right now. Please try again in a moment."},
+                                status_code=503, headers={"Retry-After": "5"})
+            return await resp(scope, receive, send)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self._sem.release()
+
+
 class BodySizeLimitMiddleware:
     """Refuse a request whose declared size is over the cap, before any of it is read (413)."""
 

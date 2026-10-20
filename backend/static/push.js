@@ -51,8 +51,17 @@ async function currentPushSubscription() {
 /** Send this phone's subscription to the server. If the server says the push service already retired it (the phone
  * didn't notice), throw it away and send a brand-new one - otherwise every reminder would vanish without a trace. */
 async function _registerSubscription(patientId, reg, publicKey) {
-  const fresh = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _urlBase64ToUint8Array(publicKey) });
-  let sub = (await reg.pushManager.getSubscription()) || await fresh();
+  const keyBytes = _urlBase64ToUint8Array(publicKey);
+  const fresh = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
+  let sub = await reg.pushManager.getSubscription();
+  // A subscription made with a different server key (an older key, another server) can never receive our
+  // notifications, though the phone still says "on": replace it.
+  const made = sub && sub.options && sub.options.applicationServerKey && new Uint8Array(sub.options.applicationServerKey);
+  if (made && (made.length !== keyBytes.length || made.some((b, i) => b !== keyBytes[i]))) {
+    try { await sub.unsubscribe(); } catch (e) { /* replaced below either way */ }
+    sub = null;
+  }
+  if (!sub) sub = await fresh();
   let json = sub.toJSON();
   let r = await apiFetch('POST', `/patients/${patientId}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
   if (r && r.stale) {

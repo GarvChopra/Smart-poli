@@ -11,6 +11,9 @@ the frontend is not a safety control.
 """
 
 import json
+import os
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -210,6 +213,23 @@ def sweep_missed_doses(db: Session, now: Optional[datetime] = None,
 
 def sweep_missed(db: Session, now: Optional[datetime] = None) -> int:
     return len(sweep_missed_doses(db, now))
+
+
+# Screens (dashboard, report, WhatsApp "today") used to run the sweep - which reads every overdue dose of EVERY
+# patient - on each view. The background job already runs it every minute, so a screen only needs it if nobody ran
+# it in the last few seconds: at most one sweep per VIEW_SWEEP_SECONDS, however many people are looking.
+VIEW_SWEEP_SECONDS = float(os.getenv("SMARTPOLI_VIEW_SWEEP_SECONDS", "20"))
+_view_sweep_lock = threading.Lock()
+_last_view_sweep = 0.0
+
+
+def sweep_missed_for_view(db: Session) -> int:
+    global _last_view_sweep
+    with _view_sweep_lock:
+        if time.monotonic() - _last_view_sweep < VIEW_SWEEP_SECONDS:
+            return 0
+        _last_view_sweep = time.monotonic()
+    return sweep_missed(db)
 
 
 ONGOING_HORIZON_DAYS = 30

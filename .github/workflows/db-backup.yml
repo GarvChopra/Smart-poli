@@ -1,0 +1,54 @@
+# Nightly encrypted database backup + daily database health check.
+#
+# Needs two repository secrets (GitHub -> Settings -> Secrets and variables -> Actions):
+#   SMARTPOLI_BACKUP_DB_URL   the database URL (same value as SMARTPOLI_DATABASE_URL on Render)
+#   SMARTPOLI_BACKUP_PASSPHRASE  a long random passphrase - keep a copy somewhere safe: without it a backup cannot be opened
+# Until both exist the jobs skip themselves. The repository is public, so backups are only ever stored encrypted
+# (AES-256), kept 14 days, and the health check prints counts and sizes only - never patient data.
+name: Database backup and health
+on:
+  schedule:
+    - cron: "30 20 * * *"     # 02:00 IST every night
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      DB_URL: ${{ secrets.SMARTPOLI_BACKUP_DB_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.SMARTPOLI_BACKUP_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
+      - name: Postgres 17 client (same major version as the database)
+        if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -q && sudo apt-get install -y -q postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Encrypted backup
+        if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
+        run: bash backend/tools/db_backup.sh backups
+      - uses: actions/upload-artifact@v4
+        if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
+        with:
+          name: smartpoli-db-backup
+          path: backups/*.gpg
+          retention-days: 14
+          if-no-files-found: error
+  health:
+    runs-on: ubuntu-latest
+    env:
+      SMARTPOLI_DATABASE_URL: ${{ secrets.SMARTPOLI_BACKUP_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.SMARTPOLI_DATABASE_URL != ''
+      - uses: actions/setup-python@v5
+        if: env.SMARTPOLI_DATABASE_URL != ''
+        with: { python-version: "3.12" }
+      - name: Health check (read only)
+        if: env.SMARTPOLI_DATABASE_URL != ''
+        run: pip install -q sqlalchemy psycopg2-binary && python backend/tools/db_health_check.py
