@@ -51,4 +51,4 @@ jobs:
         with: { python-version: "3.12" }
       - name: Health check (read only)
         if: env.SMARTPOLI_DATABASE_URL != ''
-        run: pip install -q sqlalchemy psycopg2-binary && python backend/tools/db_health_check.py
+        run: pip install -q sqlalchemy==2.0.31 psycopg2-binary==2.9.9 && python backend/tools/db_health_check.py    # same versions as backend/requirements.txt
