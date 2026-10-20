@@ -1217,6 +1217,9 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 .cg-err { color: #8E2018; font-size: 13px; min-height: 18px; margin-top: 4px; }
 .cg-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
 .cg-med-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.cg-added-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.cg-add-med h3 { margin: 0 0 4px; }
+.added-by { display: inline-block; margin-top: 4px; font-size: 12px; color: var(--teal-dark); background: var(--teal-soft); border-radius: 999px; padding: 2px 8px; }
 .cg-permed { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line, #e3e8e6); font-size: 14px; }
 .cg-form textarea { font: inherit; }
 .cg-check input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; }

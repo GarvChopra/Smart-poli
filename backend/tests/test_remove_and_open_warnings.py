@@ -168,6 +168,6 @@ def test_open_warnings_popup_shows_each_pair_once_and_waits_for_the_tour():
     from pathlib import Path
     body = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
     start = body.index("async function showOpenWarnings()")
-    fn = body[start:body.index("\nfunction fmtClock", start)]
+    fn = body[start:body.index("\nconst VERIF_LABELS", start)]
     assert "seenPairs" in fn and fn.count("filter((") >= 3            # same pair from two sources -> one card
     assert "while (document.querySelector('.tour-root, .dp-overlay'))" in fn   # waits for the tour / a dose popup, never skipped

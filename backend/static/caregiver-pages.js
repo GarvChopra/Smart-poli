@@ -99,6 +99,43 @@ function wireLinkForm(root) {
   });
 }
 
+// ---------------------------------------------------------------- adding a medicine for the patient
+//
+// The same popups as in the patient's own app (med-wizard.js): scan the strip or type it, then how often / what time /
+// which days / food / how long. The server labels it "Added by <caregiver>" and tells the patient on their phone.
+
+function startAddMedicine(pid, patientName, how, onDone) {
+  MedWizard.patientId = () => pid;
+  MedWizard.onAdded = (med, out, when) => {
+    overviewCache.pid = null;
+    const clashes = [...(out.conflicts || []).map((c) => c.medicines.join(' + ')),
+      ...(out.interactions || []).map((i) => `${capName(i.drug_a)} + ${capName(i.drug_b)}`)];
+    const m = showSafetyModal(`
+      <h3>Added ✓</h3>
+      <div class="wz-card"><div class="wz-name">${esc(med.name)}</div><div class="wz-meta">${esc(when)}</div></div>
+      <div class="reg-meta" style="margin-top:10px;text-align:center;">${esc(patientName)} will get a notification, and their reminders are set.</div>
+      ${clashes.length ? `<div class="scan-expired" style="margin-top:10px;">⚠ Check with a pharmacist: ${clashes.map(esc).join(', ')} may not go well together.</div>` : ''}
+      <div class="sm-actions"><button class="primary small" id="cgAddDone">Done</button><button class="ghost small" id="cgAddMore">Add another</button></div>`);
+    m.querySelector('#cgAddDone').addEventListener('click', () => { m.remove(); onDone(); });
+    m.querySelector('#cgAddMore').addEventListener('click', () => { m.remove(); onDone(); medicineWizard({ step: 'details' }); });
+  };
+  if (how === 'scan') openMedicineCamera(); else medicineWizard({ step: 'details' });
+}
+
+const addMedicineHtml = (name) => `
+  <div class="card cg-add-med">
+    <h3>Add a medicine for ${esc(name)}</h3>
+    <div class="cg-actions">
+      <button class="primary" data-add-med="scan">📷 Scan a medicine</button>
+      <button class="ghost" data-add-med="manual">Enter manually</button>
+    </div>
+    <div class="reg-meta">${esc(name)} sees it marked “Added by you” and can remove it.</div>
+  </div>`;
+
+function wireAddMedicine(root, pid, name, onDone) {
+  root.querySelectorAll('[data-add-med]').forEach((b) => b.addEventListener('click', () => startAddMedicine(pid, name, b.dataset.addMed, onDone)));
+}
+
 // ---------------------------------------------------------------- Today
 
 const phoneDigits = (p) => String(p || '').replace(/[^\d]/g, '');
@@ -123,6 +160,7 @@ async function pageToday(root, pid) {
     ${nextHtml}
     <div class="cg-actions">
       <button class="primary" id="cgRemind">Remind now</button>
+      <button class="ghost" data-add-med="scan">+ Add medicine</button>
       ${contact}
     </div>
     <div id="cgRemindMsg" class="reg-meta" role="status"></div>
@@ -132,6 +170,7 @@ async function pageToday(root, pid) {
       <div class="stat"><div><div class="num">${esc(o.adherence.missed)}</div><div class="label">Missed</div></div></div>
     </div>
     <div class="card"><div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>${alerts}</div>`);
+  wireAddMedicine(root, pid, o.patient.name, () => { window.location.hash = `#/p/${pid}/medicines`; });
   const btn = root.querySelector('#cgRemind');
   const msg = root.querySelector('#cgRemindMsg');
   btn.addEventListener('click', async () => {
@@ -196,11 +235,25 @@ async function pageMedicines(root, pid) {
     <div class="card cg-med" data-med="${esc(m.medicine_id)}">
       <div class="cg-med-head"><strong>${esc(m.name)}</strong>
         <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
+      ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
+        <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
       <div class="cg-notes">${noteListHtml(notes.filter((n) => n.medicine_id === m.medicine_id), currentUser.id)}</div>
       ${noteFormHtml(`medForm${m.medicine_id}`, `Add a note about ${m.name} (for example: take with milk)`, 'Add note')}
     </div>`).join('') || emptyBox('No medicines yet.');
-  patientFrame(root, o, 'medicines', `<p class="reg-meta">Notes here show on this medicine for the patient and the whole care team. They are not medical advice.</p>${cards}`);
+  patientFrame(root, o, 'medicines', `${addMedicineHtml(o.patient.name)}<p class="reg-meta">Notes here show on this medicine for the patient and the whole care team. They are not medical advice.</p>${cards}`);
   const reload = () => pageMedicines(root, pid);
+  wireAddMedicine(root, pid, o.patient.name, () => { overviewCache.pid = null; reload(); });
+  root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
+    const m = showSafetyModal(`
+      <h3>Remove ${esc(b.dataset.name)}?</h3>
+      <div class="sm-headline" style="font-weight:500;">Its reminders stop. What was already taken or missed stays in the history.</div>
+      <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
+    m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
+    m.querySelector('#cgRmYes').addEventListener('click', async () => {
+      try { await api('DELETE', `/medicines/${b.dataset.removeMed}`); m.remove(); overviewCache.pid = null; reload(); }
+      catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
+    });
+  }));
   meds.forEach((m) => wireNoteForm(root.querySelector(`#medForm${m.medicine_id}`),
     (text) => api('POST', `/caregiver/patients/${pid}/notes`, { kind: 'medicine', body: text, medicine_id: m.medicine_id }), reload));
   wireDeleteButtons(root, reload);
@@ -224,7 +277,7 @@ async function pageNotes(root, pid) {
     </div>
     <div class="card">
       <div class="card-head">${iconBadge('blue', 'fileText')}<h3>Handover notes</h3></div>
-      <p class="reg-meta">For the care team only (other caregivers and the doctor). ${esc(o.patient.name)} does not see these.</p>
+      <p class="reg-meta">For the care team only (other caregivers). ${esc(o.patient.name)} does not see these.</p>
       ${noteFormHtml('handForm', 'What should the next caregiver know?', 'Add note')}
       <div class="cg-notes">${noteListHtml(handover, currentUser.id)}</div>
     </div>`);

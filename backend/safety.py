@@ -50,6 +50,11 @@ def _dosage_sanity_checks(medicines: list[Medicine]) -> list[dict]:
     return warnings
 
 
+def _added_by(m: Medicine):
+    from serializers import _added_by as added_by    # late import: serializers imports this module
+    return added_by(m)
+
+
 def _brand_generic_map(medicines: list[Medicine]) -> list[dict]:
     out = []
     for m in medicines:
@@ -61,6 +66,7 @@ def _brand_generic_map(medicines: list[Medicine]) -> list[dict]:
             "medicine_id": m.id,
             "name": m.name,
             "generic_name": generic if generic != brand_key else None,
+            "added_by": _added_by(m),
         })
     return out
 

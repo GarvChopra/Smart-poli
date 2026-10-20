@@ -152,9 +152,14 @@ def test_scan_rejects_bad_uploads_and_other_peoples_records(monkeypatch):
                                     files={"file": ("x.png", PNG, "image/png")}).status_code == 401
 
 
+def _app_js():
+    """The patient app plus the add-medicine popups it shares with the caregiver page."""
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+    return "".join(open(os.path.join(static, f), encoding="utf-8").read() for f in ("app.js", "med-wizard.js"))
+
+
 def test_prescriptions_screen_offers_the_camera_scan():
-    app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"),
-                  encoding="utf-8").read()
+    app_js = _app_js()
     assert 'id="scanInput" accept="image/*" capture="environment"' in app_js
     assert "'/medicines/scan'" in app_js and "Is this your medicine?" in app_js
 
@@ -314,8 +319,7 @@ def test_name_suggestions_need_login_and_list_known_medicines():
 
 
 def test_scan_ui_offers_retry_tips_expiry_warning_and_name_suggestions():
-    app_js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"),
-                  encoding="utf-8").read()
+    app_js = _app_js()
     assert 'id="scanBtn"' in app_js and "Scan instead" in app_js and "Scan again" in app_js
     assert "may have expired" in app_js and 'list="wzNameList"' in app_js and "'/medicines/names'" in app_js
 

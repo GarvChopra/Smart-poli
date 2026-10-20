@@ -138,6 +138,9 @@ class Prescription(Base):
     issued_date = Column(String, nullable=True)  # YYYY-MM-DD, as written on the script
     source = Column(String, nullable=False, default="manual")  # 'manual' | 'ocr'
     status = Column(String, nullable=False, default="draft")  # 'draft' | 'confirmed'
+    # The linked caregiver who added this for the patient (None = the patient). No foreign key on purpose: deleting the
+    # caregiver's account must not touch the patient's medicines; the name then just reads "your caregiver".
+    added_by_user_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     patient = relationship("Patient", back_populates="prescriptions")
@@ -527,9 +530,20 @@ def _migrate_sqlite_add_columns() -> None:
                 ))
 
 
+def _add_missing_columns() -> None:
+    """Columns added to an existing table after launch, on any database (create_all never alters a table). Each is
+    nullable with no default, so adding it is instant and leaves every existing row as it was."""
+    inspector = inspect(engine)
+    if "prescriptions" in inspector.get_table_names():
+        if "added_by_user_id" not in {c["name"] for c in inspector.get_columns("prescriptions")}:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE prescriptions ADD COLUMN added_by_user_id INTEGER"))
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_add_columns()
+    _add_missing_columns()
 
 
 def get_db_session() -> Session:

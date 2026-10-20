@@ -172,13 +172,18 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
          if d.state == "missed" and d.scheduled_at >= missed_cutoff),
         key=lambda x: x["scheduled_at"], reverse=True)[:15]
 
+    added_by = {med.id: pres.added_by_user_id for pres in dash["prescriptions"] for med in pres.medicines}
+    removed = {med.id for pres in dash["prescriptions"] for med in pres.medicines
+               if med.status == "needs_confirmation" and '"removed": true' in (med.field_confidence or "")}
+
     return {
         "phones": {"patient": own_phone, "emergency_contact": {"label": label, "phone": ec_phone} if ec_phone else None},
         "recent_missed": recent_missed,
         "patient": serialize_patient(patient),
         "priority": compute_priority(db, patient_id),
         "adherence": dash["adherence"],
-        "per_medicine": dash["per_medicine"],
+        "per_medicine": [{**m, "added_by_me": added_by.get(m["medicine_id"]) == user.id} for m in dash["per_medicine"]
+                         if m["medicine_id"] not in removed],
         "upcoming_doses": dash["upcoming_doses"],
         "prn_medicines": dash["prn_medicines"],
         "unconfirmed_medicines": dash["unconfirmed_medicines"],

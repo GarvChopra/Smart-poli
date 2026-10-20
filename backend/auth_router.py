@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from db import get_db_session, User, Patient
-from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES
+from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES, doctor_role_enabled
 from schemas import RegisterRequest, LoginRequest, GoogleLoginRequest
 import google_auth
 
@@ -48,8 +48,8 @@ def _recent_failures(key: tuple, now: float) -> list:
 
 
 def doctor_signup_open() -> bool:
-    """Doctor sign-up is closed for now (existing doctor accounts keep working). SMARTPOLI_DOCTOR_SIGNUP=1 reopens it."""
-    return os.getenv("SMARTPOLI_DOCTOR_SIGNUP") == "1"
+    """Doctor sign-up follows the doctor role, which is switched off for now (auth.doctor_role_enabled)."""
+    return doctor_role_enabled()
 
 
 def _serialize_user(user: User, db: Session) -> dict:
@@ -99,6 +99,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_ses
         _failed_logins.setdefault(key, []).append(now)
         raise HTTPException(401, "Incorrect email or password.")
     _failed_logins.pop(key, None)
+    if user.role == "doctor" and not doctor_role_enabled():
+        raise HTTPException(403, "Doctor accounts are switched off for now. SmartPoli is for patients and caregivers.")
     return {"token": create_token(user), "user": _serialize_user(user, db)}
 
 
@@ -126,6 +128,8 @@ def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db_session)
         user = User(email=info["email"], password_hash=None, role=body.role, name=info["name"])
         db.add(user)
         db.commit()
+    elif user.role == "doctor" and not doctor_role_enabled():
+        raise HTTPException(403, "Doctor accounts are switched off for now. SmartPoli is for patients and caregivers.")
     return {"token": create_token(user), "user": _serialize_user(user, db)}
 
 

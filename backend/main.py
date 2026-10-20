@@ -82,7 +82,7 @@ from serializers import (
 from auth import (
     get_current_user, require_patient_write_access, require_patient_read_access,
     require_medicine_write_access, require_dose_write_access, require_prescription_write_access,
-    has_write_access, has_read_access,
+    has_write_access, has_read_access, can_add_medicine, is_linked_caregiver, doctor_role_enabled,
 )
 from nudges import compute_nudges
 from clock import patient_now, is_valid_timezone, patient_timezone
@@ -194,6 +194,8 @@ def _versioned_html(file_name: str) -> str:
 
 def _page_route(file_name: str):
     def serve():
+        if file_name == "doctor.html" and not doctor_role_enabled():
+            return RedirectResponse("/login", status_code=307)       # the doctor role is switched off for now
         return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": "no-cache"})
     return serve
 
@@ -514,8 +516,8 @@ async def scan_medicine(
     food and for how long, and saves through POST /medicines/manual. The photo is not stored.
     """
     get_patient_or_404(db, patient_id)
-    if not has_write_access(db, user, patient_id):
-        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
+    if not can_add_medicine(db, user, patient_id):
+        raise HTTPException(403, "Only the patient or their linked caregiver can add a medicine.")
     image_bytes = await _read_image_upload(file)
     # Two readers side by side, so a scan never depends on the AI alone: the vision model, and the printed keywords
     # (Tesseract, tuned for print) matched against the known-medicine list.
@@ -545,7 +547,7 @@ async def scan_medicine(
     if result is None or not result["candidates"]:
         # Why it failed is kept (no photo, no text from it) so a failed scan in production can be diagnosed.
         reason = f"ai={why.get('ai', '?')} keywords={why.get('keywords', '?')}"
-        log_audit(db, patient_id, f"patient:{user.id}", "medicine_scan_failed", reason)
+        log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_scan_failed", reason)
         logger.warning("Medicine scan found nothing: %s", reason)
         ai_reason = why.get("ai", "")
         if ai_reason in ("read", "no_medicine_seen"):
@@ -555,7 +557,7 @@ async def scan_medicine(
             msg = ("Our reader is busy right now and couldn't read that photo. Try again in a minute, "
                    "or enter it manually instead.")
         raise HTTPException(422, msg)
-    log_audit(db, patient_id, f"patient:{user.id}", "medicine_scanned",
+    log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result
 
@@ -570,12 +572,17 @@ def medicine_names(user: User = Depends(get_current_user)):
 def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, user: User = Depends(get_current_user),
                           db: Session = Depends(get_db_session)):
     """Add a medicine from the popup (typed, or after a scan) and schedule it right away - no confirm step."""
-    if not has_write_access(db, user, body.patient_id):
-        raise HTTPException(403, "Only the patient can add a medicine to their own record.")
+    by_caregiver = not has_write_access(db, user, body.patient_id)
+    if by_caregiver and not is_linked_caregiver(db, user, body.patient_id):
+        raise HTTPException(403, "Only the patient or their linked caregiver can add a medicine.")
     try:
-        out = create_manual_medicine(db, body, f"patient:{user.id}")
+        out = create_manual_medicine(db, body, f"{user.role}:{user.id}",
+                                     added_by_user_id=user.id if by_caregiver else None)
     except ValueError as e:
         raise HTTPException(422, str(e))
+    if by_caregiver:
+        background.add_task(_tell_patient_medicine_added, body.patient_id, user.name or "Your caregiver",
+                            out["medicine"].name or "a medicine")
     _maybe_warm(body.patient_id, background)
     background.add_task(medicine_info.warm_patient, body.patient_id)          # look up what it is for, in the background
     med = out["medicine"]
@@ -663,14 +670,36 @@ def patient_pair_check(patient_id: int, background: BackgroundTasks, _ai=Depends
     return out
 
 
+def _tell_patient_medicine_added(patient_id: int, caregiver_name: str, medicine_name: str) -> None:
+    """Push to the patient's phones: their caregiver added a medicine for them (so it never appears unexplained)."""
+    db = SessionLocal()
+    try:
+        for sub in db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).all():
+            status = webpush_service.send(sub.endpoint, sub.p256dh, sub.auth, {
+                "title": f"{caregiver_name} added {medicine_name} for you",
+                "body": "Your reminders for it are set. Open SmartPoli to check the times.",
+                "url": "/", "tag": f"med-added-{medicine_name}"[:60], "kind": "medicine_added"})
+            if status == "gone":
+                mark_push_endpoint_dead(db, sub)
+        db.commit()
+    except Exception:  # noqa: BLE001 - the medicine is already saved; a failed notice must not surface as an error
+        logger.exception("could not tell patient %s about a medicine their caregiver added", patient_id)
+    finally:
+        db.close()
+
+
 @app.delete("/medicines/{medicine_id}")
-def remove_medicine(medicine_id: int, user: User = Depends(require_medicine_write_access),
+def remove_medicine(medicine_id: int, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db_session)):
     """Remove a medicine the person no longer takes (or added by mistake). Reminders stop and it disappears from every
     list, but nothing already recorded is erased: taken / missed history stays in the timeline and adherence. Upcoming
     doses are cancelled, not deleted, so past reminder records stay consistent."""
     medicine = get_medicine_or_404(db, medicine_id)
     pid = medicine.prescription.patient_id
+    if not has_write_access(db, user, pid):
+        # A caregiver may take back only a medicine they added themselves, never one the patient added.
+        if not (is_linked_caregiver(db, user, pid) and medicine.prescription.added_by_user_id == user.id):
+            raise HTTPException(403, "Only the patient can make this change to their own record.")
     cancelled = 0
     for d in medicine.doses:
         if d.state in ("pending", "snoozed"):
@@ -684,7 +713,7 @@ def remove_medicine(medicine_id: int, user: User = Depends(require_medicine_writ
     medicine.field_confidence = json.dumps(fc)
     medicine.status = "needs_confirmation"               # every list and check already skips these
     db.commit()
-    log_audit(db, pid, f"patient:{user.id}", "medicine_removed", f"medicine {medicine.id}: {cancelled} upcoming dose(s) cancelled")
+    log_audit(db, pid, f"{user.role}:{user.id}", "medicine_removed", f"medicine {medicine.id}: {cancelled} upcoming dose(s) cancelled")
     return {"removed": True, "medicine_id": medicine.id, "upcoming_doses_cancelled": cancelled}
 
 

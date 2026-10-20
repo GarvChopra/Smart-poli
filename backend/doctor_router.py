@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db import get_db_session, log_audit, User, DoctorLink, MedicineCorrection, PrescriptionTemplate
-from auth import get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code
+from auth import (get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code,
+                  doctor_role_enabled)
 from schemas import LinkRedeem, MedicineCorrectionCreate, DoctorPrescriptionCreate, PrescriptionTemplateCreate
 from serializers import get_patient_or_404, get_medicine_or_404, serialize_patient, serialize_medicine, gather_report_data
 from doctor_intelligence import compute_priority, compute_since_last_visit, compute_doctor_brief
@@ -24,7 +25,13 @@ from prescription_service import create_prescription_from_lines
 from interactions import load_ruleset as load_interaction_ruleset
 from food_warnings import load_ruleset as load_food_ruleset
 
-router = APIRouter(tags=["doctor"])
+def _doctor_role_on():
+    """Every doctor URL answers 404 while the doctor role is switched off (auth.doctor_role_enabled)."""
+    if not doctor_role_enabled():
+        raise HTTPException(404, "Not found")
+
+
+router = APIRouter(tags=["doctor"], dependencies=[Depends(_doctor_role_on)])
 
 INTERACTION_RULESET = load_interaction_ruleset()
 FOOD_RULESET = load_food_ruleset()

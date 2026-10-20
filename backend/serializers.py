@@ -83,7 +83,20 @@ def serialize_medicine(m: Medicine) -> dict:
         "status": m.status,
         "plain_language_hi": m.plain_language_hi,
         "verification": verification_status(m),
+        "added_by": _added_by(m),
     }
+
+
+def _added_by(m: Medicine) -> Optional[dict]:
+    """Who added this medicine, when it was a linked caregiver rather than the patient."""
+    uid = m.prescription.added_by_user_id if m.prescription is not None else None
+    if not uid:
+        return None
+    from sqlalchemy.orm import object_session
+    from db import User
+    s = object_session(m)
+    u = s.get(User, uid) if s is not None else None
+    return {"user_id": uid, "name": (u.name if u and u.name else "Your caregiver")}
 
 
 def serialize_dose(d: Dose) -> dict:

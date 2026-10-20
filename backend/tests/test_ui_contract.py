@@ -12,7 +12,7 @@ import os
 import re
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
-JS = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+JS = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read() + open(os.path.join(STATIC, "med-wizard.js"), encoding="utf-8").read()
 CSS = open(os.path.join(STATIC, "style.css"), encoding="utf-8").read()
 
 

@@ -86,13 +86,13 @@ def test_forged_or_foreign_tokens_are_refused(bad):
 
 
 def test_google_cannot_create_a_doctor_while_doctor_signup_is_closed(monkeypatch):
-    monkeypatch.delenv("SMARTPOLI_DOCTOR_SIGNUP", raising=False)
+    monkeypatch.delenv("SMARTPOLI_DOCTOR_ROLE", raising=False)
     r = TestClient(app).post("/auth/google", json={"credential": id_token("doc.google@gmail.com"), "role": "doctor"})
     assert r.status_code == 400
 
 
 def test_doctor_signup_is_closed_and_not_offered(monkeypatch):
-    monkeypatch.delenv("SMARTPOLI_DOCTOR_SIGNUP", raising=False)
+    monkeypatch.delenv("SMARTPOLI_DOCTOR_ROLE", raising=False)
     r = TestClient(app).post("/auth/register", json={"email": "doc.closed@example.com", "password": "password123", "name": "D", "role": "doctor"})
     assert r.status_code == 400 and "not open" in r.json()["detail"]
     assert 'value="doctor"' not in (STATIC / "login.html").read_text(encoding="utf-8")

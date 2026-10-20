@@ -132,7 +132,7 @@ _CODES = {1: "OD", 2: "BD", 3: "TDS", 4: "QID"}
 _DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def create_manual_medicine(db: Session, spec, actor: str) -> dict:
+def create_manual_medicine(db: Session, spec, actor: str, added_by_user_id: Optional[int] = None) -> dict:
     """One medicine entered through the add-medicine popup -> Prescription + Medicine -> doses scheduled immediately.
     Every field was typed or confirmed by the person, so there is no review gate; the scheduler's safety rules, the
     conflict notices and the take-time guard all still apply exactly as before."""
@@ -160,7 +160,8 @@ def create_manual_medicine(db: Session, spec, actor: str) -> dict:
         bits.append(f"for {spec.duration_days} days" if spec.duration_days else "ongoing")
     raw_text = " ".join(b for b in bits if b)
 
-    prescription = Prescription(patient_id=spec.patient_id, source="manual", status="draft")
+    prescription = Prescription(patient_id=spec.patient_id, source="manual", status="draft",
+                                added_by_user_id=added_by_user_id)
     db.add(prescription)
     db.commit()
     medicine = Medicine(
@@ -170,7 +171,7 @@ def create_manual_medicine(db: Session, spec, actor: str) -> dict:
         slots=json.dumps([]), times=json.dumps([] if spec.as_needed else times),     # exact times: never follow the routine
         food="any" if spec.as_needed else spec.food,
         duration_days=None if spec.as_needed else spec.duration_days, is_prn=bool(spec.as_needed),
-        confidence=1.0, field_confidence=json.dumps({"source": "entered_by_patient"}), status="verified",
+        confidence=1.0, field_confidence=json.dumps({"source": "entered_by_caregiver" if added_by_user_id else "entered_by_patient"}), status="verified",
     )
     db.add(medicine)
     db.commit()

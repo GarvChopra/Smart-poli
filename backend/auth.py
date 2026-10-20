@@ -32,6 +32,12 @@ JWT_TTL_HOURS = 24 * 7
 ROLES = ("patient", "caregiver", "doctor")
 
 
+def doctor_role_enabled() -> bool:
+    """The doctor role is switched off for now: only patients and caregivers. Its code stays and SMARTPOLI_DOCTOR_ROLE=1
+    turns it back on (sign-up, the /doctor page and API, and doctors' access to linked patients)."""
+    return os.getenv("SMARTPOLI_DOCTOR_ROLE") == "1"
+
+
 # ---------------------------------------------------------------- passwords
 
 def hash_password(password: str) -> str:
@@ -156,7 +162,7 @@ def has_read_access(db: Session, user: User, patient_id: int) -> bool:
     if user.role == "caregiver":
         return _has_active_caregiver_link(db, user, patient_id)
     if user.role == "doctor":
-        return _has_active_doctor_link(db, user, patient_id)
+        return doctor_role_enabled() and _has_active_doctor_link(db, user, patient_id)
     return False
 
 
@@ -169,6 +175,16 @@ def has_write_access(db: Session, user: User, patient_id: int) -> bool:
     if not patient:
         return False
     return _owns_patient(db, user, patient)
+
+
+def is_linked_caregiver(db: Session, user: User, patient_id: int) -> bool:
+    return user.role == "caregiver" and _has_active_caregiver_link(db, user, patient_id)
+
+
+def can_add_medicine(db: Session, user: User, patient_id: int) -> bool:
+    """The patient, or a caregiver the patient has linked, may add a medicine (it is labelled with who added it).
+    Everything else a caregiver does stays read-only."""
+    return has_write_access(db, user, patient_id) or is_linked_caregiver(db, user, patient_id)
 
 
 def require_patient_read_access(patient_id: int, user: User = Depends(get_current_user),
