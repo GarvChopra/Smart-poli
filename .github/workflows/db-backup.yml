@@ -32,7 +32,7 @@ jobs:
       - name: Encrypted backup
         if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
         run: bash backend/tools/db_backup.sh backups
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: env.DB_URL != '' && env.BACKUP_PASSPHRASE != ''
         with:
           name: smartpoli-db-backup
