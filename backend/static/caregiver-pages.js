@@ -44,7 +44,7 @@ function patientFrame(root, o, active, bodyHtml) {
   const head = active === 'today' ? `
     <div class="person-head"><h1 class="page-title">${esc(who)}</h1>${cgBadge(o.priority)}
       <span class="ph-actions"><button class="pill-btn" id="cgRename" type="button">Rename</button><button class="pill-btn red" id="cgRemovePerson" type="button">Remove</button></span></div>` : `
-    <div class="plain-head"><h1 class="page-title">${esc(PAGE_LABELS[active] || '')}</h1><span class="reg-meta">${esc(who)}</span></div>`;
+    <div class="plain-head"><h1 class="page-title">${esc(who)}</h1><span class="pgl">${esc(PAGE_LABELS[active] || '')}</span></div>`;
   root.innerHTML = `${head}<div class="stack"><div class="cg-body">${bodyHtml}</div></div>`;
   if (active !== 'today') return;
   root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => { window.location.hash = '#/'; }));

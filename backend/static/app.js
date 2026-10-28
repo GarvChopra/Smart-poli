@@ -212,7 +212,24 @@ document.getElementById('deleteAccountBtn').addEventListener('click', openDelete
   window.refreshAccountLabels = labelPw;
   pwBtn.addEventListener('click', openSetPassword);
 }
-document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
+/** Family in the menu: tap to unroll the people (scrolls by itself when long). You are on your own page, so You has the border. */
+let navFamily = null;
+function renderNavDrop() {
+  const btn = document.getElementById('familyBtn'), box = document.getElementById('navDrop');
+  const open = btn.getAttribute('aria-expanded') === 'true';
+  btn.querySelector('.dd-chev').textContent = open ? '▾' : '▸';
+  box.hidden = !open;
+  if (!open) return;
+  box.innerHTML = '<a class="m" href="/caregiver">All family</a>'
+    + (navFamily || []).map((f) => `<a class="m" href="/caregiver#/p/${f.id}/today">${escHtml(f.label)}</a>`).join('')
+    + '<a class="m open" href="/">You</a>';
+}
+document.getElementById('familyBtn').addEventListener('click', () => {
+  const btn = document.getElementById('familyBtn');
+  btn.setAttribute('aria-expanded', btn.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
+  renderNavDrop();
+});
+api('GET', '/caregiver/home').then((h) => { navFamily = h.family; renderNavDrop(); }).catch(() => {});          // a failed lookup leaves just All family and You
 
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 

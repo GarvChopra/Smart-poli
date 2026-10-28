@@ -1543,3 +1543,16 @@ button.fr-bin svg.bin-svg { width: 24px; height: 24px; }
 .btn-wide.is-early { background: #EEF2F0; color: var(--ink-soft); }
 .dtl .day-body { padding: 4px 12px 12px; }
 .dtl .day-body .tl { padding: 4px 0; }
+
+/* Family menu (both menus): the dropdown, the small name above a person's pages, thin lines between the groups */
+.dd-chev { margin-left: auto; font-size: 12px; color: var(--ink-soft); }
+button.cg-menu-link { display: flex; align-items: center; width: 100%; min-height: 0; padding: 12px 14px; margin: 0; line-height: inherit; border: 0; background: none; border-radius: 12px; text-align: left; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+.fam-toggle[aria-expanded="false"], #familyBtn[aria-expanded="false"] { border-bottom: 1px solid var(--line); border-radius: 0; }
+.drop { --pad: 14px; display: grid; margin: 2px calc(-1 * var(--pad)); max-height: 176px; overflow-y: auto; border-block: 1px solid var(--line); scrollbar-width: thin; }
+#drawerNav .drop { --pad: 20px; }
+.drop[hidden] { display: none; }
+.drop .m { display: flex; align-items: center; min-height: 42px; padding: 0 calc(var(--pad) + 12px); font: 500 14px 'Noto Sans', sans-serif; color: var(--ink); text-decoration: none; }
+.drop .m.you { color: var(--ink-soft); }
+.drop .m.open { border: 2px solid var(--ink); font-weight: 700; min-height: 38px; padding-left: calc(var(--pad) + 10px); }
+.who { margin: 8px 0 2px; padding: 8px 14px 2px; font: 700 11px 'Figtree', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); word-break: break-word; }
+.pgl { font: 700 11px 'Figtree', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
