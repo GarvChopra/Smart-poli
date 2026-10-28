@@ -39,20 +39,13 @@ navDrawer.addEventListener('click', (e) => { if (e.target.closest('a')) closeDra
 
 const MENU_PAGES = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes'], ['history', 'History'], ['emergency', 'Emergency']];
 
-/** The one menu: Family on top, the You / Mum / Dad switcher, then the open person's pages, then settings. */
+/** The one menu: Family first, then (inside a person) that person's pages, then share, settings and feedback. */
 function renderDrawerNav(path) {
   const nav = document.getElementById('drawerNav');
   if (!nav) return;
   const m = path.match(/^\/p\/(\d+)\/(\w+)$/);
   const link = (href, label, on) => `<a class="cg-menu-link${on ? ' active' : ''}" href="${href}">${esc(label)}</a>`;
   let html = link('#/', 'Family', path === '/' || path === '/share');
-  const people = homeCache ? homeCache.family : [];
-  if (people.length || m) {                                  // before the family loads, the open person is still listed
-    const open = m ? Number(m[1]) : null;
-    const rows = people.map((f) => `<a class="cg-menu-link${open === f.id ? ' active' : ''}" href="#/p/${f.id}/today"><span class="fam-avatar ${colourOf(f.id)}" aria-hidden="true">${initialOf(f.label)}</span>${esc(f.label)}</a>`);
-    rows.push(`<a class="cg-menu-link" href="/"><span class="fam-avatar green" aria-hidden="true">${initialOf(currentUser.name || 'Y')}</span>You</a>`);
-    html += `<div class="cg-switch">${rows.join('')}</div>`;
-  }
   if (m) {
     const pid = m[1];
     const name = overviewCache.pid === Number(pid) && overviewCache.data ? overviewCache.data.label : 'This person';
@@ -82,7 +75,6 @@ async function route() {
     else if ((m = path.match(/^\/p\/(\d+)\/(today|medicines|notes|history|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
     else window.location.hash = '#/';
     renderDrawerNav(path);
-    if (!homeCache) api('GET', '/caregiver/home').then((h) => { homeCache = h; renderDrawerNav(path); }).catch(() => {});
     window.scrollTo(0, 0);
   } catch (e) {
     const gone = /not linked|403/i.test(e.message || '') || e.status === 403;

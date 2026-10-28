@@ -37,28 +37,27 @@ const FAMILY_COLOURS = ['rose', 'blue', 'amber', 'violet'];            // not gr
 const colourOf = (id) => FAMILY_COLOURS[Number(id) % FAMILY_COLOURS.length];          // same person, same colour on every page and in the menu
 const initialOf = (name) => esc((name || '?').trim().charAt(0).toUpperCase());
 const BACK_ARROW = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>';
-const PAGE_LABELS = { notes: 'Notes', history: 'History', emergency: 'Emergency' };        // Today and Medicines carry their own titles
+const PAGE_LABELS = { medicines: 'Medicines', notes: 'Notes', history: 'History', emergency: 'Emergency' };        // Today carries the band instead
 
-/** The frame every patient page shares: the coloured band (← Family, Rename, Remove, the name), then a body to fill. */
+/** The frame every person page shares. Today opens with the coloured band (← Family, Rename, Remove, the name); every other
+ * page is just its own title with the person's name beneath it, so the band is not repeated on each page. */
 function patientFrame(root, o, active, bodyHtml) {
   const who = o.nickname || o.patient.name;
-  root.innerHTML = `
+  const head = active === 'today' ? `
     <div class="band ${colourOf(o.patient.id)}">
       <div class="band-top"><a class="pill-btn white cg-back" href="#/">${BACK_ARROW}Family</a>
         <button class="pill-btn" id="cgRename" type="button">Rename</button><button class="pill-btn red" id="cgRemovePerson" type="button">Remove</button></div>
       <div class="band-name"><span class="fam-avatar" aria-hidden="true">${initialOf(who)}</span><h1 class="page-title">${esc(who)}</h1>${cgBadge(o.priority)}</div>
-    </div>
-    <div class="stack">
-      ${PAGE_LABELS[active] ? `<h2 class="section-title">${esc(PAGE_LABELS[active])}</h2>` : ''}
-      <div class="cg-body">${bodyHtml}</div>
-    </div>`;
+    </div>` : `
+    <div class="plain-head"><h1 class="page-title">${esc(PAGE_LABELS[active] || '')}</h1><span class="reg-meta">${esc(who)}</span></div>`;
+  root.innerHTML = `${head}<div class="stack"><div class="cg-body">${bodyHtml}</div></div>`;
+  if (active !== 'today') return;
   root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => { window.location.hash = '#/'; }));
   root.querySelector('#cgRename').addEventListener('click', async () => {
     const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
     if (next === null) return;
     await api('PATCH', `/caregiver/patients/${o.patient.id}/nickname`, { nickname: next.trim() || null });
     o.nickname = next.trim() || null;
-    homeCache = null;
     getOverview(o.patient.id, true).then(() => route());
   });
 }
@@ -76,7 +75,6 @@ function openRemovePerson(pid, who, onDone) {
     try {
       await api('POST', `/caregiver/patients/${pid}/unlink`);
       overviewCache.pid = null;
-      homeCache = null;
       m.remove();
       onDone();
     } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
@@ -87,20 +85,17 @@ function emptyBox(text) { return `<div class="empty">${esc(text)}</div>`; }
 
 // ---------------------------------------------------------------- Patients
 
-const BIN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>';
+const BIN = '<svg class="bin-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>';
 const CHEVRON = '<svg class="fr-chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>';
 const SHARE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"></path></svg>';
 const PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const clockOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const todayLine = (n, missed) => `${n} today${missed ? ` · <b class="fam-missed">${missed} missed</b>` : ''}`;
 
-let homeCache = null;                                           // /caregiver/home, kept for the menu's person switcher; cleared when the family changes
-
 /** The phone home: the people you look after, then You. Each person's day is on their own page (tap their row). Returns the home data. */
 async function pagePatients(root) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const home = await api('GET', '/caregiver/home');
-  homeCache = home;
   const you = home.you;
   // Someone looks after family but this phone is not set up to be told when a dose is missed: offer it right here.
   const alertsOff = home.family.length > 0 && pushOk() && !(await caregiverPhoneSubscription());
@@ -442,57 +437,20 @@ function wireDeleteButtons(root, onDone) {
 
 // ---------------------------------------------------------------- Medicines
 
-const WINDOWS = [[1, 'Today'], [7, '7 days'], [30, '30 days']];
-const weekdayOf = (day) => new Date(`${day}T12:00:00`).toLocaleDateString([], { weekday: 'short' });
-const pctClass = (pct) => (pct === null || pct === undefined || pct >= 80 ? 'good' : 'bad-text');
-
-/** The 7-day strip: a green square for a taken day, a red ✕ for a missed one (never colour alone), amber for part-done, grey for nothing due. */
-function weekStrip(daily) {
-  const mark = { taken: ['ok', ''], missed: ['no', '✕'], partial: ['part', ''], none: ['none', ''] };
-  return `<div class="wk" aria-label="Last 7 days">${daily.map((d) => {
-    const [cls, glyph] = mark[d.state] || mark.none;
-    return `<span><b class="${cls}">${glyph}</b>${esc(weekdayOf(d.date))}</span>`;
-  }).join('')}</div>`;
-}
-
-async function pageMedicines(root, pid, days = 7) {
+async function pageMedicines(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
-  const [o, ad] = await Promise.all([getOverview(pid), api('GET', `/caregiver/patients/${pid}/adherence?days=${days}`)]);
-  const byId = new Map(ad.per_medicine.map((m) => [m.medicine_id, m]));
-  // Only what is being taken now. Adding a medicine is on the Today page; notes live on the Notes page.
+  const o = await getOverview(pid);
+  // Medicines: only what is being taken now. Adding one is "+ Add medicine" on the Today page; notes live on the Notes page.
   const meds = (o.per_medicine || []).filter((m) => m.taking !== false);
-  const sum = ad.summary, acted = sum.taken + sum.missed + sum.skipped;
-  const pct = sum.adherence_percent;
-  const missedNames = [...new Set(ad.per_medicine.filter((m) => m.missed).map((m) => m.name))];
-  const sumLine = !acted ? 'Nothing to count yet' : !sum.missed ? 'No missed doses'
-    : `${sum.missed} missed${missedNames.length === 1 ? `, all ${missedNames[0]}` : `, across ${missedNames.length} medicines`}`;
-  const ring = `<svg width="88" height="88" viewBox="0 0 36 36" role="img" aria-label="${pct === null ? 'No doses counted yet' : `${Math.round(pct)} percent taken`}">
-      <circle cx="18" cy="18" r="15.5" fill="none" stroke="#EDF2EF" stroke-width="4"></circle>
-      <circle cx="18" cy="18" r="15.5" fill="none" stroke="${pct !== null && pct < 80 ? '#D3402A' : '#12876F'}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${((pct || 0) * 97.4 / 100).toFixed(1)} 97.4" transform="rotate(-90 18 18)"></circle>
-      <text x="18" y="21" text-anchor="middle" font-family="Figtree,sans-serif" font-weight="800" font-size="9" fill="#16241F">${pct === null ? '–' : Math.round(pct) + '%'}</text></svg>`;
-  const cards = meds.map((m) => {
-    const a = byId.get(m.medicine_id) || { taken: 0, missed: 0, adherence_percent: null, daily: ad.daily.map((d) => ({ date: d.date, state: 'none' })) };
-    const p = a.adherence_percent;
-    return `<div class="rd-card med-card" data-med="${esc(m.medicine_id)}">
-      <div class="med-top"><span style="flex:1;min-width:0"><span class="med-name">${esc(m.name)}</span>
-        ${m.added_by_me ? '<span class="added-chip">Added by you</span>' : ''}</span>
-        <span class="med-pct ${pctClass(p)}">${p === null ? '–' : esc(Math.round(p)) + '%'}</span></div>
-      <div class="bar"><i style="width:${p === null ? 0 : esc(p)}%;background:${p !== null && p < 80 ? 'var(--alarm)' : 'var(--teal)'}"></i></div>
-      <div class="counts"><span><b>${esc(a.taken)}</b> taken</span><span class="${a.missed ? 'bad-text' : ''}"><b>${esc(a.missed)}</b> missed</span></div>
-      ${weekStrip(a.daily)}
-      ${m.added_by_me ? `<div class="cg-added-row"><button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}" type="button">Remove</button></div>` : ''}
-    </div>`;
-  }).join('') || emptyBox('No medicines are being taken right now.');
-  const alerts = (o.alerts || []).filter((a) => !/EMERGENCY/.test(a)).map((a) => `<div class="alert-item">${esc(a)}</div>`).join('');
-  patientFrame(root, o, 'medicines', `
-    <div class="row-head"><h2 class="section-title">Medicines</h2>
-      <div class="chips">${WINDOWS.map(([n, label]) => `<button class="chip${n === days ? ' on' : ''}" data-days="${n}" type="button" aria-pressed="${n === days}">${label}</button>`).join('')}</div></div>
-    <div class="rd-card sum-card">${ring}<span style="flex:1"><b>${esc(o.label)} took ${esc(sum.taken)} of ${esc(acted)} doses</b><span>${esc(sumLine)}</span></span></div>
-    ${alerts}
-    ${cards}
-    <p class="fine-print">Reminder and information tool, not medical advice.</p>`);
-  root.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => pageMedicines(root, pid, Number(b.dataset.days))));
-  const reload = () => pageMedicines(root, pid, days);
+  const cards = meds.map((m) => `
+    <div class="card cg-med" data-med="${esc(m.medicine_id)}">
+      <div class="cg-med-head"><strong>${esc(m.name)}</strong>
+        <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
+      ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
+        <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
+    </div>`).join('') || emptyBox('No medicines are being taken right now.');
+  patientFrame(root, o, 'medicines', cards);
+  const reload = () => pageMedicines(root, pid);
   root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
     const m = showSafetyModal(`
       <h3>Remove ${esc(b.dataset.name)}?</h3>

@@ -215,17 +215,6 @@ document.getElementById('deleteAccountBtn').addEventListener('click', openDelete
 document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
 document.getElementById('shareMineNav').addEventListener('click', () => { window.location.href = '/caregiver#/share'; });
 
-/** The menu's person switcher: the people you look after, then You (this page). A failed lookup just leaves it empty. */
-async function renderNavSwitch() {
-  const box = document.getElementById('navSwitch');
-  if (!box) return;
-  try {
-    const home = await api('GET', '/caregiver/home');
-    const colours = ['rose', 'blue', 'amber', 'violet'];
-    box.innerHTML = home.family.map((f) => `<a class="cg-menu-link" href="/caregiver#/p/${f.id}/today"><span class="fam-avatar ${colours[f.id % colours.length]}" aria-hidden="true">${escHtml((f.label || '?').trim().charAt(0).toUpperCase())}</span>${escHtml(f.label)}</a>`).join('')
-      + `<a class="cg-menu-link active" href="/"><span class="fam-avatar green" aria-hidden="true">${escHtml((currentUser.name || 'Y').trim().charAt(0).toUpperCase())}</span>You</a>`;
-  } catch (e) { box.innerHTML = ''; }
-}
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
 function renderNoPatientState() {
@@ -2165,7 +2154,6 @@ function openTabFromHash() {
   renderSessionChip();
   applyA11yMode();
   injectNavIcons();
-  renderNavSwitch();
   await loadPatients();
   applyNavTranslation();
   // Straight to the tab in the URL (#tab=… from the voice page); rendering the
