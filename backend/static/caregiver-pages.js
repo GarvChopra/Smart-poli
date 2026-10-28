@@ -39,30 +39,32 @@ function patientFrame(root, o, active, bodyHtml) {
     <div class="cg-title"><h2>${esc(o.nickname || o.patient.name)}</h2>${cgBadge(o.priority)}<button class="ghost small" id="cgRename" type="button">Rename</button><button class="ghost small danger-text" id="cgRemovePerson" type="button">Remove</button></div>
     <div class="cg-section">${esc((TABS.find(([key]) => key === active) || [])[1] || '')}</div>
     <div class="cg-body">${bodyHtml}</div>`;
-  root.querySelector('#cgRemovePerson').addEventListener('click', () => {
-    const who = o.label;
-    const m = showSafetyModal(`
-      <h3>Remove ${esc(who)}?</h3>
-      <p class="reg-meta">You will stop seeing ${esc(who)}'s medicines and stop getting alerts about them. ${esc(who)} and their data are not deleted, and ${esc(who)} is told. You can be added again later with a new code.</p>
-      <div id="cgRmPersonMsg" class="auth-error" role="alert"></div>
-      <div class="sm-actions"><button class="primary small danger" id="cgRmPersonYes" type="button">Remove ${esc(who)}</button><button class="ghost small" id="cgRmPersonNo" type="button">Cancel</button></div>`);
-    m.querySelector('#cgRmPersonNo').addEventListener('click', () => m.remove());
-    m.querySelector('#cgRmPersonYes').addEventListener('click', async (e) => {
-      e.target.disabled = true;
-      try {
-        await api('POST', `/caregiver/patients/${o.patient.id}/unlink`);
-        overviewCache.pid = null;
-        m.remove();
-        window.location.hash = '#/';
-      } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
-    });
-  });
+  root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => { window.location.hash = '#/'; }));
   root.querySelector('#cgRename').addEventListener('click', async () => {
     const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
     if (next === null) return;
     await api('PATCH', `/caregiver/patients/${o.patient.id}/nickname`, { nickname: next.trim() || null });
     o.nickname = next.trim() || null;
     getOverview(o.patient.id, true).then(() => route());
+  });
+}
+
+/** "Remove <name>?": stop looking after this person (only YOUR link ends; they and their data stay, and they are told). */
+function openRemovePerson(pid, who, onDone) {
+  const m = showSafetyModal(`
+    <h3>Remove ${esc(who)}?</h3>
+    <p class="reg-meta">You will stop seeing ${esc(who)}'s medicines and stop getting alerts about them. ${esc(who)} and their data are not deleted, and ${esc(who)} is told. You can be added again later with a new code.</p>
+    <div id="cgRmPersonMsg" class="auth-error" role="alert"></div>
+    <div class="sm-actions"><button class="primary small danger" id="cgRmPersonYes" type="button">Remove ${esc(who)}</button><button class="ghost small" id="cgRmPersonNo" type="button">Cancel</button></div>`);
+  m.querySelector('#cgRmPersonNo').addEventListener('click', () => m.remove());
+  m.querySelector('#cgRmPersonYes').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await api('POST', `/caregiver/patients/${pid}/unlink`);
+      overviewCache.pid = null;
+      m.remove();
+      onDone();
+    } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
   });
 }
 
@@ -95,12 +97,15 @@ async function pagePatients(root) {
       <span class="fam-chev" aria-hidden="true">›</span>
     </a>`;
   const familyRows = home.family.map((f, i) => `
+    <div class="fam-item">
     <a class="fam-row" href="#/p/${f.id}/today">
       <span class="fam-avatar ${FAMILY_COLOURS[i % FAMILY_COLOURS.length]}" aria-hidden="true">${esc((f.label || '?').trim().charAt(0).toUpperCase())}</span>
       <span class="fam-text"><b>${esc(f.label)}</b>
         <small>${medCount(f.medicines_today)}${f.missed_today ? ` · <span class="fam-missed">${f.missed_today} missed</span>` : ''}</small></span>
       <span class="fam-chev" aria-hidden="true">›</span>
-    </a>`).join('');
+    </a>
+    <button class="fam-remove" type="button" data-remove="${esc(f.id)}" data-label="${esc(f.label)}" aria-label="Remove ${esc(f.label)}">Remove</button>
+    </div>`).join('');
   const doseRow = (d) => {
     const [cls, label] = DOSE_PILL[d.state] || DOSE_PILL.pending;
     return `<div class="dose-row">
@@ -140,6 +145,8 @@ async function pagePatients(root) {
     }
   });
   root.querySelector('#addMemberBtn').addEventListener('click', openAddMember);
+  root.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', () =>
+    openRemovePerson(Number(b.dataset.remove), b.dataset.label, () => pagePatients(root))));
   const alertsBtn = root.querySelector('#alertsOnBtn');
   if (alertsBtn) alertsBtn.addEventListener('click', async () => {
     try { await enableCaregiverAlerts(); pagePatients(root); }
@@ -570,6 +577,7 @@ async function pageSettings(root) {
     <div class="card" style="margin-top:18px;">
       <h3>Your account</h3>
       <div class="cg-actions"><button class="ghost" id="cgSetPassword" type="button">${(getAuth() && getAuth().user && getAuth().user.has_password) ? 'Change password' : 'Set a password'}</button></div>
+      <p class="reg-meta"><a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a></p>
       <p class="reg-meta">Delete your account and everything in it. This cannot be undone.</p>
       <button class="ghost danger-text" id="cgDeleteAccount" type="button">Delete my account</button>
     </div>`;

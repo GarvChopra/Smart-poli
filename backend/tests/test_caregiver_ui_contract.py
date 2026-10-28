@@ -78,3 +78,12 @@ def test_page_links_live_in_the_left_menu_not_in_a_tab_bar_on_the_page():
         assert label in SHELL, label
     assert "Family home" in body and "My medicines" not in body and "Settings" in body and "#/p/" in body
     assert "renderDrawerNav(" in fn("route", SHELL)
+
+
+def test_the_family_home_has_a_remove_button_in_front_of_each_person_that_shares_the_confirm_popup():
+    home = fn("pagePatients")
+    assert "fam-remove" in home and "data-remove" in home and "openRemovePerson" in home
+    assert "<a" in home and home.index("fam-item") < home.index("fam-remove")                 # a button beside the link, not inside it
+    popup = fn("openRemovePerson")
+    assert "/unlink" in popup and "not deleted" in popup and "told" in popup
+    assert "openRemovePerson" in fn("patientFrame")                                           # the person's page uses the same popup

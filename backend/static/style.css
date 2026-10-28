@@ -1444,3 +1444,24 @@ button.danger { background: var(--alarm); border-color: var(--alarm); color: #ff
 .danger-text { color: var(--alarm); border-color: var(--alarm-soft); }
 .cg-add-options { display: grid; gap: 10px; margin-top: 12px; }
 .cg-add-options button { width: 100%; min-height: 48px; }
+
+/* Terms and Privacy pages, and the line under the login form */
+body.legal-body { background: var(--paper); }
+.legal { max-width: 720px; margin: 0 auto; padding: 20px 18px 56px; line-height: 1.65; color: var(--ink); }
+.legal h1 { font-size: 28px; margin: 14px 0 4px; }
+.legal h2 { font-size: 18px; margin: 28px 0 6px; }
+.legal p, .legal li { font-size: 15.5px; }
+.legal ul { padding-left: 20px; margin: 8px 0; }
+.legal li { margin: 5px 0; }
+.legal a { color: var(--teal-dark); font-weight: 600; }
+.legal-back { display: inline-block; text-decoration: none; font-weight: 700; }
+.legal-meta { color: var(--ink-faint); font-size: 13.5px; margin: 0 0 16px; }
+.legal-box { background: var(--teal-soft); border-radius: 16px; padding: 14px 18px; margin: 16px 0; }
+.legal-box ul { margin: 6px 0 0; }
+.auth-legal { font-size: 12.5px; color: var(--ink-soft); text-align: center; margin: 14px 0 0; line-height: 1.5; }
+.auth-legal a { color: var(--teal-dark); font-weight: 600; }
+
+/* Remove sits UNDER each person's row on the Family home (not beside it) */
+.fam-item { display: grid; gap: 2px; }
+.fam-remove { justify-self: end; border: 0; background: none; color: var(--alarm); font-weight: 700; font-size: 13px; padding: 6px 10px; min-height: 32px; cursor: pointer; border-radius: 8px; }
+.fam-remove:hover { background: var(--alarm-soft); }

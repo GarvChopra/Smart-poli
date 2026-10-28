@@ -167,7 +167,8 @@ class PublicStaticFiles(StaticFiles):
 
 # One explicit route table for the pages: only these URLs return an HTML page.
 PAGES = {"/": "index.html", "/login": "login.html", "/voice": "voice.html", "/install": "install.html",
-         "/caregiver": "caregiver.html", "/doctor": "doctor.html", "/offline": "offline.html"}
+         "/caregiver": "caregiver.html", "/doctor": "doctor.html", "/offline": "offline.html",
+         "/terms": "terms.html", "/privacy": "privacy.html"}
 
 
 def _static_version() -> str:
