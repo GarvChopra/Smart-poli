@@ -79,12 +79,12 @@ def test_a_caregiver_still_cannot_change_anything_else(world):
     assert cg.post("/prescriptions", json={"patient_id": pid, "lines": ["Tab Dolo 650 1-0-1"]}).status_code == 403
 
 
-def test_the_caregiver_page_offers_scan_and_manual_with_the_shared_popups():
+def test_the_caregiver_page_offers_scan_pdf_and_manual_with_the_shared_popups():
     static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
     page = open(os.path.join(static, "caregiver.html"), encoding="utf-8").read()
     js = open(os.path.join(static, "caregiver-pages.js"), encoding="utf-8").read()
     assert page.index("/static/med-wizard.js") < page.index("/static/caregiver-pages.js")
-    assert 'data-add-med="scan"' in js and 'data-add-med="manual"' in js and "Added by you" in js
+    assert 'data-how="scan"' in js and 'data-how="pdf"' in js and 'data-how="manual"' in js and "Added by you" in js
 
 
 # ---------------------------------------------------------------- the doctor role is switched off
@@ -143,3 +143,19 @@ def test_the_caregiver_sees_the_patients_real_emergency_card_read_only(world):
     page = open(os.path.join(static, "caregiver.html"), encoding="utf-8").read()
     js = open(os.path.join(static, "caregiver-pages.js"), encoding="utf-8").read()
     assert "/static/health-card.js" in page and "mountHealthCard(" in js and "{ caregiver: true }" in js
+
+
+def test_medicines_being_taken_are_flagged_and_a_finished_course_is_not(world):
+    """The caregiver's Medicines tab lists only what is being taken: a medicine with a dose still to come (or as-needed) is
+    `taking`; one whose every dose is done is not (it stays in the History numbers)."""
+    from datetime import datetime, timedelta
+    from timing_helpers import add_medicine
+    pid, patient, cg, cg_user, pushes = world
+    now = datetime.utcnow()
+    add_medicine(pid, "StillTaking", [now + timedelta(hours=3)])
+    add_medicine(pid, "Finished", [now - timedelta(days=2)], states=["taken"])
+    add_medicine(pid, "AsNeeded", [], is_prn=True)
+    by_name = {m["name"]: m for m in cg.get(f"/caregiver/patients/{pid}/overview").json()["per_medicine"]}
+    assert by_name["StillTaking"]["taking"] is True
+    assert by_name["Finished"]["taking"] is False
+    assert by_name["AsNeeded"]["taking"] is True

@@ -123,17 +123,30 @@ class RegisterRequest(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(max_length=128)
     name: str = Field(max_length=100)
+    remember: bool = True
     role: str = "both"  # 'both' (default: own medicines and family's) | 'patient' | 'caregiver' | 'doctor'
 
 
 class LoginRequest(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(max_length=128)
+    remember: bool = True                             # "Remember me": stay signed in for a month on this phone
+
+
+class SetPasswordRequest(BaseModel):
+    new_password: str = Field(..., max_length=128)
+    current_password: Optional[str] = Field(None, max_length=128)    # needed only when the account already has a password
+
+
+class DeleteAccountRequest(BaseModel):
+    password: Optional[str] = Field(None, max_length=128)       # accounts that have one
+    confirm_email: Optional[str] = Field(None, max_length=254)  # accounts made with Google: type your email instead
 
 
 class GoogleLoginRequest(BaseModel):
     credential: str = Field(max_length=4096)          # the ID token Google's button hands the page
     role: Optional[str] = None                          # only needed the first time (new account)
+    remember: bool = True
 
 
 # ---------------------------------------------------------------- caregiver/doctor linking

@@ -7,6 +7,11 @@
 
 let mode = 'login';
 
+if (new URLSearchParams(window.location.search).get('deleted') === '1') {
+  const note = document.getElementById('authError');
+  if (note) { note.style.color = 'var(--teal-dark)'; note.textContent = 'Your account has been deleted. Thank you for using SmartPoli.'; }
+}
+
 document.querySelectorAll('.auth-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     mode = tab.dataset.mode;
@@ -34,14 +39,14 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
       if (!name) throw new Error('Please enter your name.');
       const res = await fetch('/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email, password, name, remember: document.getElementById('remember').checked }),
       });
       body = await res.json();
       if (!res.ok) throw new Error(body.detail || 'Could not create that account.');
     } else {
       const res = await fetch('/auth/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, remember: document.getElementById('remember').checked }),
       });
       body = await res.json();
       if (!res.ok) throw new Error(body.detail || 'Incorrect email or password.');
@@ -68,7 +73,7 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
   async function send(credential) {
     const res = await fetch('/auth/google', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential, remember: true }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || 'Google sign-in failed. Try again.');

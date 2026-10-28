@@ -46,6 +46,12 @@ services:
         value: "feet-cheese"
       - key: SMARTPOLI_PUBLIC_BASE_URL
         sync: false
+      # "Continue with Google": the OAuth *web client id* from Google Cloud Console (public, so no secret is needed).
+      # Leave it empty and the Google button simply does not appear. The client secret is not used by the app.
+      - key: SMARTPOLI_GOOGLE_CLIENT_ID
+        sync: false
+      - key: SMARTPOLI_GOOGLE_CLIENT_SECRET
+        sync: false
       - key: SMARTPOLI_SKIP_TWILIO_SIGNATURE
         value: "0"
       # --- reminders / Android (see docs/ANDROID_TWA.md and docs/LAUNCH_REPORT.md) ---

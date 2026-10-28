@@ -27,7 +27,9 @@ from db import get_db_session, User, Patient, CaregiverLink, DoctorLink, Medicin
 
 JWT_SECRET = os.getenv("SMARTPOLI_JWT_SECRET") or "dev-only-insecure-secret-change-me-in-.env"
 JWT_ALGO = "HS256"
-JWT_TTL_HOURS = 24 * 7
+JWT_TTL_HOURS = 24 * 7                  # the default (WhatsApp links, older callers)
+REMEMBER_HOURS = 24 * 30                # "Remember me" ticked: stay signed in on this phone for a month
+SESSION_HOURS = 24                      # not ticked: one day
 
 ROLES = ("patient", "caregiver", "both", "doctor")
 # A person's account can hold their own medicines AND look after family: the label only says where they landed first,
@@ -57,12 +59,16 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 # ---------------------------------------------------------------- tokens
 
-def create_token(user: User) -> str:
+def create_token(user: User, remember: Optional[bool] = None) -> str:
+    """`remember` True/False picks the long/short session; None keeps the default length. Whatever was picked is written
+    into the token (`rem`), so a later refresh gives the same kind of session."""
+    hours = JWT_TTL_HOURS if remember is None else (REMEMBER_HOURS if remember else SESSION_HOURS)
     payload = {
         "sub": str(user.id),
         "role": user.role,
         "email": user.email,
-        "exp": datetime.utcnow() + timedelta(hours=JWT_TTL_HOURS),
+        "rem": True if remember is None else bool(remember),
+        "exp": datetime.utcnow() + timedelta(hours=hours),
         "iat": datetime.utcnow(),
         "jti": secrets.token_urlsafe(16),   # lets a logout revoke exactly this session
     }

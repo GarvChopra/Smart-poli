@@ -85,6 +85,88 @@ function landingAfterLogin(role, search) {
 
 /** Call at the top of every app page. Redirects to login if not authenticated
  * as the expected role, and returns the current user otherwise. */
+/** A session that is a third used up is swapped for a fresh one of the same kind (Remember me or not), quietly, so someone
+ * who keeps using SmartPoli is never signed out. Best effort: if it fails the current session simply runs its course. */
+function refreshSessionIfOld(auth) {
+  try {
+    const part = auth.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(part));
+    const life = claims.exp - claims.iat;
+    if (!(life > 0) || Date.now() / 1000 - claims.iat <= life / 3) return;
+    fetch('/auth/refresh', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j && j.token && j.user) setAuth(j.token, j.user); })
+      .catch(() => null);
+  } catch (e) { /* unreadable token: nothing to refresh */ }
+}
+
+/** "Set a password" (an account made with Google has none) or "Change password": the same account, so the email + password
+ * form and Continue with Google both open it. */
+function openSetPassword() {
+  const auth = getAuth();
+  const has = !!(auth && auth.user && auth.user.has_password);
+  const m = showSafetyModal(`
+    <h3>${has ? 'Change password' : 'Set a password'}</h3>
+    <p class="reg-meta">${has ? '' : 'After this you can log in with your email and this password, or with Google. It is the same account.'}</p>
+    ${has ? '<label for="pwOld">Current password</label><input id="pwOld" type="password" autocomplete="current-password">' : ''}
+    <label for="pwNew">New password</label>
+    <input id="pwNew" type="password" autocomplete="new-password">
+    <div class="reg-meta">At least 8 characters.</div>
+    <div id="pwMsg" class="auth-error" role="alert"></div>
+    <div class="sm-actions"><button class="primary small" id="pwGo" type="button">Save</button><button class="ghost small" id="pwNo" type="button">Cancel</button></div>`);
+  m.querySelector('#pwNo').addEventListener('click', () => m.remove());
+  m.querySelector('#pwGo').addEventListener('click', async (e) => {
+    const next = m.querySelector('#pwNew').value;
+    if (next.length < 8) { m.querySelector('#pwMsg').textContent = 'Use at least 8 characters.'; return; }
+    e.target.disabled = true;
+    try {
+      const res = await fetch('/auth/set-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        body: JSON.stringify({ new_password: next, current_password: has ? m.querySelector('#pwOld').value : null }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Could not save the password.');
+      auth.user.has_password = true; setAuth(auth.token, auth.user);
+      m.querySelector('.safety-modal').innerHTML = '<h3>Password saved</h3><p class="reg-meta">You can now log in with your email and password, or with Google.</p><div class="sm-actions"><button class="primary small" id="pwOk" type="button">Done</button></div>';
+      m.querySelector('#pwOk').addEventListener('click', () => { m.remove(); if (typeof refreshAccountLabels === 'function') refreshAccountLabels(); });
+    } catch (err) { m.querySelector('#pwMsg').textContent = err.message; e.target.disabled = false; }
+  });
+}
+
+/** "Delete my account": says what goes, asks for the password (or the email, for a Google account), then deletes. */
+function openDeleteAccount() {
+  const auth = getAuth();
+  const withPassword = !auth || !auth.user || auth.user.has_password !== false;
+  const esc2 = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const m = showSafetyModal(`
+    <h3>Delete my account</h3>
+    <p class="reg-meta">This removes your account and everything in it: your medicines, doses, reminders, notes and emergency card. Anyone who looks after you loses access. <b>It cannot be undone.</b></p>
+    <p class="reg-meta">People you look after are not deleted. Only your link to them goes.</p>
+    <label for="delProof">${withPassword ? 'Enter your password to confirm' : 'Type your email address to confirm'}</label>
+    <input id="delProof" type="${withPassword ? 'password' : 'text'}" autocomplete="${withPassword ? 'current-password' : 'off'}" placeholder="${withPassword ? '' : esc2((auth && auth.user && auth.user.email) || '')}">
+    <div id="delMsg" class="auth-error" role="alert"></div>
+    <div class="sm-actions"><button class="primary small danger" id="delGo" type="button">Delete everything</button><button class="ghost small" id="delNo" type="button">Cancel</button></div>`);
+  m.querySelector('#delNo').addEventListener('click', () => m.remove());
+  m.querySelector('#delGo').addEventListener('click', async (e) => {
+    const proof = m.querySelector('#delProof').value;
+    if (!proof.trim()) { m.querySelector('#delMsg').textContent = withPassword ? 'Enter your password.' : 'Type your email address.'; return; }
+    e.target.disabled = true;
+    try {
+      const res = await fetch('/auth/delete-account', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        body: JSON.stringify(withPassword ? { password: proof } : { confirm_email: proof }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Could not delete the account. Please try again.');
+      clearAuth();
+      window.location.href = '/login?deleted=1';
+    } catch (err) {
+      m.querySelector('#delMsg').textContent = err.message;
+      e.target.disabled = false;
+    }
+  });
+}
+
 function requireRole(expectedRole) {
   const auth = getAuth();
   if (!auth || !auth.token || !auth.user) {
@@ -97,6 +179,7 @@ function requireRole(expectedRole) {
     window.location.href = landingPageFor(auth.user.role);
     return null;
   }
+  refreshSessionIfOld(auth);
   return auth.user;
 }
 

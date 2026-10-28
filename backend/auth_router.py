@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from db import get_db_session, User, Patient
 from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES, PERSON_ROLES, doctor_role_enabled
-from schemas import RegisterRequest, LoginRequest, GoogleLoginRequest
+from schemas import RegisterRequest, LoginRequest, GoogleLoginRequest, DeleteAccountRequest, SetPasswordRequest
 import google_auth
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -53,7 +53,8 @@ def doctor_signup_open() -> bool:
 
 
 def _serialize_user(user: User, db: Session) -> dict:
-    out = {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+    out = {"id": user.id, "email": user.email, "name": user.name, "role": user.role,
+           "has_password": bool(user.password_hash)}          # lets "Delete my account" ask for the password, or the email for Google accounts
     if user.role in PERSON_ROLES:
         out["patient_ids"] = [p.id for p in db.query(Patient).filter(Patient.user_id == user.id).all()]
     return out
@@ -72,14 +73,18 @@ def register(body: RegisterRequest, db: Session = Depends(get_db_session), _rl=D
         raise HTTPException(400, f"role must be one of: {', '.join(ROLES)}")
     if body.role == "doctor" and not doctor_signup_open():
         raise HTTPException(400, "Doctor accounts are not open yet. Sign up as a patient or caregiver.")
-    if db.query(User).filter(User.email == email).first():
+    existing = find_account_for_email(db, email)
+    if existing:
+        if not existing.password_hash:       # made with Google: the same account, it just has no password yet
+            raise HTTPException(409, "This email already has a SmartPoli account made with Google. Tap Continue with Google, "
+                                     "then choose Set a password in Settings to also log in with a password.")
         raise HTTPException(409, "An account with this email already exists.")
 
     user = User(email=email, password_hash=hash_password(body.password), role=body.role, name=body.name.strip())
     db.add(user)
     db.commit()
 
-    return {"token": create_token(user), "user": _serialize_user(user, db)}
+    return {"token": create_token(user, body.remember), "user": _serialize_user(user, db)}
 
 
 @router.post("/login")
@@ -101,13 +106,20 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_ses
     _failed_logins.pop(key, None)
     if user.role == "doctor" and not doctor_role_enabled():
         raise HTTPException(403, "Doctor accounts are switched off for now. SmartPoli is for patients and caregivers.")
-    return {"token": create_token(user), "user": _serialize_user(user, db)}
+    return {"token": create_token(user, body.remember), "user": _serialize_user(user, db)}
 
 
 @router.get("/google/config")
 def google_config():
     """Whether to show "Continue with Google", and the (public) client id the button needs."""
     return {"enabled": google_auth.is_enabled(), "client_id": google_auth.client_id() or None}
+
+
+def find_account_for_email(db: Session, email: str) -> Optional[User]:
+    """The account that exact email belongs to (capital letters do not matter). A different email is a different account,
+    always: nothing is merged by guessing that two spellings are the same inbox."""
+    from sqlalchemy import func
+    return db.query(User).filter(func.lower(User.email) == (email or "").strip().lower()).first()
 
 
 @router.post("/google")
@@ -119,7 +131,7 @@ def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db_session)
         info = google_auth.verify_id_token(body.credential)
     except google_auth.GoogleTokenError as e:
         raise HTTPException(401, str(e))
-    user = db.query(User).filter(User.email == info["email"]).first()
+    user = find_account_for_email(db, info["email"])
     if user is None:
         role = body.role or "both"
         if role not in ("both", "patient", "caregiver") and not (role == "doctor" and doctor_signup_open()):
@@ -129,7 +141,63 @@ def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db_session)
         db.commit()
     elif user.role == "doctor" and not doctor_role_enabled():
         raise HTTPException(403, "Doctor accounts are switched off for now. SmartPoli is for patients and caregivers.")
-    return {"token": create_token(user), "user": _serialize_user(user, db)}
+    return {"token": create_token(user, body.remember), "user": _serialize_user(user, db)}
+
+
+@router.post("/refresh")
+def refresh(authorization: Optional[str] = Header(None), user: User = Depends(get_current_user),
+            db: Session = Depends(get_db_session), _rl=Depends(rate_limit("refresh", 60, 3600))):
+    """A fresh session of the same kind ("Remember me" or not) for someone who is signed in. The app asks for one once a
+    session is a third used up, so a person who keeps using SmartPoli is not signed out; the old token simply runs out."""
+    from auth import _decode_token
+    claims = _decode_token(authorization.split(" ", 1)[1].strip())
+    return {"token": create_token(user, bool(claims.get("rem", True))), "user": _serialize_user(user, db)}
+
+
+@router.post("/set-password")
+def set_password(body: SetPasswordRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db_session),
+                 _rl=Depends(rate_limit("set-password", 10, 3600))):
+    """Give the signed-in account a password (an account made with Google has none), or change it. Same account, same data:
+    afterwards the email + password form and Continue with Google both open it. Changing an existing password needs the
+    current one."""
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    if len(body.new_password.encode("utf-8")) > 72:
+        raise HTTPException(400, "Password must be at most 72 characters.")
+    if user.password_hash:
+        if not body.current_password or not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(403, "Your current password is not right.")
+    elif not user.email:
+        raise HTTPException(400, "This account has no email address to log in with.")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"ok": True, "has_password": True}
+
+
+@router.post("/delete-account")
+def delete_account(body: DeleteAccountRequest, authorization: Optional[str] = Header(None),
+                   user: User = Depends(get_current_user), db: Session = Depends(get_db_session),
+                   _rl=Depends(rate_limit("delete-account", 5, 3600))):
+    """Delete the signed-in person's account and everything of theirs. Cannot be undone. Proves it is really them first:
+    the password, or (an account made with Google has none) their email typed out. People they looked after are not
+    deleted - only this person's link to them goes; people who looked after them lose access with the data."""
+    import logging
+    import account_deletion
+    if user.password_hash:
+        if not body.password or not verify_password(body.password, user.password_hash):
+            raise HTTPException(403, "That password is not right.")
+    else:
+        typed = (body.confirm_email or "").strip().lower()
+        expected = (user.email or "DELETE").lower()
+        if not typed or typed != expected:
+            raise HTTPException(403, "Type your email address exactly to confirm." if user.email else 'Type DELETE to confirm.')
+    try:
+        revoke_token(db, authorization.split(" ", 1)[1].strip())
+        account_deletion.delete_account(db, user.id)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("account deletion failed for user %s", user.id)
+        raise HTTPException(500, "We could not delete the account, and nothing was removed. Please try again.")
+    return {"deleted": True}
 
 
 @router.post("/logout")

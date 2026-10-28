@@ -34,12 +34,15 @@ def test_notes_page_has_messages_to_the_patient_and_care_team_only_handover_note
     assert "notify" in body.lower() and "kind: 'message'" in body and "kind: 'handover'" in body
 
 
-def test_medicines_page_is_the_list_and_the_three_ways_to_add_one_and_notes_are_written_only_on_the_notes_page():
+def test_medicines_page_lists_only_what_is_being_taken_and_adding_is_a_popup_on_the_today_page():
     body = fn("pageMedicines")
-    assert "addMedicineHtml" in body and "wireAddMedicine" in body
+    assert "taking" in body                                                                              # only medicines being taken
     assert "noteFormHtml" not in body and "Add note" not in body and "kind: 'medicine'" not in body       # no notes here
-    add = PAGES[PAGES.index("const addMedicineHtml"):PAGES.index("function wireAddMedicine")]
-    assert 'data-add-med="scan"' in add and 'data-add-med="pdf"' in add and 'data-add-med="manual"' in add
+    assert "openAddMedicinePopup" not in body and "data-add-med" not in body                             # no adding from this tab
+    popup = fn("openAddMedicinePopup")
+    assert 'data-how="scan"' in popup and 'data-how="pdf"' in popup and 'data-how="manual"' in popup
+    today = fn("pageToday")
+    assert "cgAddMedBtn" in today and "openAddMedicinePopup" in today
 
 
 def test_today_page_has_remind_now_and_call_and_whatsapp():

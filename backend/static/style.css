@@ -1436,3 +1436,11 @@ button[data-busy="1"]:not(.is-busy) { opacity: .55; }
 .am-share a.primary { background: var(--teal); color: #fff; border-radius: 999px; padding: 13px 18px; font-weight: 700; box-shadow: 0 4px 12px rgba(18, 135, 111, .25); }
 .fam-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .fam-hint .view-all { color: var(--teal-dark); font-weight: 700; font-size: 14px; text-decoration: underline; padding: 4px 0; }
+
+/* Remember me, delete account, add-medicine popup */
+.auth-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.auth-remember input { width: 18px; height: 18px; margin: 0; }
+button.danger { background: var(--alarm); border-color: var(--alarm); color: #fff; }
+.danger-text { color: var(--alarm); border-color: var(--alarm-soft); }
+.cg-add-options { display: grid; gap: 10px; margin-top: 12px; }
+.cg-add-options button { width: 100%; min-height: 48px; }

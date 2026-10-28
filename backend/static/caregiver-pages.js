@@ -305,19 +305,19 @@ function startAddMedicine(pid, patientName, how, onDone) {
   if (how === 'scan') openMedicineCamera(); else if (how === 'pdf') openMedicinePdf(); else medicineWizard({ step: 'details' });
 }
 
-const addMedicineHtml = (name) => `
-  <div class="card cg-add-med">
+/** The popup behind "+ Add medicine" on a person's Today page: the three ways to add one, same as in their own app. */
+function openAddMedicinePopup(pid, name, onDone) {
+  const m = showSafetyModal(`
     <h3>Add a medicine for ${esc(name)}</h3>
-    <div class="cg-actions">
-      <button class="primary" data-add-med="scan">📷 Scan a medicine</button>
-      <button class="ghost" data-add-med="pdf">📄 Upload PDF</button>
-      <button class="ghost" data-add-med="manual">Enter manually</button>
+    <div class="cg-add-options">
+      <button class="primary" data-how="scan" type="button">📷 Scan a medicine</button>
+      <button class="ghost" data-how="pdf" type="button">📄 Upload prescription PDF</button>
+      <button class="ghost" data-how="manual" type="button">Enter manually</button>
     </div>
-    <div class="reg-meta">${esc(name)} sees it marked “Added by you” and can remove it.</div>
-  </div>`;
-
-function wireAddMedicine(root, pid, name, onDone) {
-  root.querySelectorAll('[data-add-med]').forEach((b) => b.addEventListener('click', () => startAddMedicine(pid, name, b.dataset.addMed, onDone)));
+    <div class="reg-meta" style="margin-top:10px;">${esc(name)} sees it marked “Added by you” and can remove it.</div>
+    <div class="sm-actions"><button class="ghost small" id="cgAddCancel" type="button">Cancel</button></div>`);
+  m.querySelector('#cgAddCancel').addEventListener('click', () => m.remove());
+  m.querySelectorAll('[data-how]').forEach((b) => b.addEventListener('click', () => { m.remove(); startAddMedicine(pid, name, b.dataset.how, onDone); }));
 }
 
 // ---------------------------------------------------------------- Today
@@ -344,7 +344,7 @@ async function pageToday(root, pid) {
     ${nextHtml}
     <div class="cg-actions">
       <button class="primary" id="cgRemind">Remind now</button>
-      <button class="ghost" data-add-med="scan">+ Add medicine</button>
+      <button class="ghost" id="cgAddMedBtn" type="button">+ Add medicine</button>
       ${contact}
     </div>
     <div id="cgRemindMsg" class="reg-meta" role="status"></div>
@@ -354,7 +354,7 @@ async function pageToday(root, pid) {
       <div class="stat"><div><div class="num">${esc(o.adherence.missed)}</div><div class="label">Missed</div></div></div>
     </div>
     <div class="card"><div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>${alerts}</div>`);
-  wireAddMedicine(root, pid, o.label, () => { window.location.hash = `#/p/${pid}/medicines`; });
+  root.querySelector('#cgAddMedBtn').addEventListener('click', () => openAddMedicinePopup(pid, o.label, () => { window.location.hash = `#/p/${pid}/medicines`; }));
   const btn = root.querySelector('#cgRemind');
   const msg = root.querySelector('#cgRemindMsg');
   btn.addEventListener('click', async () => {
@@ -413,18 +413,17 @@ function wireDeleteButtons(root, onDone) {
 async function pageMedicines(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid);
-  const meds = o.per_medicine || [];
-  // Medicines: the list, and the three ways to add one (the same as in the patient's own app). Notes live on the Notes page only.
+  // Medicines: only what is being taken now. Adding one is "+ Add medicine" on the Today page; notes live on the Notes page.
+  const meds = (o.per_medicine || []).filter((m) => m.taking !== false);
   const cards = meds.map((m) => `
     <div class="card cg-med" data-med="${esc(m.medicine_id)}">
       <div class="cg-med-head"><strong>${esc(m.name)}</strong>
         <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
       ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
         <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
-    </div>`).join('') || emptyBox('No medicines yet.');
-  patientFrame(root, o, 'medicines', `${addMedicineHtml(o.label)}${cards}`);
+    </div>`).join('') || emptyBox('No medicines are being taken right now.');
+  patientFrame(root, o, 'medicines', cards);
   const reload = () => pageMedicines(root, pid);
-  wireAddMedicine(root, pid, o.label, () => { overviewCache.pid = null; reload(); });
   root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
     const m = showSafetyModal(`
       <h3>Remove ${esc(b.dataset.name)}?</h3>
@@ -481,7 +480,7 @@ async function pageHistory(root, pid) {
     || emptyBox('No symptom checks recorded.');
   const perMed = (o.per_medicine || []).map((m) => `
     <div class="cg-permed"><span>${esc(m.name)}</span><span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>`).join('')
-    || emptyBox('No medicines yet.');
+    || emptyBox('No medicines are being taken right now.');
   patientFrame(root, o, 'history', `
     <div class="card"><div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Per-medicine adherence</h3></div>${perMed}</div>
     <div class="card"><div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses (last 2 weeks)</h3></div>${missed}</div>
@@ -549,7 +548,16 @@ async function pageSettings(root) {
       ${patients.length ? `<div class="wz-label" style="margin-top:12px;">Alert me about</div>` + patients.map((p, i) => `
         <label class="cg-check"><input type="checkbox" data-pref="${esc(p.id)}" ${prefs[i].notify_missed ? 'checked' : ''}> ${esc(p.name)}</label>`).join('') : ''}
     </div>
-    ${linkFormHtml()}`;
+    ${linkFormHtml()}
+    <div class="card" style="margin-top:18px;">
+      <h3>Your account</h3>
+      <div class="cg-actions"><button class="ghost" id="cgSetPassword" type="button">${(getAuth() && getAuth().user && getAuth().user.has_password) ? 'Change password' : 'Set a password'}</button></div>
+      <p class="reg-meta">Delete your account and everything in it. This cannot be undone.</p>
+      <button class="ghost danger-text" id="cgDeleteAccount" type="button">Delete my account</button>
+    </div>`;
+  root.querySelector('#cgDeleteAccount').addEventListener('click', openDeleteAccount);
+  root.querySelector('#cgSetPassword').addEventListener('click', openSetPassword);
+  window.refreshAccountLabels = () => pageSettings(root);
   const msg = root.querySelector('#cgAlertMsg');
   const on = root.querySelector('#cgAlertsOn');
   if (on) on.addEventListener('click', async () => { try { await enableCaregiverAlerts(); pageSettings(root); } catch (e) { msg.textContent = e.message; } });

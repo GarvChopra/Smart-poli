@@ -204,6 +204,14 @@ function closeDrawer() {
 hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+document.getElementById('deleteAccountBtn').addEventListener('click', openDeleteAccount);
+{
+  const pwBtn = document.getElementById('setPasswordBtn');
+  const labelPw = () => { const a = getAuth(); pwBtn.textContent = a && a.user && a.user.has_password ? 'Change password' : 'Set a password'; };
+  labelPw();
+  window.refreshAccountLabels = labelPw;
+  pwBtn.addEventListener('click', openSetPassword);
+}
 document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 

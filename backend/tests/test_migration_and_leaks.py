@@ -75,7 +75,7 @@ def test_no_answer_to_a_signed_in_person_carries_a_secret_or_someone_elses_accou
             assert anita_email not in body, f"{path} exposes the patient's login email"
     # a person's own session answer: no password hash, no other accounts
     me = gita.get("/auth/me").json()
-    assert set(me) <= {"id", "email", "name", "role", "patient_ids"} and me["id"] == gita_user["id"]
+    assert set(me) <= {"id", "email", "name", "role", "patient_ids", "has_password"} and me["id"] == gita_user["id"]
     # Anita's links list shows the caregiver's name but never their email or id
     links = anita.get(f"/patients/{pid}/caregiver-links").json()
     assert all(set(l) <= {"id", "code", "status", "caregiver_name", "created_at", "accepted_at"} for l in links)

@@ -143,3 +143,52 @@ def test_a_google_account_has_You_and_Family_like_any_other_and_can_join_an_invi
     # and it can look after someone itself
     assert mum.post("/family/invites", json={}).status_code == 200
     assert mum.get("/caregiver/home").status_code == 200
+
+
+def test_one_email_is_one_account_whichever_way_you_come_in():
+    """Google first, then a password on the SAME account: afterwards the form and Google both open that one account."""
+    c = TestClient(app)
+    first = c.post("/auth/google", json={"credential": id_token("op.agent@gmail.com")}).json()
+    h = {"Authorization": f"Bearer {first['token']}"}
+    uid = first["user"]["id"]
+    assert first["user"]["has_password"] is False
+    # the form refuses a second account for that email and says why
+    dup = c.post("/auth/register", json={"email": "OP.agent@gmail.com", "password": "password123", "name": "X"})
+    assert dup.status_code == 409 and "Google" in dup.json()["detail"] and "Set a password" in dup.json()["detail"]
+    # no password yet: the form cannot log in; setting one needs a signed-in session and a decent password
+    assert c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "password123"}).status_code == 401
+    assert TestClient(app).post("/auth/set-password", json={"new_password": "password123"}).status_code == 401
+    assert c.post("/auth/set-password", json={"new_password": "short"}, headers=h).status_code == 400
+    assert c.post("/auth/set-password", json={"new_password": "password123"}, headers=h).json() == {"ok": True, "has_password": True}
+    # now both ways open the same account
+    form = c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "password123"}).json()
+    again = c.post("/auth/google", json={"credential": id_token("op.agent@gmail.com")}).json()
+    assert form["user"]["id"] == uid == again["user"]["id"] and form["user"]["has_password"] is True
+    # changing it later needs the current one
+    assert c.post("/auth/set-password", json={"new_password": "another-pass1"}, headers=h).status_code == 403
+    assert c.post("/auth/set-password", json={"new_password": "another-pass1", "current_password": "wrong"}, headers=h).status_code == 403
+    assert c.post("/auth/set-password", json={"new_password": "another-pass1", "current_password": "password123"}, headers=h).status_code == 200
+    assert c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "another-pass1"}).status_code == 200
+    assert c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "password123"}).status_code == 401
+
+
+def test_password_first_then_google_is_also_the_same_account():
+    c = TestClient(app)
+    reg = c.post("/auth/register", json={"email": "op.two@gmail.com", "password": "password123", "name": "Op"}).json()
+    g = c.post("/auth/google", json={"credential": id_token("OP.Two@gmail.com")}).json()
+    assert g["user"]["id"] == reg["user"]["id"] and g["user"]["has_password"] is True
+
+
+def test_the_same_email_is_one_account_and_a_different_email_is_always_a_different_account():
+    """Garv.Chopra@gmail.com made with the form opens with Google (capital letters do not matter); but another email -
+    even one that differs only by a dot, a +tag or googlemail - is another person's account and is never merged."""
+    c = TestClient(app)
+    reg = c.post("/auth/register", json={"email": "Garv.Chopra@gmail.com", "password": "password123", "name": "Garv"}).json()
+    uid = reg["user"]["id"]
+    same = c.post("/auth/google", json={"credential": id_token("garv.chopra@gmail.com")}).json()
+    assert same["user"]["id"] == uid and same["user"]["has_password"] is True
+    others = ["garvchopra@gmail.com", "garv.chopra+x@gmail.com", "garv.chopra@googlemail.com", "garv.chopra@outlook.com"]
+    ids = {c.post("/auth/google", json={"credential": id_token(e)}).json()["user"]["id"] for e in others}
+    assert uid not in ids and len(ids) == len(others)                      # each is its own account
+    # and the form does not treat them as taken either
+    assert c.post("/auth/register", json={"email": "garvchopra2@gmail.com", "password": "password123", "name": "G2"}).status_code == 200

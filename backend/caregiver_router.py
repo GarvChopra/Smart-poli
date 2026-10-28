@@ -269,6 +269,10 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
     # The same medicines the patient sees: not ones they removed, and not unconfirmed lines read off a photo.
     active = {med.id for pres in dash["prescriptions"] for med in pres.medicines
               if med.status != "needs_confirmation" and med.name}
+    # "Being taken" right now: as-needed ones, and any with a dose still to come. A finished course drops off the
+    # Medicines list (its history stays in the History tab's numbers).
+    taking = {med.id for pres in dash["prescriptions"] for med in pres.medicines
+              if med.is_prn or any(d.state in ("pending", "snoozed") for d in med.doses)}
 
     return {
         "phones": {"patient": own_phone, "emergency_contact": {"label": label, "phone": ec_phone} if ec_phone else None},
@@ -277,7 +281,8 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
         "nickname": my_link.nickname if my_link else None,
         "priority": compute_priority(db, patient_id),
         "adherence": dash["adherence"],
-        "per_medicine": [{**m, "added_by_me": added_by.get(m["medicine_id"]) == user.id} for m in dash["per_medicine"]
+        "per_medicine": [{**m, "added_by_me": added_by.get(m["medicine_id"]) == user.id, "taking": m["medicine_id"] in taking}
+                         for m in dash["per_medicine"]
                          if m["medicine_id"] in active],
         "upcoming_doses": dash["upcoming_doses"],
         "prn_medicines": dash["prn_medicines"],
