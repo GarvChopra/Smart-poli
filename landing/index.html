@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SmartPoli Waitlist</title>
+<meta name="description" content="SmartPoli reminds you when to take your medicines and quietly lets the people who care know you did. Join the waitlist.">
+<meta name="theme-color" content="#041f1b">
+<meta property="og:title" content="SmartPoli: every dose remembered, every family at ease">
+<meta property="og:description" content="Medicine reminders for patients and the families who care. Join the waitlist.">
+<meta property="og:type" content="website">
+<meta name="api-base" content="http://127.0.0.1:8791">
+<meta name="turnstile-site-key" content="">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230b6f5f'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Figtree:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="scene" aria-hidden="true"></div>
+<div class="pill" id="pill" aria-hidden="true">
+<svg viewBox="0 0 400 200"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fe0c4"/><stop offset="1" stop-color="#0b6f5f"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#c9ddd5"/></linearGradient></defs>
+<g class="half l"><path d="M200 20H100a80 80 0 0 0 0 160h100z" fill="url(#g1)"/><path d="M110 40h80" stroke="#fff" stroke-opacity=".5" stroke-width="8" stroke-linecap="round"/></g>
+<g class="half r"><path d="M200 20h100a80 80 0 0 1 0 160H200z" fill="url(#g2)"/><path d="M210 40h80" stroke="#fff" stroke-opacity=".8" stroke-width="8" stroke-linecap="round"/></g>
+<path class="tick" d="M170 102l22 22 40-48" fill="none" stroke="#06332d" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+
+<div class="wrap">
+<header><a class="logo" href="#top" aria-label="SmartPoli home"><span class="mark" aria-hidden="true"></span>SmartPoli</a><a class="nav-cta" href="#join">Join the waitlist</a></header>
+<main id="top">
+<section class="hero">
+<div class="hero-copy">
+<p class="eyebrow">For patients and the families who care</p>
+<h1>Every dose remembered. <em>Every family at ease.</em></h1>
+<p class="lede">SmartPoli reminds you when to take your medicines, and quietly lets the people who care know you did.</p>
+<form class="form" novalidate><input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><div class="row"><input type="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com" aria-label="Email address" required><button class="btn" type="submit">Join the waitlist</button></div><p class="note" role="status">First 50 invites go out in order. By joining you agree to our <a href="https://smartpoli.onrender.com/terms" rel="noopener">Terms</a> and <a href="https://smartpoli.onrender.com/privacy" rel="noopener">Privacy Policy</a>; we only email you about SmartPoli.</p></form>
+</div>
+<div class="done" role="status" aria-live="polite">
+<div class="done-copy">
+<p class="eyebrow">Welcome</p>
+<h1>You’re on <em>the list.</em></h1>
+<p class="pos" id="pos"></p>
+<p class="small pending-copy">Check your email and tap the link within 24 hours to hold your place.</p><p class="small" id="confirmedcopy"></p>
+<button class="undo" type="button" id="undo">Use a different email</button>
+</div>
+<div class="mini" aria-label="Your place and share link">
+<div class="mini-top"><span>Your place</span><b id="place"></b></div>
+<div class="bar" aria-hidden="true"><i id="barfill"></i></div>
+<p class="mini-note" id="mininote"></p>
+<div class="link"><span id="linktxt"></span><button type="button" id="copy">Copy</button></div>
+</div>
+</div>
+</section>
+
+<section class="block" aria-labelledby="how">
+<h2 id="how" class="reveal">Add. Remind. Share.</h2>
+<div class="steps">
+<div class="step reveal"><b>01</b><h3>Add</h3><p>Type a medicine in, or scan the prescription.</p></div>
+<div class="step reveal"><b>02</b><h3>Remind</h3><p>A nudge at the right time. One tap to mark it taken.</p></div>
+<div class="step reveal"><b>03</b><h3>Share</h3><p>Family sees how the day went, only with your permission.</p></div>
+</div>
+</section>
+
+<section class="block" aria-labelledby="film">
+<h2 id="film" class="reveal">See it in 46 seconds.</h2>
+<div class="film reveal"><video id="vid" muted playsinline preload="metadata" poster="assets/poster.webp" aria-label="SmartPoli launch film"><source src="assets/launch-720.mp4" type="video/mp4">Your browser can’t play this video.</video><button class="sound" id="sound" type="button" aria-pressed="false">Tap for sound</button><button class="sound pz" id="pz" type="button">Pause</button></div>
+</section>
+
+<section class="final block" id="join" aria-labelledby="last">
+<h2 id="last" class="reveal">Join the next 50.</h2>
+<form class="form reveal final-form" novalidate><input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><div class="row"><input type="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com" aria-label="Email address" required><button class="btn" type="submit">Join the waitlist</button></div><p class="note" role="status">One email. Leave any time by replying “delete”.</p></form>
+</section>
+</main>
+<footer><span>SmartPoli · <a href="https://smartpoli.onrender.com/terms" rel="noopener">Terms</a> · <a href="https://smartpoli.onrender.com/privacy" rel="noopener">Privacy</a></span><span>A reminder and information tool, not medical advice.</span></footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

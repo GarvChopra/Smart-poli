@@ -1,0 +1,4 @@
+.wrangler/
+.wrangler-test/
+node_modules/
+.wrangler-e2e/
