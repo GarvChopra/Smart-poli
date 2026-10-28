@@ -39,19 +39,18 @@ navDrawer.addEventListener('click', (e) => { if (e.target.closest('a')) closeDra
 
 const MENU_PAGES = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes'], ['history', 'History'], ['emergency', 'Emergency']];
 
-/** The one menu: Family first, then (inside a person) that person's pages, then share, settings and feedback. */
+/** The one menu: Family first, then (inside a person) that person's pages, then settings and feedback. */
 function renderDrawerNav(path) {
   const nav = document.getElementById('drawerNav');
   if (!nav) return;
   const m = path.match(/^\/p\/(\d+)\/(\w+)$/);
   const link = (href, label, on) => `<a class="cg-menu-link${on ? ' active' : ''}" href="${href}">${esc(label)}</a>`;
-  let html = link('#/', 'Family', path === '/' || path === '/share');
+  let html = link('#/', 'Family', path === '/');
   if (m) {
     const pid = m[1];
     const name = overviewCache.pid === Number(pid) && overviewCache.data ? overviewCache.data.label : 'This person';
     html += `<div class="cg-menu-head">${esc(name)}</div>` + MENU_PAGES.map(([key, label]) => link(`#/p/${pid}/${key}`, label, m[2] === key)).join('');
   }
-  html += link('#/share', 'Share my medicines', false);
   html += link('#/settings', 'Settings', path === '/settings');
   html += link('#/feedback', 'Feedback', path === '/feedback');
   nav.innerHTML = html;
@@ -65,11 +64,6 @@ async function route() {
   try {
     let m;
     if (path === '/') await pagePatients(root);
-    else if (path === '/share') {                          // the menu's Share my medicines: Family, with the sheet open on top
-      const home = await pagePatients(root);
-      history.replaceState(null, '', '#/');                // so Done (which refreshes the page) does not open it again
-      openShareMine(home.you);
-    }
     else if (path === '/settings') await pageSettings(root);
     else if (path === '/feedback') pageFeedback(root);
     else if ((m = path.match(/^\/p\/(\d+)\/(today|medicines|notes|history|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));

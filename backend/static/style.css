@@ -1195,7 +1195,6 @@ html[data-a11y="large"] .glance, html[data-a11y="large"] .confidence-row .field-
 /* ---------- caregiver portal pages ---------- */
 .cg-menu-link { display: block; padding: 12px 14px; border-radius: 12px; font-weight: 700; text-decoration: none; color: var(--ink); }
 .cg-menu-link.active { background: var(--teal-soft); color: var(--teal-dark); }
-.cg-back { display: inline-block; margin-bottom: 6px; font-weight: 600; text-decoration: none; color: var(--teal-dark); }
 .cg-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cg-title h2 { margin: 0; }
 .cg-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 12px 0; padding-bottom: 4px; scrollbar-width: none; }
@@ -1463,8 +1462,8 @@ body.legal-body { background: var(--paper); }
 
 
 /* Family redesign (28 Oct 2026): page 26px / section 21px, 44px+ taps, white radius-16 cards with one shadow, green = main action */
-.page-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 800; font-size: 19px; line-height: 1.25; }
-.section-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 16px; line-height: 1.25; }
+.page-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; }
+.section-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 15px; line-height: 1.25; }
 .rd-card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-card); }
 .btn-go { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--teal); color: #fff; font: 700 14px 'Figtree', sans-serif; text-decoration: none; cursor: pointer; flex: none; }
 .btn-go:hover { background: var(--teal-dark); }
@@ -1495,14 +1494,10 @@ button.fr-bin svg.bin-svg { width: 24px; height: 24px; }
 .share-card .share-ic { width: 44px; height: 44px; border-radius: 50%; background: var(--teal-soft); display: flex; align-items: center; justify-content: center; flex: none; }
 
 /* A person's page: coloured band under the header, then the missed/next card */
-.band { margin: -12px -12px 12px; padding: 10px 14px 12px; display: grid; gap: 8px; }
+.person-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.person-head .ph-actions { margin-left: auto; display: inline-flex; gap: 8px; }
+.person-head .pill-btn { background: var(--surface); border: 1.5px solid var(--line); }
 .plain-head { display: grid; gap: 2px; margin-bottom: 12px; }
-.band-top { display: flex; align-items: center; gap: 8px; }
-.band-top .pill-btn:first-child { margin-right: auto; background: #fff; }
-.band-name { display: flex; align-items: center; gap: 12px; }
-.band-name .fam-avatar { background: #fff; width: 36px; height: 36px; font-size: 16px; font-family: 'Figtree', sans-serif; }
-.band.rose { background: var(--alarm-soft); } .band.blue { background: var(--blue-soft); } .band.green { background: var(--teal-soft); }
-.band.amber { background: var(--amber-soft); } .band.violet { background: #ECE6FB; }
 .top-card { padding: 14px; display: grid; gap: 12px; }
 .top-card.missed { box-shadow: inset 4px 0 0 var(--alarm), var(--shadow-card); }
 .top-card .kicker { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
@@ -1541,8 +1536,7 @@ button.fr-bin svg.bin-svg { width: 24px; height: 24px; }
 
 /* Your medicines (patient app) */
 .top-card .duo.one { grid-template-columns: 1fr; }
-.dash-top { display: grid; gap: 8px; }
-.dash-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dash-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hero-acts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; }
 .dash-next .countdown { font-size: 13px; font-weight: 600; color: var(--teal-dark); }
 .dash-next .countdown.overdue { color: var(--alarm); }

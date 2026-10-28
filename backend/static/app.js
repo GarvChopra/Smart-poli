@@ -213,7 +213,6 @@ document.getElementById('deleteAccountBtn').addEventListener('click', openDelete
   pwBtn.addEventListener('click', openSetPassword);
 }
 document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
-document.getElementById('shareMineNav').addEventListener('click', () => { window.location.href = '/caregiver#/share'; });
 
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
@@ -1620,11 +1619,8 @@ async function renderDashboard() {
   view.innerHTML = `
     <div class="stack">
     <div class="dash-top">
-      <div class="dash-bar">
-        <a class="pill-btn white" href="/caregiver"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Family</a>
-        <button class="pill-btn white" id="dashWhatsAppBtn" type="button"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
-      </div>
       <h1 class="page-title">${escHtml(greeting)}</h1>
+      <button class="pill-btn" id="dashWhatsAppBtn" type="button"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
     </div>
     <div id="dashPushPrompt"></div>
     <div id="dashTimingChip"></div>

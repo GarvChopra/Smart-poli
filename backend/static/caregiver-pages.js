@@ -1,7 +1,6 @@
 // SmartPoli — caregiver portal pages. One function per page; caregiver.js (the shell) routes to them.
 //
 //   #/                          Family
-//   #/share                     Family, with the Share my medicines sheet open
 //   #/p/:id/today               A person's page (missed / next dose, Remind now, Call / WhatsApp, Add medicine, week strip + timeline)
 //   #/p/:id/medicines           Medicines (adherence ring, per-medicine bar and 7-day strip, Today / 7 / 30 days)
 //   #/p/:id/notes               Notes (messages to the patient + care-team-only handover notes)
@@ -36,19 +35,15 @@ const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes']
 const FAMILY_COLOURS = ['rose', 'blue', 'amber', 'violet'];            // not green: that is You
 const colourOf = (id) => FAMILY_COLOURS[Number(id) % FAMILY_COLOURS.length];          // same person, same colour on every page and in the menu
 const initialOf = (name) => esc((name || '?').trim().charAt(0).toUpperCase());
-const BACK_ARROW = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>';
 const PAGE_LABELS = { medicines: 'Medicines', notes: 'Notes', history: 'History', emergency: 'Emergency' };        // Today carries the band instead
 
-/** The frame every person page shares. Today opens with the coloured band (← Family, Rename, Remove, the name); every other
- * page is just its own title with the person's name beneath it, so the band is not repeated on each page. */
+/** The frame every person page shares. Today opens with the person's name and Rename / Remove side by side (no coloured
+ * band, no back button: the menu's Family item is the way back); every other page is its own title with the name under it. */
 function patientFrame(root, o, active, bodyHtml) {
   const who = o.nickname || o.patient.name;
   const head = active === 'today' ? `
-    <div class="band ${colourOf(o.patient.id)}">
-      <div class="band-top"><a class="pill-btn white cg-back" href="#/">${BACK_ARROW}Family</a>
-        <button class="pill-btn" id="cgRename" type="button">Rename</button><button class="pill-btn red" id="cgRemovePerson" type="button">Remove</button></div>
-      <div class="band-name"><span class="fam-avatar" aria-hidden="true">${initialOf(who)}</span><h1 class="page-title">${esc(who)}</h1>${cgBadge(o.priority)}</div>
-    </div>` : `
+    <div class="person-head"><h1 class="page-title">${esc(who)}</h1>${cgBadge(o.priority)}
+      <span class="ph-actions"><button class="pill-btn" id="cgRename" type="button">Rename</button><button class="pill-btn red" id="cgRemovePerson" type="button">Remove</button></span></div>` : `
     <div class="plain-head"><h1 class="page-title">${esc(PAGE_LABELS[active] || '')}</h1><span class="reg-meta">${esc(who)}</span></div>`;
   root.innerHTML = `${head}<div class="stack"><div class="cg-body">${bodyHtml}</div></div>`;
   if (active !== 'today') return;
