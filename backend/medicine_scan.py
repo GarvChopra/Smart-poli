@@ -333,7 +333,7 @@ def parse_vision_answer(data: Optional[dict]) -> Optional[dict]:
     strength_raw = clean(data.get("strength"), 30)
     sm = _STRENGTH.search(strength_raw or "")
     strength = f"{sm.group(1)}{sm.group(2).lower()}" if sm else None
-    form = data.get("form") if data.get("form") in _FORM_OK else None
+    form = data.get("form") if data.get("form") in _FORM_OK - {"other"} else None
     read = [s[:120] for s in (data.get("text_read") or []) if isinstance(s, str)][:8]
     known = catalogue_match(name) or catalogue_match(generic)
     return {

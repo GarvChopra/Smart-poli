@@ -59,6 +59,7 @@ STEPS = [
     ("feedback", "user_id = :u"),
     ("prescription_templates", "doctor_user_id = :u"),
     ("user_push_subscriptions", "user_id = :u"),
+    ("family_invites", "from_user_id = :u OR accepted_by_user_id = :u"),
     ("patients", "user_id = :u"),
     ("users", "id = :u"),
 ]

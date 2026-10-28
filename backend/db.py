@@ -104,6 +104,7 @@ class CaregiverLink(Base):
     status = Column(String, nullable=False, default="pending")  # 'pending' | 'active' | 'revoked'
     created_at = Column(DateTime, default=datetime.utcnow)
     accepted_at = Column(DateTime, nullable=True)
+    nickname = Column(String, nullable=True)   # what the caregiver calls this person: "Mum", "Dad" (caregiver's own label)
 
 
 class DoctorLink(Base):
@@ -425,6 +426,23 @@ class UserPushSubscription(Base):
     last_success_at = Column(DateTime, nullable=True)
 
 
+class FamilyInvite(Base):
+    """'Add member': someone invites a family member (Mum) to be looked after by them. The code or link is worthless on
+    its own - the invited person has to be signed in and confirm, and only then does an ordinary CaregiverLink appear
+    (so every rule about what a caregiver may do stays in one place). One use, expires, can be cancelled."""
+    __tablename__ = "family_invites"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String, unique=True, nullable=False)
+    from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    nickname = Column(String, nullable=True)                 # what the inviter calls this person: "Mum"
+    status = Column(String, nullable=False, default="pending")   # 'pending' | 'accepted' | 'cancelled'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    accepted_at = Column(DateTime, nullable=True)
+
+
 class CaregiverPrefs(Base):
     """Per caregiver, per patient alert switches. No row = the defaults (alerts on)."""
     __tablename__ = "caregiver_prefs"
@@ -562,6 +580,10 @@ def _add_missing_columns() -> None:
         if "added_by_user_id" not in {c["name"] for c in inspector.get_columns("prescriptions")}:
             with ddl_engine.begin() as conn:
                 conn.execute(text("ALTER TABLE prescriptions ADD COLUMN added_by_user_id INTEGER"))
+    if "caregiver_links" in inspector.get_table_names():
+        if "nickname" not in {c["name"] for c in inspector.get_columns("caregiver_links")}:
+            with ddl_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE caregiver_links ADD COLUMN nickname VARCHAR"))
 
 
 # Lookups the app makes all the time (a patient's prescriptions, a prescription's medicines, a medicine's doses, the

@@ -115,3 +115,12 @@ def test_medicine_info_endpoint_uses_the_cache_and_never_blocks(monkeypatch):
         out = client.get(f"/patients/{pid}/medicine-info").json()
         assert out["medicines"][0]["name"] == "Telma 40" and out["medicines"][0]["known"] is False
         assert "disclaimer" in out and "pending" in out
+
+
+def test_scan_form_other_does_not_reject_the_medicine():
+    # A scan can read the form as "other" (or something unknown); that used to come back as a 422 on Add.
+    with TestClient(app) as client:
+        pid, _ = new_patient(client)
+        for form in ("other", "tablet", None, ""):
+            r = _post(client, pid, form=form, name="Dolo 650")
+            assert r.status_code == 200, (form, r.text)

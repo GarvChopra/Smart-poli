@@ -7,6 +7,16 @@
   const ua = navigator.userAgent || '';
   const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   
+  // Arrived from a family invite link: keep the invite through the install. On Android the same link opens the app
+  // afterwards; on an iPhone the app has its own storage, so the code is shown to type in under Add member.
+  const joinCode = ((new URLSearchParams(location.search).get('join') || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()).slice(0, 12);
+  if (joinCode) {
+    const nice = joinCode.length === 8 ? `${joinCode.slice(0, 4)}-${joinCode.slice(4)}` : joinCode;
+    const jn = $('joinNote');
+    jn.hidden = false;
+    jn.textContent = `Your family invite code is ${nice}. After installing, open SmartPoli and tap Add member and enter it`;
+  }
+
   if (standalone) {                       // already running as the installed app
     label.textContent = 'Open SmartPoli';
     note.textContent = 'SmartPoli is installed on this device.';
@@ -19,7 +29,7 @@
 
   window.addEventListener('appinstalled', () => {
     note.textContent = 'Installed! Opening SmartPoli…';
-    setTimeout(() => { window.location.href = '/'; }, 1200);
+    setTimeout(() => { window.location.href = joinCode ? `/join/${joinCode}` : '/caregiver'; }, 1200);
   });
 
   /** Resolves with Chrome's install event, or null if it does not arrive within `ms`. */

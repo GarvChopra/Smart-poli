@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from db import get_db_session, User, Patient
-from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES, doctor_role_enabled
+from auth import hash_password, verify_password, create_token, get_current_user, revoke_token, ROLES, PERSON_ROLES, doctor_role_enabled
 from schemas import RegisterRequest, LoginRequest, GoogleLoginRequest
 import google_auth
 
@@ -54,7 +54,7 @@ def doctor_signup_open() -> bool:
 
 def _serialize_user(user: User, db: Session) -> dict:
     out = {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
-    if user.role == "patient":
+    if user.role in PERSON_ROLES:
         out["patient_ids"] = [p.id for p in db.query(Patient).filter(Patient.user_id == user.id).all()]
     return out
 
@@ -114,18 +114,17 @@ def google_config():
 def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db_session),
                  _rl=Depends(rate_limit("google", 20, 300))):
     """Sign in (or sign up) with a Google ID token the server verifies itself. An existing account with the same,
-    Google-verified email is opened. Someone new is asked once whether they are a patient or a caregiver."""
+    Google-verified email is opened. Someone new gets a regular account: their own medicines, and family if they add any."""
     try:
         info = google_auth.verify_id_token(body.credential)
     except google_auth.GoogleTokenError as e:
         raise HTTPException(401, str(e))
     user = db.query(User).filter(User.email == info["email"]).first()
     if user is None:
-        if not body.role:
-            return {"needs_role": True, "name": info["name"]}
-        if body.role not in ("patient", "caregiver") and not (body.role == "doctor" and doctor_signup_open()):
-            raise HTTPException(400, "Choose patient or caregiver.")
-        user = User(email=info["email"], password_hash=None, role=body.role, name=info["name"])
+        role = body.role or "both"
+        if role not in ("both", "patient", "caregiver") and not (role == "doctor" and doctor_signup_open()):
+            raise HTTPException(400, "That account type is not available.")
+        user = User(email=info["email"], password_hash=None, role=role, name=info["name"])
         db.add(user)
         db.commit()
     elif user.role == "doctor" and not doctor_role_enabled():

@@ -80,6 +80,7 @@ from serializers import (
     card_profile, card_photo, save_card_profile,
 )
 from auth import (
+    PERSON_ROLES,
     get_current_user, require_patient_write_access, require_patient_read_access,
     require_medicine_write_access, require_dose_write_access, require_prescription_write_access,
     has_write_access, has_read_access, can_add_medicine, is_linked_caregiver, doctor_role_enabled,
@@ -93,6 +94,7 @@ from emergency_tokens import patient_id_for_token, rotate_token
 from emergency_page import render_public_card, INACTIVE_CARD_HTML
 from health_card_pdf import build_wallet_card_pdf
 import auth_router
+import family_router
 import caregiver_router
 import doctor_router
 import whatsapp_router
@@ -144,6 +146,7 @@ FOOD_RULESET = load_food_ruleset()
 
 app.include_router(auth_router.router)
 app.include_router(caregiver_router.router)
+app.include_router(family_router.router)
 app.include_router(doctor_router.router)
 app.include_router(whatsapp_router.router)
 
@@ -204,6 +207,13 @@ def _page_route(file_name: str):
 
 for _path, _file in PAGES.items():
     app.add_api_route(_path, _page_route(_file), methods=["GET"], include_in_schema=False)
+
+
+@app.get("/join/{code}", include_in_schema=False)
+def join_page(code: str):
+    """Opened from an invite link. The page itself holds no secret; the code is only used by the signed-in person's own
+    confirmation (family_router.py)."""
+    return HTMLResponse(_versioned_html("join.html"), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/static/{name}.html", include_in_schema=False)
@@ -428,7 +438,7 @@ def on_shutdown():
 @app.post("/patients")
 def create_patient(body: PatientCreate, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db_session)):
-    if user.role != "patient":
+    if user.role not in PERSON_ROLES:
         raise HTTPException(403, "Only a patient account can create a patient profile.")
     patient = Patient(user_id=user.id, name=body.name, age=body.age, sex=body.sex,
                        blood_group=body.blood_group,
@@ -445,7 +455,7 @@ def list_patients(user: User = Depends(get_current_user), db: Session = Depends(
     patient in the system to anyone (Part 18: 'no unrestricted patient
     APIs'). Caregivers/doctors have their own /caregiver and /doctor
     listings, which are relationship-scoped."""
-    if user.role != "patient":
+    if user.role not in PERSON_ROLES:
         raise HTTPException(403, "Use /caregiver/patients or /doctor/patients for this role.")
     return [serialize_patient(p) for p in db.query(Patient).filter(Patient.user_id == user.id).all()]
 
@@ -588,6 +598,55 @@ async def scan_medicine(
     log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result
+
+
+@app.post("/medicines/from-pdf")
+async def medicines_from_pdf(
+    patient_id: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+    _ai=Depends(rate_limit("ai-image", 10, 60)),
+):
+    """
+    A prescription PDF (or photo of one) -> the medicine names, strengths and forms printed on it, for the person to
+    pick from. Same answer shape as /medicines/scan, so the same "Is this your medicine?" step follows. Nothing is saved
+    here and no schedule is taken from the file: the person still sets when to take it, then it saves through
+    POST /medicines/manual. Open to the patient and their linked caregiver (the full-prescription route is patient-only).
+    """
+    get_patient_or_404(db, patient_id)
+    if not can_add_medicine(db, user, patient_id):
+        raise HTTPException(403, "Only the patient or their linked caregiver can add a medicine.")
+    db.commit()               # hand the database connection back while the file is read
+    data = await _read_image_upload(file, allow_pdf=True)
+    try:
+        result = await run_in_threadpool(rx_reader.read_prescription_file, data, lambda b: read_prescription_image(b))
+    except rx_reader.ReadFailed as e:
+        raise HTTPException(422, str(e))
+    except OCRUnavailable:
+        raise HTTPException(503, "Reading files is unavailable right now. Scan the medicine or enter it manually instead.")
+
+    form_of = {"tab": "tab", "tablet": "tab", "cap": "cap", "capsule": "cap", "syp": "syrup", "syrup": "syrup",
+               "susp": "syrup", "inj": "inj", "injection": "inj"}
+    candidates, seen = [], set()
+    for text, _conf in result["lines"]:
+        parsed = parse_medicine_line(text)
+        name = (parsed.get("name") or "").strip()
+        if len(name) < 2 or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        strength = f"{parsed['dose_amount']}{parsed['dose_unit'] or ''}" if parsed.get("dose_amount") else None
+        first = text.split()[0].strip(".").lower() if text.split() else ""
+        candidates.append({"name": name, "generic": None, "strength": strength, "form": form_of.get(first),
+                           "match": "read", "score": None, "known": bool(parsed.get("normalized_name")),
+                           "read_from": text[:120]})
+    if not candidates:
+        raise HTTPException(422, "We couldn't find a medicine name in that file. Scan the medicine or enter it manually instead.")
+    log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_pdf_read",
+              f"{len(candidates)} candidate(s) from {len(result['lines'])} line(s), read by {result['method']}")
+    return {"candidates": candidates[:12], "expiry": None, "lines_read": [t for t, _ in result["lines"]][:8],
+            "form_guess": candidates[0]["form"],
+            "note": "Check each name and strength against the prescription. SmartPoli only suggests; you confirm."}
 
 
 @app.get("/medicines/names")

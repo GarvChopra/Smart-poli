@@ -25,6 +25,7 @@ const overviewCache = { pid: null, at: 0, data: null };
 async function getOverview(pid, force = false) {
   if (!force && overviewCache.pid === pid && Date.now() - overviewCache.at < 20000) return overviewCache.data;
   const data = await api('GET', `/caregiver/patients/${pid}/overview`);
+  data.label = data.nickname || data.patient.name;                 // what this caregiver calls them: "Mum"
   Object.assign(overviewCache, { pid, at: Date.now(), data });
   return data;
 }
@@ -34,47 +35,228 @@ const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes']
 /** The frame every patient page shares: back link, name, the tab bar, and a body to fill. */
 function patientFrame(root, o, active, bodyHtml) {
   root.innerHTML = `
-    <a class="cg-back" href="#/">← All patients</a>
-    <div class="cg-title"><h2>${esc(o.patient.name)}</h2>${cgBadge(o.priority)}</div>
+    <a class="cg-back" href="#/">← Family</a>
+    <div class="cg-title"><h2>${esc(o.nickname || o.patient.name)}</h2>${cgBadge(o.priority)}<button class="ghost small" id="cgRename" type="button">Rename</button></div>
     <div class="cg-section">${esc((TABS.find(([key]) => key === active) || [])[1] || '')}</div>
     <div class="cg-body">${bodyHtml}</div>`;
+  root.querySelector('#cgRename').addEventListener('click', async () => {
+    const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
+    if (next === null) return;
+    await api('PATCH', `/caregiver/patients/${o.patient.id}/nickname`, { nickname: next.trim() || null });
+    o.nickname = next.trim() || null;
+    getOverview(o.patient.id, true).then(() => route());
+  });
 }
 
 function emptyBox(text) { return `<div class="empty">${esc(text)}</div>`; }
 
 // ---------------------------------------------------------------- Patients
 
+const FAMILY_COLOURS = ['rose', 'blue', 'green', 'amber', 'violet'];
+const DOSE_PILL = {
+  taken: ['taken', 'Taken'], missed: ['missed', 'Missed'], skipped: ['pending', 'Skipped'],
+  pending: ['pending', 'Pending'], snoozed: ['pending', 'Snoozed'],
+};
+const TODAY_PREVIEW = 4;
+const CAPSULE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.2 9.2l5.6 5.6"/></svg>';
+const clockOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const medCount = (n) => `${n} ${n === 1 ? 'medicine' : 'medicines'} today`;
+
+/** The phone home: "You" first, then the people you look after. Today below it is YOUR doses only; each family
+ * member's day is on their own screen (tap their row). */
 async function pagePatients(root) {
   root.innerHTML = '<div class="empty">Loading…</div>';
-  const patients = await api('GET', '/caregiver/patients');
-  const cards = (list) => list.map((p) => `
-    <a class="patient-picker-card cg-patient" href="#/p/${p.id}/today">
-      <div class="name">${esc(p.name)}</div>
-      <div class="meta">${esc(p.age ? p.age + ' yrs' : '')}${esc(p.sex ? ', ' + p.sex : '')}</div>
-      <div class="priority-row">${cgBadge(p.priority)}
-        ${(p.priority && p.priority.reasons || []).length ? `<ul class="priority-reasons">${p.priority.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}</div>
-    </a>`).join('') || emptyBox('No patients match that search.');
+  const home = await api('GET', '/caregiver/home');
+  const you = home.you;
+  // Someone looks after family but this phone is not set up to be told when a dose is missed: offer it right here.
+  const alertsOff = home.family.length > 0 && pushOk() && !(await caregiverPhoneSubscription());
+  const youRow = `
+    <a class="fam-row fam-you" id="youRow" href="/">
+      <span class="fam-avatar green" aria-hidden="true">${esc((currentUser.name || 'Y').trim().charAt(0).toUpperCase())}</span>
+      <span class="fam-text"><b>You</b><small>${you.patient_id ? medCount(you.medicines_today) : 'Add your own medicines'}</small></span>
+      <span class="fam-chev" aria-hidden="true">›</span>
+    </a>`;
+  const familyRows = home.family.map((f, i) => `
+    <a class="fam-row" href="#/p/${f.id}/today">
+      <span class="fam-avatar ${FAMILY_COLOURS[i % FAMILY_COLOURS.length]}" aria-hidden="true">${esc((f.label || '?').trim().charAt(0).toUpperCase())}</span>
+      <span class="fam-text"><b>${esc(f.label)}</b>
+        <small>${medCount(f.medicines_today)}${f.missed_today ? ` · <span class="fam-missed">${f.missed_today} missed</span>` : ''}</small></span>
+      <span class="fam-chev" aria-hidden="true">›</span>
+    </a>`).join('');
+  const doseRow = (d) => {
+    const [cls, label] = DOSE_PILL[d.state] || DOSE_PILL.pending;
+    return `<div class="dose-row">
+      <span class="dose-icon" aria-hidden="true">${CAPSULE}</span>
+      <span class="fam-text"><b>${esc(d.medicine_name)}${d.strength ? ' ' + esc(d.strength) : ''}</b>
+        <small>${esc(clockOf(d.scheduled_at))}</small></span>
+      <span class="dose-pill ${cls}">${label}</span></div>`;
+  };
+  const doses = home.today;
   root.innerHTML = `
-    <h2>Your patients</h2>
-    ${patients.length ? '<input type="text" id="cgSearch" placeholder="Search patients by name…" style="margin-bottom:12px;">' : ''}
-    <div id="cgPatients" class="patient-picker-grid">${patients.length ? cards(patients) : emptyBox('No linked patients yet. Link one below.')}</div>
-    ${linkFormHtml()}`;
-  const search = root.querySelector('#cgSearch');
-  if (search) search.addEventListener('input', () => {
-    const q = search.value.trim().toLowerCase();
-    root.querySelector('#cgPatients').innerHTML = cards(q ? patients.filter((p) => p.name.toLowerCase().includes(q)) : patients);
+    <div class="cg-phone">
+      <section>
+        <div class="cg-row-head"><h2>Family</h2><button class="add-member" id="addMemberBtn" type="button">Add member</button></div>
+        <div class="fam-list">${familyRows}${youRow}</div>
+        ${alertsOff ? `<div class="fam-alerts"><span>Get an alert on this phone when a dose is missed.</span>
+          <button class="add-member" id="alertsOnBtn" type="button">Turn on</button></div><div id="alertsMsg" class="cg-err"></div>` : ''}
+        <p class="reg-meta fam-hint">${home.family.length ? '' : 'Add a family member to see their medicines and get an alert if they miss a dose. '}Want someone to look after <i>your</i> medicines? <button class="view-all" id="shareMineBtn" type="button">Share my medicines</button></p>
+      </section>
+      <section>
+        <div class="cg-row-head"><h2>Today</h2>${doses.length > TODAY_PREVIEW ? '<button class="view-all" id="viewAllBtn" type="button">View all</button>' : ''}</div>
+        <div class="fam-list" id="todayList">${doses.length ? doses.slice(0, TODAY_PREVIEW).map(doseRow).join('')
+          : `<div class="empty">${you.patient_id ? 'Nothing to take today.' : 'Tap You to add your own medicines.'}</div>`}</div>
+      </section>
+    </div>`;
+
+  // "You" opens the person's own app. The very first time there is no profile yet: make it, then go.
+  root.querySelector('#youRow').addEventListener('click', async (e) => {
+    if (you.patient_id) return;
+    e.preventDefault();
+    try {
+      const made = await api('POST', '/patients', { name: currentUser.name || 'Me' });
+      const auth = getAuth();
+      if (auth && auth.user) { auth.user.patient_ids = [made.id]; setAuth(auth.token, auth.user); }
+      window.location.href = '/';
+    } catch (err) {
+      root.querySelector('#youRow small').textContent = err.message || 'Could not open your profile. Please try again.';
+    }
   });
-  wireLinkForm(root);
+  root.querySelector('#addMemberBtn').addEventListener('click', openAddMember);
+  const alertsBtn = root.querySelector('#alertsOnBtn');
+  if (alertsBtn) alertsBtn.addEventListener('click', async () => {
+    try { await enableCaregiverAlerts(); pagePatients(root); }
+    catch (e) { root.querySelector('#alertsMsg').textContent = e.message; }
+  });
+  root.querySelector('#shareMineBtn').addEventListener('click', () => openShareMine(you));
+  const all = root.querySelector('#viewAllBtn');
+  if (all) all.addEventListener('click', () => {
+    const open = all.dataset.open !== '1';
+    all.dataset.open = open ? '1' : '0';
+    all.textContent = open ? 'Show less' : 'View all';
+    root.querySelector('#todayList').innerHTML = (open ? doses : doses.slice(0, TODAY_PREVIEW)).map(doseRow).join('');
+  });
+}
+
+// ---------------------------------------------------------------- Add member: a link / code to send, or a code you were sent
+
+function inviteMessage(inv) {
+  return `${currentUser.name} would like to help look after your medicines on SmartPoli. Tap to join: ${inv.url}\n(Or open SmartPoli and enter code ${inv.code})`;
+}
+
+function openAddMember() {
+  const m = showSafetyModal(`
+    <h3>Add a family member</h3>
+    <p class="reg-meta">Ask them to open SmartPoli and tap <b>Share my medicines</b>. They'll get a code. Type it here.</p>
+    <label for="amCode">Their code (or paste the link)</label>
+    <input type="text" id="amCode" placeholder="e.g. K7Q3-XM2P" autocomplete="off" autocapitalize="characters">
+    <div id="amMsg" class="auth-error" role="alert"></div>
+    <div class="sm-actions"><button class="primary" id="amGo" type="button">Continue</button></div>
+    <div class="am-or"><span>or</span></div>
+    <p class="reg-meta" style="margin-top:0;">Can't get a code from them? Send them a link instead.</p>
+    <label for="amNick">What do you call them?</label>
+    <input type="text" id="amNick" maxlength="30" placeholder="e.g. Mum, Dad" autocomplete="off">
+    <div class="sm-actions"><button class="ghost" id="amCreate" type="button">Create invite link</button></div>
+    <div class="sm-actions"><button class="ghost small" id="amClose" type="button">Close</button></div>`);
+  const input = m.querySelector('#amCode');
+  // The next page works out whether it is their code or an invite, and asks for confirmation before anything is shared.
+  const go = () => {
+    const raw = input.value.trim();
+    const last = raw.includes('/') ? raw.split('/').filter(Boolean).pop() : raw;           // a pasted link: take its code
+    const code = last.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (code.length < 6 || code.length > 12) { m.querySelector('#amMsg').textContent = 'That does not look like a full code. Check it and try again.'; return; }
+    window.location.href = `/join/${encodeURIComponent(code)}`;
+  };
+  m.querySelector('#amGo').addEventListener('click', go);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  m.querySelector('#amClose').addEventListener('click', () => m.remove());
+  m.querySelector('#amCreate').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    try {
+      const inv = await api('POST', '/family/invites', { nickname: m.querySelector('#amNick').value.trim() || null });
+      showInvite(m, inv);
+    } catch (err) {
+      m.querySelector('#amMsg').textContent = err.message || 'Could not create the invite. Try again.';
+      btn.disabled = false;
+    }
+  });
+}
+
+/** Share my medicines: make a one-time code for MY profile; whoever enters it becomes my caregiver (I stay in control). */
+async function openShareMine(you) {
+  const m = showSafetyModal(`<h3>Share my medicines</h3><p class="reg-meta">Making your code…</p>`);
+  try {
+    let pid = you.patient_id;
+    if (!pid) {                                            // first time: make my own profile
+      const made = await api('POST', '/patients', { name: currentUser.name || 'Me' });
+      pid = made.id;
+      const auth = getAuth();
+      if (auth && auth.user) { auth.user.patient_ids = [pid]; setAuth(auth.token, auth.user); }
+    }
+    const link = await api('POST', `/patients/${pid}/caregiver-links`);
+    const code = `${link.code.slice(0, 4)}-${link.code.slice(4)}`;
+    const url = link.url;                                   // always the real site's address, from the server
+    const text = `${currentUser.name} wants to share their medicines with you on SmartPoli. Tap to connect: ${url}\n(Or open SmartPoli, tap Add member and enter code ${code})`;
+    m.querySelector('.safety-modal').innerHTML = `
+      <h3>Send this to who will look after you</h3>
+      <div class="am-code" aria-label="Your code">${esc(code)}</div>
+      <p class="reg-meta" style="text-align:center;">Works once, for 7 days. They'll see your medicines only after they enter it. You can remove them any time in Settings.</p>
+      <div class="am-share">
+        <a class="primary" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(text)}">Share on WhatsApp</a>
+        ${navigator.share ? '<button class="ghost" id="smShare" type="button">Share…</button>' : ''}
+        <button class="ghost" id="smCopy" type="button">Copy code</button>
+      </div>
+      <div id="smMsg" class="reg-meta" role="status" style="text-align:center;"></div>
+      <div class="sm-actions"><button class="ghost small" id="smDone" type="button">Done</button></div>`;
+    m.querySelector('#smCopy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(code); m.querySelector('#smMsg').textContent = 'Code copied.'; }
+      catch (e) { m.querySelector('#smMsg').textContent = 'Copy did not work here. Press and hold the code to copy it.'; }
+    });
+    const sh = m.querySelector('#smShare');
+    if (sh) sh.addEventListener('click', () => navigator.share({ text, url }).catch(() => null));
+    m.querySelector('#smDone').addEventListener('click', () => { m.remove(); route(); });
+  } catch (err) {
+    m.querySelector('.safety-modal').innerHTML = `<h3>Couldn't make a code</h3><p class="reg-meta">${esc(err.message || 'Please try again.')}</p>
+      <div class="sm-actions"><button class="ghost small" id="smClose" type="button">Close</button></div>`;
+    m.querySelector('#smClose').addEventListener('click', () => m.remove());
+  }
+}
+
+function showInvite(m, inv) {
+  const text = inviteMessage(inv);
+  m.querySelector('.safety-modal').innerHTML = `
+    <h3>Send this to ${esc(inv.nickname || 'them')}</h3>
+    <div class="am-code" aria-label="Invite code">${esc(inv.code)}</div>
+    <p class="reg-meta" style="text-align:center;">Works once, for 7 days. ${esc(inv.nickname || 'They')} will be asked to confirm before you can see anything.</p>
+    <div class="am-share">
+      <a class="primary" id="amWa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(text)}">Share on WhatsApp</a>
+      ${navigator.share ? '<button class="ghost" id="amShare" type="button">Share…</button>' : ''}
+      <button class="ghost" id="amCopyLink" type="button">Copy link</button>
+      <button class="ghost" id="amCopyCode" type="button">Copy code</button>
+    </div>
+    <div id="amMsg" class="reg-meta" role="status" style="text-align:center;"></div>
+    <div class="sm-actions"><button class="ghost small" id="amDone" type="button">Done</button></div>`;
+  const say = (t) => { m.querySelector('#amMsg').textContent = t; };
+  const copy = async (value, done) => {
+    try { await navigator.clipboard.writeText(value); say(done); }
+    catch (e) { say('Copy did not work here. Press and hold the text to copy it.'); }
+  };
+  m.querySelector('#amCopyLink').addEventListener('click', () => copy(inv.url, 'Link copied.'));
+  m.querySelector('#amCopyCode').addEventListener('click', () => copy(inv.code, 'Code copied.'));
+  const share = m.querySelector('#amShare');
+  if (share) share.addEventListener('click', () => navigator.share({ text, url: inv.url }).catch(() => null));
+  m.querySelector('#amDone').addEventListener('click', () => m.remove());
 }
 
 function linkFormHtml() {
   return `
     <div class="card" style="margin-top:18px;">
-      <h3>Link a patient</h3>
+      <h3>Link with a patient's code</h3>
       <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to create an invite code in their SmartPoli app (Settings → Care team → Link a caregiver), then enter it here.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
-        <button class="primary" id="redeemLinkBtn">Link</button>
+        <input type="text" id="linkNickInput" placeholder="Nickname, e.g. Mum" maxlength="30" style="flex:1 1 160px;min-width:0;">
+        <button class="primary" id="redeemLinkBtn">Add</button>
       </div>
       <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
     </div>`;
@@ -85,12 +267,13 @@ function wireLinkForm(root) {
   if (!btn) return;
   btn.addEventListener('click', async () => {
     const code = root.querySelector('#linkCodeInput').value.trim();
+    const nickname = root.querySelector('#linkNickInput').value.trim();
     const status = root.querySelector('#linkStatus');
     if (!code) return;
     try {
-      const result = await api('POST', '/caregiver/link/redeem', { code });
+      const result = await api('POST', '/caregiver/link/redeem', { code, nickname: nickname || null });
       status.style.color = 'var(--teal-dark)';
-      status.textContent = `Linked to ${result.patient.name}.`;
+      status.textContent = `Added ${nickname || result.patient.name}.`;
       setTimeout(() => { window.location.hash = `#/p/${result.patient.id}/today`; }, 600);
     } catch (e) {
       status.style.color = 'var(--alarm)';
@@ -119,7 +302,7 @@ function startAddMedicine(pid, patientName, how, onDone) {
     m.querySelector('#cgAddDone').addEventListener('click', () => { m.remove(); onDone(); });
     m.querySelector('#cgAddMore').addEventListener('click', () => { m.remove(); onDone(); medicineWizard({ step: 'details' }); });
   };
-  if (how === 'scan') openMedicineCamera(); else medicineWizard({ step: 'details' });
+  if (how === 'scan') openMedicineCamera(); else if (how === 'pdf') openMedicinePdf(); else medicineWizard({ step: 'details' });
 }
 
 const addMedicineHtml = (name) => `
@@ -127,6 +310,7 @@ const addMedicineHtml = (name) => `
     <h3>Add a medicine for ${esc(name)}</h3>
     <div class="cg-actions">
       <button class="primary" data-add-med="scan">📷 Scan a medicine</button>
+      <button class="ghost" data-add-med="pdf">📄 Upload PDF</button>
       <button class="ghost" data-add-med="manual">Enter manually</button>
     </div>
     <div class="reg-meta">${esc(name)} sees it marked “Added by you” and can remove it.</div>
@@ -152,7 +336,7 @@ async function pageToday(root, pid) {
   const ph = o.phones || {};
   const own = ph.patient, ec = ph.emergency_contact;
   const contact = [
-    own ? `<a class="ghost small cg-link" href="tel:${esc(own)}">Call ${esc(o.patient.name)}</a><a class="ghost small cg-link" href="https://wa.me/${esc(phoneDigits(own))}" target="_blank" rel="noopener">WhatsApp</a>` : '',
+    own ? `<a class="ghost small cg-link" href="tel:${esc(own)}">Call ${esc(o.label)}</a><a class="ghost small cg-link" href="https://wa.me/${esc(phoneDigits(own))}" target="_blank" rel="noopener">WhatsApp</a>` : '',
     ec ? `<a class="ghost small cg-link" href="tel:${esc(ec.phone)}">Call ${esc(ec.label || 'emergency contact')}</a>` : '',
   ].join('');
   patientFrame(root, o, 'today', `
@@ -170,7 +354,7 @@ async function pageToday(root, pid) {
       <div class="stat"><div><div class="num">${esc(o.adherence.missed)}</div><div class="label">Missed</div></div></div>
     </div>
     <div class="card"><div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>${alerts}</div>`);
-  wireAddMedicine(root, pid, o.patient.name, () => { window.location.hash = `#/p/${pid}/medicines`; });
+  wireAddMedicine(root, pid, o.label, () => { window.location.hash = `#/p/${pid}/medicines`; });
   const btn = root.querySelector('#cgRemind');
   const msg = root.querySelector('#cgRemindMsg');
   btn.addEventListener('click', async () => {
@@ -229,20 +413,18 @@ function wireDeleteButtons(root, onDone) {
 async function pageMedicines(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid);
-  const notes = (await api('GET', `/caregiver/patients/${pid}/notes?kind=medicine`)).notes;
   const meds = o.per_medicine || [];
+  // Medicines: the list, and the three ways to add one (the same as in the patient's own app). Notes live on the Notes page only.
   const cards = meds.map((m) => `
     <div class="card cg-med" data-med="${esc(m.medicine_id)}">
       <div class="cg-med-head"><strong>${esc(m.name)}</strong>
         <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
       ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
         <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
-      <div class="cg-notes">${noteListHtml(notes.filter((n) => n.medicine_id === m.medicine_id), currentUser.id)}</div>
-      ${noteFormHtml(`medForm${m.medicine_id}`, `Add a note about ${m.name} (for example: take with milk)`, 'Add note')}
     </div>`).join('') || emptyBox('No medicines yet.');
-  patientFrame(root, o, 'medicines', `${addMedicineHtml(o.patient.name)}<p class="reg-meta">Notes here show on this medicine for the patient and the whole care team. They are not medical advice.</p>${cards}`);
+  patientFrame(root, o, 'medicines', `${addMedicineHtml(o.label)}${cards}`);
   const reload = () => pageMedicines(root, pid);
-  wireAddMedicine(root, pid, o.patient.name, () => { overviewCache.pid = null; reload(); });
+  wireAddMedicine(root, pid, o.label, () => { overviewCache.pid = null; reload(); });
   root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
     const m = showSafetyModal(`
       <h3>Remove ${esc(b.dataset.name)}?</h3>
@@ -254,9 +436,6 @@ async function pageMedicines(root, pid) {
       catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
     });
   }));
-  meds.forEach((m) => wireNoteForm(root.querySelector(`#medForm${m.medicine_id}`),
-    (text) => api('POST', `/caregiver/patients/${pid}/notes`, { kind: 'medicine', body: text, medicine_id: m.medicine_id }), reload));
-  wireDeleteButtons(root, reload);
 }
 
 // ---------------------------------------------------------------- Notes
@@ -270,14 +449,14 @@ async function pageNotes(root, pid) {
   patientFrame(root, o, 'notes', `
     <div class="card">
       <div class="card-head">${iconBadge('teal', 'messageCircle')}<h3>Messages to the patient</h3></div>
-      <p class="reg-meta">${esc(o.patient.name)} sees these in their SmartPoli app. They are not medical advice.</p>
-      ${noteFormHtml('msgForm', `Write a message to ${o.patient.name}…`, 'Send',
+      <p class="reg-meta">${esc(o.label)} sees these in their SmartPoli app. They are not medical advice.</p>
+      ${noteFormHtml('msgForm', `Write a message to ${o.label}…`, 'Send',
         '<label class="cg-check"><input type="checkbox" data-notify> Also notify their phone now</label>')}
       <div class="cg-notes">${noteListHtml(messages, currentUser.id)}</div>
     </div>
     <div class="card">
       <div class="card-head">${iconBadge('blue', 'fileText')}<h3>Handover notes</h3></div>
-      <p class="reg-meta">For the care team only (other caregivers). ${esc(o.patient.name)} does not see these.</p>
+      <p class="reg-meta">For the care team only (other caregivers). ${esc(o.label)} does not see these.</p>
       ${noteFormHtml('handForm', 'What should the next caregiver know?', 'Add note')}
       <div class="cg-notes">${noteListHtml(handover, currentUser.id)}</div>
     </div>`);

@@ -32,6 +32,7 @@ from typing import Callable, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+import notify_copy
 import safety_engine
 import safety_service
 import webpush_service
@@ -103,13 +104,15 @@ def _release(db: Session, dose_id: int, kind: str, channel: str) -> None:
     db.commit()
 
 
-def _send_push(db: Session, patient_id: int, dose_id: int, kind: str, msg: dict, push_fn) -> int:
+def _send_push(db: Session, patient_id: int, dose_ids, kind: str, msg: dict, push_fn) -> int:
+    """One notification for one or several doses (all due at the same moment); `dose_id` is the first, for the tag."""
+    ids = [dose_ids] if isinstance(dose_ids, int) else list(dose_ids)
     subs = db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).all()
     sent = 0
     for sub in subs:
         status = push_fn(sub.endpoint, sub.p256dh, sub.auth, {
             "title": msg["title"], "body": msg["body"], "url": "/",
-            "tag": f"dose-{dose_id}-{kind}", "dose_id": dose_id, "kind": kind,
+            "tag": f"dose-{ids[0]}-{kind}", "dose_id": ids[0], "dose_ids": ids, "kind": kind,
         })
         if status == "sent":
             sub.last_success_at = datetime.utcnow()
@@ -134,7 +137,7 @@ def _notify(db: Session, patient_id: int, dose: Dose, kind: str, msg: dict, push
     if webpush_service.is_configured() or push_fn is not webpush_service.send:
         if db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count():
             if _claim(db, dose.id, kind, "push"):
-                n = _send_push(db, patient_id, dose.id, kind, msg, push_fn)
+                n = _send_push(db, patient_id, [dose.id], kind, msg, push_fn)
                 if n == 0:
                     _release(db, dose.id, kind, "push")  # nothing delivered: allow a retry next minute
                 sent += n
@@ -149,6 +152,54 @@ def _notify(db: Session, patient_id: int, dose: Dose, kind: str, msg: dict, push
                 n = _send_whatsapp(db, patient_id, msg, wa_fn)
                 if n == 0:
                     _release(db, dose.id, kind, "whatsapp")
+                sent += n
+    return sent
+
+
+def _items(group: list) -> list:
+    """[(dose, minutes_until)] -> what notify_copy needs about each medicine."""
+    out = []
+    for dose, _ in group:
+        med = dose.medicine
+        out.append({"name": med.name or med.raw_text, "dose": f"{med.dose_amount}{med.dose_unit or ''}" if med.dose_amount else "",
+                    "food": med.food, "at": dose.scheduled_at})
+    return out
+
+
+def _notify_group(db: Session, patient_id: int, kind: str, group: list, seed: int, push_fn, wa_fn, wa_on: bool) -> int:
+    """Every dose owed the same reminder at the same moment goes out as ONE notification ("2 medicines due now"), not one
+    per medicine. Each dose is still claimed on its own (ReminderLog), so a dose already told about is never told again,
+    and a failed send releases only what it claimed."""
+    group = sorted(group, key=lambda g: g[0].id)
+
+    def message(members: list) -> dict:
+        return notify_copy.self_reminder(kind, _items(members), members[0][1], seed)
+
+    sent = 0
+    if webpush_service.is_configured() or push_fn is not webpush_service.send:
+        if db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count():
+            mine = [g for g in group if _claim(db, g[0].id, kind, "push")]
+            if mine:
+                n = _send_push(db, patient_id, [g[0].id for g in mine], kind, message(mine), push_fn)
+                if n == 0:
+                    for g in mine:
+                        _release(db, g[0].id, kind, "push")        # nothing delivered: allow a retry next minute
+                sent += n
+        elif kind == "due":
+            for dose, _ in group:
+                if _claim(db, dose.id, kind, "no_device"):
+                    # Nothing to send to: no phone of this patient has reminders on. Recorded once per dose, so a silent
+                    # stretch with no reminders shows up in the log instead of being invisible.
+                    logger.warning("Dose %s was due but patient %s has no device with reminders on", dose.id, patient_id)
+    if wa_on:
+        if db.query(WhatsAppSession).filter(WhatsAppSession.patient_id == patient_id,
+                                            WhatsAppSession.notifications_opt_in.is_(True)).count():
+            mine = [g for g in group if _claim(db, g[0].id, kind, "whatsapp")]
+            if mine:
+                n = _send_whatsapp(db, patient_id, message(mine), wa_fn)
+                if n == 0:
+                    for g in mine:
+                        _release(db, g[0].id, kind, "whatsapp")
                 sent += n
     return sent
 
@@ -182,13 +233,17 @@ def run_reminder_sweep(db: Session, utc_now: Optional[datetime] = None,
              .filter(Dose.state.in_(("pending", "snoozed")), Dose.scheduled_at >= lo, Dose.scheduled_at <= hi).all())
     prefs: dict = {}
     sent_total = 0
+    owed: dict = {}                        # (patient, kind, dose time) -> doses owed that reminder at that moment
     for dose in doses:
         patient_id = dose.medicine.prescription.patient_id
         tz, lead, soon_on, follow_on = _patient_prefs(db, patient_id, prefs)
         minutes_until = (dose.scheduled_at - local_now(tz, utc_now)).total_seconds() / 60
         for kind in _due_kinds(minutes_until, lead, soon_on, follow_on):
-            sent_total += _notify(db, patient_id, dose, kind, build_message(kind, dose, minutes_until),
-                                  push_fn, wa_fn, wa_on)
+            owed.setdefault((patient_id, kind, dose.scheduled_at), []).append((dose, minutes_until))
+    for (patient_id, kind, _at), group in owed.items():
+        # The wording changes with the patient's own calendar day, so tomorrow's reminders do not read like today's.
+        seed = local_now(prefs[patient_id][0], utc_now).date().toordinal() + patient_id
+        sent_total += _notify_group(db, patient_id, kind, group, seed, push_fn, wa_fn, wa_on)
     try:
         sent_total += notify_course_ending(db, utc_now, push_fn, wa_fn)
     except Exception:  # noqa: BLE001 - never let the optional notice break dose reminders
@@ -204,6 +259,7 @@ def notify_missed(db: Session, missed: list[Dose], utc_now: Optional[datetime] =
     wa_fn = wa_fn or whatsapp_bot.send_whatsapp_message
     wa_on = whatsapp_bot.is_configured() or wa_fn is not whatsapp_bot.send_whatsapp_message
     sent = 0
+    by_patient: dict = {}
     for dose in missed:
         patient_id = dose.medicine.prescription.patient_id
         try:
@@ -220,21 +276,34 @@ def notify_missed(db: Session, missed: list[Dose], utc_now: Optional[datetime] =
                    "body": f"You missed {dose.medicine.name or dose.medicine.raw_text}. Don't take a double dose; "
                            "ask your pharmacist or doctor what to do."}
         sent += _notify(db, patient_id, dose, "missed", msg, push_fn, wa_fn, wa_on)
+        by_patient.setdefault(patient_id, []).append(dose)
+    for patient_id, doses in by_patient.items():
         try:
-            notify_caregivers_missed(db, dose, push_fn)
+            notify_caregivers_missed_batch(db, doses, push_fn)
         except Exception:  # noqa: BLE001 - a caregiver alert problem must never stop the patient's own notice
-            logger.exception("caregiver missed-dose alert failed for dose %s", dose.id)
+            logger.exception("caregiver missed-dose alert failed for patient %s", patient_id)
     return sent
 
 
 def notify_caregivers_missed(db: Session, dose: Dose, push_fn: Callable = webpush_service.send) -> int:
-    """Tell every linked caregiver (who turned phone alerts on and has not switched this patient off) that a dose was
-    missed. Once per (dose, caregiver): the unique ReminderLog row, channel 'caregiver:<user id>', is the dedupe."""
+    """One missed dose -> its caregivers' alert (see notify_caregivers_missed_batch)."""
+    return notify_caregivers_missed_batch(db, [dose], push_fn)
+
+
+def notify_caregivers_missed_batch(db: Session, doses: list, push_fn: Callable = webpush_service.send) -> int:
+    """Tell every linked caregiver (who turned phone alerts on and has not switched this patient off) that doses were
+    missed: ONE alert per caregiver however many doses, in the name they gave the person ("Mum missed the 9:42 AM
+    dose"), with a Remind now button on the notification itself. Once per (dose, caregiver): the unique ReminderLog row,
+    channel 'caregiver:<user id>', is the dedupe, so a dose is never alerted twice and a failed send releases only
+    what it claimed."""
     import care_push
+    import push_actions
     from db import CaregiverLink, CaregiverPrefs, Patient, UserPushSubscription
-    patient_id = dose.medicine.prescription.patient_id
+    if not doses:
+        return 0
+    patient_id = doses[0].medicine.prescription.patient_id
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    med_name = dose.medicine.name or dose.medicine.raw_text
+    doses = sorted(doses, key=lambda d: (d.scheduled_at, d.id))
     sent = 0
     for link in db.query(CaregiverLink).filter(CaregiverLink.patient_id == patient_id, CaregiverLink.status == "active",
                                                CaregiverLink.caregiver_user_id.isnot(None)).all():
@@ -245,13 +314,21 @@ def notify_caregivers_missed(db: Session, dose: Dose, push_fn: Callable = webpus
         if not db.query(UserPushSubscription).filter(UserPushSubscription.user_id == uid).count():
             continue                                    # no phone to alert: do not use up the once-only record
         channel = f"caregiver:{uid}"
-        if not _claim(db, dose.id, "missed", channel):
+        mine = [d for d in doses if _claim(db, d.id, "missed", channel)]
+        if not mine:
             continue
-        n = care_push.push_to_user(db, uid, f"{patient.name if patient else 'Your patient'} missed a dose",
-                                   f"{med_name} at {dose.scheduled_at.strftime('%I:%M %p').lstrip('0')}",
-                                   tag=f"caregiver-missed-{dose.id}", url="/caregiver", push_fn=push_fn)
+        label = link.nickname or (patient.name if patient else "Your patient")
+        msg = notify_copy.caregiver_missed(label, _items([(d, 0) for d in mine]))
+        n = care_push.push_to_user(
+            db, uid, msg["title"], msg["body"], tag=f"caregiver-missed-{patient_id}-{mine[0].id}",
+            url=f"/caregiver#/p/{patient_id}/today", push_fn=push_fn,
+            extra={"kind": "missed",
+                   "actions": [{"action": "remind", "title": "Remind now"}, {"action": "open", "title": "Open"}],
+                   "action_url": "/push/action/nudge", "action_label": label,
+                   "action_token": push_actions.make_nudge_token(uid, patient_id, [d.id for d in mine])})
         if n == 0:
-            _release(db, dose.id, "missed", channel)
+            for d in mine:
+                _release(db, d.id, "missed", channel)
         sent += n
     return sent
 

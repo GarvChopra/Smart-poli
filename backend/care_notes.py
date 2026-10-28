@@ -31,7 +31,8 @@ class NoteRateLimited(NoteError):
     pass
 
 
-def create_note(db: Session, patient_id: int, author, kind: str, body: Optional[str], medicine_id: Optional[int] = None) -> CareNote:
+def create_note(db: Session, patient_id: int, author, kind: str, body: Optional[str], medicine_id: Optional[int] = None,
+                author_role: Optional[str] = None) -> CareNote:
     """`author` needs .id, .role and .name (a User or anything shaped like one)."""
     if kind not in KINDS:
         raise NoteError("Unknown note type.")
@@ -51,7 +52,7 @@ def create_note(db: Session, patient_id: int, author, kind: str, body: Optional[
     recent = db.query(CareNote).filter(CareNote.author_user_id == author.id, CareNote.created_at >= since).count()
     if recent >= RATE_LIMIT:
         raise NoteRateLimited("You have written a lot of notes in the last hour. Please wait a little.")
-    note = CareNote(patient_id=patient_id, author_user_id=author.id, author_role=author.role, author_name=author.name,
+    note = CareNote(patient_id=patient_id, author_user_id=author.id, author_role=author_role or author.role, author_name=author.name,
                     kind=kind, medicine_id=medicine_id, body=text, visibility=KINDS[kind])
     db.add(note)
     db.commit()

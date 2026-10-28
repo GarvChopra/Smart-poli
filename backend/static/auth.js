@@ -28,21 +28,24 @@ function clearAuth() {
   try { localStorage.removeItem(AUTH_KEY); } catch (e) { /* ignore */ }
 }
 
+// A person's account holds their own medicines ("You") and the family they look after, so patient, caregiver and the
+// newer "both" all use the same pages. Doctors keep their own. What anyone may SEE is decided by the server per record.
+const PERSON_ROLES = ['patient', 'caregiver', 'both'];
+
 function landingPageFor(role) {
   if (role === 'doctor') return '/doctor';
-  if (role === 'caregiver') return '/caregiver';
-  return '/';
+  return '/caregiver';          // the Family home: You first, then the people you look after
 }
 
 /** `?next=` after login (e.g. the voice page) — only the app's own
  * pages, never another origin, so the login page can't be an open redirect. */
 function safeNextPath(raw) {
-  return typeof raw === 'string' && /^\/(?:voice|doctor|caregiver)?(?:[?#][^\s]*)?$/.test(raw) ? raw : null;
+  return typeof raw === 'string' && /^\/(?:voice|doctor|caregiver|join\/[A-Za-z0-9-]{4,16})?(?:[?#][^\s]*)?$/.test(raw) ? raw : null;
 }
 
 function landingAfterLogin(role, search) {
   const next = safeNextPath(new URLSearchParams(search || '').get('next'));
-  return (role === 'patient' && next) || landingPageFor(role);
+  return (PERSON_ROLES.includes(role) && next) || landingPageFor(role);
 }
 
 /**
@@ -88,7 +91,8 @@ function requireRole(expectedRole) {
     window.location.href = '/login';
     return null;
   }
-  if (auth.user.role !== expectedRole) {
+  const same = auth.user.role === expectedRole || (PERSON_ROLES.includes(expectedRole) && PERSON_ROLES.includes(auth.user.role));
+  if (!same) {
     // Logged in, just on the wrong app — send them to the page that's theirs.
     window.location.href = landingPageFor(auth.user.role);
     return null;

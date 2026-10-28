@@ -43,12 +43,13 @@ def _deliver(db: Session, subs: list, payload: dict, push_fn: Optional[Callable]
 
 
 def push_to_patient(db: Session, patient_id: int, title: str, body: str, tag: str, url: str = "/",
-                    push_fn: Optional[Callable] = None) -> int:
+                    push_fn: Optional[Callable] = None, extra: Optional[dict] = None) -> int:
     subs = db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).all()
-    return _deliver(db, subs, {"title": title, "body": body, "url": url, "tag": tag, "kind": "care"}, push_fn)
+    return _deliver(db, subs, {"title": title, "body": body, "url": url, "tag": tag, "kind": "care", **(extra or {})}, push_fn)
 
 
 def push_to_user(db: Session, user_id: int, title: str, body: str, tag: str, url: str = "/caregiver",
-                 push_fn: Optional[Callable] = None) -> int:
+                 push_fn: Optional[Callable] = None, extra: Optional[dict] = None) -> int:
+    """`extra` adds payload fields (a `kind`, notification `actions`, an `action_token`) the service worker understands."""
     subs = db.query(UserPushSubscription).filter(UserPushSubscription.user_id == user_id).all()
-    return _deliver(db, subs, {"title": title, "body": body, "url": url, "tag": tag, "kind": "care"}, push_fn)
+    return _deliver(db, subs, {"title": title, "body": body, "url": url, "tag": tag, "kind": "care", **(extra or {})}, push_fn)

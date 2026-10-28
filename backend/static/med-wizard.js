@@ -55,16 +55,33 @@ function openMedicineCamera() {
   input.click();
 }
 
-async function scanMedicinePhoto(file) {
+/** A prescription PDF (or a photo of one): the medicines printed on it, picked one at a time through the same confirm step. */
+function openMedicinePdf() {
+  let input = document.getElementById('pdfInput');
+  if (!input) {
+    input = el('<input type="file" id="pdfInput" accept="application/pdf,.pdf,image/*" hidden>');
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      if (!input.files.length) return;
+      const file = input.files[0];
+      input.value = '';
+      await scanMedicinePhoto(file, '/medicines/from-pdf');
+    });
+  }
+  input.click();
+}
+
+async function scanMedicinePhoto(file, endpoint = '/medicines/scan') {
+  const fromPdf = endpoint === '/medicines/from-pdf';
   const loading = showSafetyModal(`
-    <h3>Reading your medicine…</h3>
+    <h3>${fromPdf ? 'Reading the prescription…' : 'Reading your medicine…'}</h3>
     <div class="upload-status-banner loading" style="margin-top:10px;"><span class="upload-spinner"></span><span>This takes a few seconds.</span></div>`);
   try {
     const form = new FormData();
     form.append('patient_id', MedWizard.patientId());
     form.append('file', file);
     const auth = getAuth();
-    const res = await fetch('/medicines/scan', {
+    const res = await fetch(endpoint, {
       method: 'POST', body: form,
       headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
     });
@@ -72,7 +89,7 @@ async function scanMedicinePhoto(file) {
     loading.remove();
     const cand = res.ok && body.candidates && body.candidates[0];
     if (!cand) { scanFailedPopup(body.detail); return; }
-    medicineWizard({ step: 'confirm', cand, others: body.candidates.slice(1), form: body.form_guess, expiry: body.expiry });
+    medicineWizard({ step: 'confirm', cand, others: body.candidates.slice(1), form: body.form_guess, expiry: body.expiry, fromPdf });
   } catch (e) {
     loading.remove();
     scanFailedPopup();
@@ -93,7 +110,7 @@ function scanFailedPopup(detail) {
       <button class="ghost small" id="sfManual">Enter manually</button>
     </div>`);
   m.querySelector('#sfManual').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
-  m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); openMedicineCamera(); });
+  m.querySelector('#sfRetry').addEventListener('click', () => { m.remove(); if (ctx.fromPdf) openMedicinePdf(); else openMedicineCamera(); });
 }
 
 function expiryHtml(expiry) {
@@ -112,6 +129,7 @@ async function medicineNameList() {
 }
 
 const MED_FORMS = [['tab', 'Tablet'], ['cap', 'Capsule'], ['syrup', 'Syrup'], ['inj', 'Injection']];
+const validForm = (f) => (MED_FORMS.some(([v]) => v === f) ? f : null);
 const FREQUENCIES = [
   ['once', 'Once a day'], ['twice', 'Twice a day'], ['thrice', 'Three times a day'], ['four', 'Four times a day'], ['sos', 'Only when needed'],
 ];
@@ -138,9 +156,9 @@ function medicineWizard(ctx) {
       <div class="sm-actions">
         <button class="primary small" id="wzYes">Yes, this is it</button>
         <button class="ghost small" id="wzChange">Change</button>
-        <button class="ghost small" id="wzRescan">Scan again</button>
+        <button class="ghost small" id="wzRescan">${ctx.fromPdf ? 'Choose another file' : 'Scan again'}</button>
       </div>`);
-    const picked = { name: capName(c.name), strength: c.strength || '', form: c.form || ctx.form || 'tab' };
+    const picked = { name: capName(c.name), strength: c.strength || '', form: validForm(c.form) || validForm(ctx.form) || 'tab' };
     m.querySelector('#wzYes').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'schedule', med: picked }); });
     m.querySelector('#wzChange').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details', med: picked }); });
     m.querySelector('#wzRescan').addEventListener('click', () => { m.remove(); openMedicineCamera(); });
@@ -278,7 +296,7 @@ function medicineWizard(ctx) {
     const btn = m.querySelector('#wzAdd'); btn.disabled = true;
     try {
       const out = await apiFetch('POST', '/medicines/manual', {
-        patient_id: MedWizard.patientId(), name: med.name, strength: med.strength || null, form: med.form || 'tab',
+        patient_id: MedWizard.patientId(), name: med.name, strength: med.strength || null, form: validForm(med.form) || 'tab',
         as_needed: sos, times, weekdays, food: sos ? 'any' : chosen('wzFood').v || 'any',
         duration_days: sos || ongoing ? null : Math.round(len),
       });

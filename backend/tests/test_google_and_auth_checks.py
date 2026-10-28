@@ -45,15 +45,13 @@ def test_config_shows_button_only_when_client_id_set(monkeypatch):
     assert c.post("/auth/google", json={"credential": id_token("x@gmail.com")}).status_code == 401
 
 
-def test_new_person_picks_a_role_then_gets_a_working_session():
+def test_new_person_is_signed_straight_in_with_a_regular_account():
     c = TestClient(app)
     tok = id_token("new.google.user@gmail.com")
-    first = c.post("/auth/google", json={"credential": tok})
-    assert first.status_code == 200 and first.json() == {"needs_role": True, "name": "Asha Verma"}
-    r = c.post("/auth/google", json={"credential": tok, "role": "patient"})
+    r = c.post("/auth/google", json={"credential": tok})
     assert r.status_code == 200
     body = r.json()
-    assert body["user"]["role"] == "patient" and body["user"]["email"] == "new.google.user@gmail.com"
+    assert body["user"]["role"] == "both" and body["user"]["email"] == "new.google.user@gmail.com"
     me = c.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
     assert me.status_code == 200
     # next time: straight in, same account
@@ -126,3 +124,22 @@ def test_login_is_rate_limited_per_device(monkeypatch):
              for i in range(35)]
     web_security._hits.clear()
     assert 429 in codes and codes[0] == 401
+
+
+def test_a_google_account_has_You_and_Family_like_any_other_and_can_join_an_invite():
+    """Google sign-up gives a regular account: its own profile, an invite from a family member, an Add member of its own."""
+    from conftest import register_and_login
+    gita = TestClient(app)
+    register_and_login(gita, role="both", name="Gita")
+    invite = gita.post("/family/invites", json={"nickname": "Mum"}).json()
+    mum = TestClient(app)
+    body = mum.post("/auth/google", json={"credential": id_token("mum.google@gmail.com")}).json()
+    mum.headers["Authorization"] = f"Bearer {body['token']}"
+    assert body["user"]["role"] == "both" and body["user"]["patient_ids"] == []
+    assert mum.get(f"/family/join/{invite['code']}").json()["inviter_name"] == "Gita"
+    joined = mum.post(f"/family/join/{invite['code']}").json()
+    assert joined["joined"] and mum.get("/auth/me").json()["patient_ids"] == [joined["patient_id"]]
+    assert [f["label"] for f in gita.get("/caregiver/home").json()["family"]] == ["Mum"]
+    # and it can look after someone itself
+    assert mum.post("/family/invites", json={}).status_code == 200
+    assert mum.get("/caregiver/home").status_code == 200

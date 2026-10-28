@@ -34,9 +34,12 @@ def test_notes_page_has_messages_to_the_patient_and_care_team_only_handover_note
     assert "notify" in body.lower() and "kind: 'message'" in body and "kind: 'handover'" in body
 
 
-def test_medicines_page_lets_the_caregiver_add_a_note_on_a_medicine():
+def test_medicines_page_is_the_list_and_the_three_ways_to_add_one_and_notes_are_written_only_on_the_notes_page():
     body = fn("pageMedicines")
-    assert "Add note" in body and "kind: 'medicine'" in body and "medicine_id" in body
+    assert "addMedicineHtml" in body and "wireAddMedicine" in body
+    assert "noteFormHtml" not in body and "Add note" not in body and "kind: 'medicine'" not in body       # no notes here
+    add = PAGES[PAGES.index("const addMedicineHtml"):PAGES.index("function wireAddMedicine")]
+    assert 'data-add-med="scan"' in add and 'data-add-med="pdf"' in add and 'data-add-med="manual"' in add
 
 
 def test_today_page_has_remind_now_and_call_and_whatsapp():
@@ -70,5 +73,5 @@ def test_page_links_live_in_the_left_menu_not_in_a_tab_bar_on_the_page():
     body = fn("renderDrawerNav", SHELL)
     for label in ("Today", "Medicines", "Notes", "History", "Emergency"):
         assert label in SHELL, label
-    assert "Your patients" in body and "Settings" in body and "#/p/" in body
+    assert "Family home" in body and "My medicines" not in body and "Settings" in body and "#/p/" in body
     assert "renderDrawerNav(" in fn("route", SHELL)

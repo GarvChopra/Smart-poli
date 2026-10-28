@@ -9,7 +9,6 @@ function renderSessionChip() {
   if (!chip || !currentUser) return;
   chip.innerHTML = `
     <span class="who">${esc(currentUser.name)}</span>
-    <span class="role-tag">Caregiver</span>
     <button class="ghost small" id="logoutBtn">Log out</button>`;
   document.getElementById('logoutBtn').addEventListener('click', logout);
 }
@@ -46,7 +45,7 @@ function renderDrawerNav(path) {
   if (!nav) return;
   const m = path.match(/^\/p\/(\d+)\/(\w+)$/);
   const link = (href, label, on) => `<a class="cg-menu-link${on ? ' active' : ''}" href="${href}">${esc(label)}</a>`;
-  let html = link('#/', 'Your patients', path === '/');
+  let html = link('#/', 'Family home', path === '/');
   if (m) {
     const pid = m[1];
     const name = overviewCache.pid === Number(pid) && overviewCache.data ? overviewCache.data.patient.name : 'This patient';

@@ -30,11 +30,6 @@
         <label for="name">Your name</label>
         <input type="text" id="name" autocomplete="name">
 
-        <label for="role" style="margin-top:12px;">I am a</label>
-        <select id="role">
-          <option value="patient">Patient</option>
-          <option value="caregiver">Caregiver</option>
-        </select>
       </div>
 
       <label for="email" style="margin-top:12px;">Email</label>
@@ -51,16 +46,6 @@
     <div id="googleBox" class="google-box" hidden>
       <div class="auth-or"><span>or</span></div>
       <div id="googleBtn" class="google-btn"></div>
-    </div>
-  </div>
-
-  <div id="googleRole" class="g-role" hidden role="dialog" aria-modal="true" aria-labelledby="gRoleTitle">
-    <div class="g-role-card">
-      <h3 id="gRoleTitle">Welcome<span id="gRoleName"></span></h3>
-      <p>Who will use SmartPoli?</p>
-      <button type="button" class="g-role-opt" data-role="patient"><b>I take medicines</b><span>Patient</span></button>
-      <button type="button" class="g-role-opt" data-role="caregiver"><b>I look after someone</b><span>Caregiver</span></button>
-      <button type="button" class="ghost small" id="gRoleCancel">Cancel</button>
     </div>
   </div>
 

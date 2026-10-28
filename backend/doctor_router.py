@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db import get_db_session, log_audit, User, DoctorLink, MedicineCorrection, PrescriptionTemplate
-from auth import (get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code,
+from auth import (PERSON_ROLES, get_current_user, require_patient_write_access, require_doctor_role, has_read_access, gen_link_code,
                   doctor_role_enabled)
 from schemas import LinkRedeem, MedicineCorrectionCreate, DoctorPrescriptionCreate, PrescriptionTemplateCreate
 from serializers import get_patient_or_404, get_medicine_or_404, serialize_patient, serialize_medicine, gather_report_data
@@ -84,7 +84,7 @@ def revoke_doctor_link(link_id: int, user: User = Depends(get_current_user), db:
     if not link:
         raise HTTPException(404, f"No doctor link {link_id}")
     patient = get_patient_or_404(db, link.patient_id)
-    if not (user.role == "patient" and patient.user_id == user.id):
+    if not (user.role in PERSON_ROLES and patient.user_id == user.id):
         raise HTTPException(403, "Only the patient can revoke a doctor's access.")
     link.status = "revoked"
     db.commit()

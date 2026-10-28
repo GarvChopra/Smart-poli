@@ -1388,3 +1388,51 @@ button.is-busy::after { content: ""; position: absolute; left: 50%; top: 50%; wi
 button.primary.is-busy::after { border-color: rgba(255,255,255,.35); border-top-color: #fff; }
 button[data-busy="1"]:not(.is-busy) { opacity: .55; }
 @keyframes busy-spin { to { transform: rotate(360deg); } }
+
+/* Caregiver phone home: Family list + Today's doses. One narrow column, soft cards, green accent. */
+.cg-phone { max-width: 480px; margin: 0 auto; display: grid; gap: 22px; }
+.cg-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.cg-row-head h2 { margin: 0; font-size: 20px; }
+.add-member { border: 0; border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 13.5px; background: var(--teal-soft); color: var(--teal-dark); cursor: pointer; }
+.view-all { border: 0; background: none; font-weight: 600; font-size: 13.5px; color: var(--ink-soft); cursor: pointer; padding: 6px 2px; }
+.fam-list { display: grid; gap: 10px; }
+.fam-row, .dose-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; text-decoration: none; color: inherit; min-height: 60px; }
+.fam-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.fam-text b { font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fam-text small { font-size: 13px; color: var(--ink-soft); }
+.fam-chev { font-size: 24px; color: var(--ink-faint); line-height: 1; }
+.fam-avatar { flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 17px; }
+.fam-avatar.rose { background: #FBE2DD; color: #D3402A; }
+.fam-avatar.blue { background: var(--blue-soft); color: var(--blue); }
+.fam-avatar.green { background: var(--teal-soft); color: var(--teal-dark); }
+.fam-avatar.amber { background: var(--amber-soft); color: var(--amber); }
+.fam-avatar.violet { background: #ECE6FB; color: #6B48C8; }
+.dose-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal-dark); }
+.dose-icon svg { width: 18px; height: 18px; }
+.dose-pill { flex: none; font-size: 12.5px; font-weight: 700; padding: 6px 11px; border-radius: 999px; }
+.dose-pill.taken { background: var(--teal-soft); color: var(--teal-dark); }
+.dose-pill.pending { background: #EEF2F0; color: var(--ink-soft); }
+.dose-pill.missed { background: var(--alarm-soft); color: var(--alarm); }
+
+/* Family invite page (/join/<code>) */
+.join-card h2 { margin: 0 0 8px; font-size: 21px; line-height: 1.25; }
+.join-btn { display: block; width: 100%; margin-top: 12px; text-align: center; text-decoration: none; }
+.join-list { margin: 8px 0 12px; padding-left: 20px; line-height: 1.7; color: var(--ink); }
+
+/* Add member sheet + Family home touches */
+.fam-you { border-color: var(--teal); }
+.fam-missed { color: var(--alarm); font-weight: 700; }
+.fam-hint { margin: 10px 4px 0; }
+.am-row { display: flex; gap: 8px; }
+.am-row input { flex: 1; min-width: 0; }
+.am-or { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: var(--ink-faint); font-size: 13px; }
+.am-or::before, .am-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.am-code { font-size: 30px; font-weight: 800; letter-spacing: 3px; text-align: center; color: var(--teal-dark); background: var(--teal-soft); border-radius: 14px; padding: 14px 8px; margin: 12px 0; user-select: all; }
+.am-share { display: grid; gap: 8px; }
+.am-share a.primary { display: block; text-align: center; text-decoration: none; }
+.cg-head-btns { display: inline-flex; gap: 8px; }
+.join-code { border: 1.5px solid var(--teal); border-radius: 999px; padding: 7px 14px; font-weight: 700; font-size: 13.5px; background: transparent; color: var(--teal-dark); cursor: pointer; }
+.fam-alerts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 12px 14px; border-radius: 16px; background: var(--amber-soft); color: var(--ink); font-size: 14px; }
+.am-share a.primary { background: var(--teal); color: #fff; border-radius: 999px; padding: 13px 18px; font-weight: 700; box-shadow: 0 4px 12px rgba(18, 135, 111, .25); }
+.fam-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fam-hint .view-all { color: var(--teal-dark); font-weight: 700; font-size: 14px; text-decoration: underline; padding: 4px 0; }

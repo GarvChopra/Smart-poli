@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Must be set before `db` (and therefore `main`) is ever imported by any test,
 # so integration tests never touch the real smartpoli.db file.
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-os.environ["SMARTPOLI_DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
+# SMARTPOLI_TEST_PG_URL (a throwaway local Postgres, never a real one) runs the whole suite on Postgres, the live database's kind.
+os.environ["SMARTPOLI_DATABASE_URL"] = os.environ.get("SMARTPOLI_TEST_PG_URL") or f"sqlite:///{_tmp_db.name}"
 # Test fixtures build dose times from datetime.utcnow(); pin the default
 # patient timezone to UTC so they stay valid. Timezone behaviour itself is
 # tested explicitly (tests/test_timezone_and_reminders.py) with named zones.

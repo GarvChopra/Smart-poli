@@ -260,7 +260,7 @@ def test_every_dose_gets_two_heads_ups_a_due_and_a_follow_up_each_exactly_once()
             assert run(8, 30) == 0 and run(9, 0) == 0
             assert rec.kinds() == ["lead", "soon", "due", "followup"]
             assert len(rec.wa) == 4
-            assert "after food" in rec.push[0]["body"].lower() and "(in 29 min)" in rec.push[0]["body"]
+            assert "after food" in rec.push[0]["body"].lower() and "in 29 min." in rec.push[0]["body"]
             assert len(rec.push) >= 2                             # the "at least two notifications" requirement
         finally:
             db.close()
@@ -283,11 +283,11 @@ def test_a_short_lead_gives_one_heads_up_a_long_lead_gives_two():
             client.put(f"/patients/{pid}/settings", json={"reminder_lead_minutes": 90})
             add_medicine(pid, "Amlodipine", [local(9)])
             reminders.run_reminder_sweep(db, ist_to_utc(local(7, 45)), rec.push_fn, rec.wa_fn)
-            assert rec.kinds()[-1] == "lead" and "Amlodipine" in rec.push[-1]["body"] and "(in 75 min)" in rec.push[-1]["body"]
+            assert rec.kinds()[-1] == "lead" and "Amlodipine" in rec.push[-1]["body"] and "in 75 min." in rec.push[-1]["body"]
             assert rec.kinds() == ["lead", "lead"]                   # nothing was re-sent for the Telmisartan dose
             add_medicine(pid, "Metformin", [local(10)])
             reminders.run_reminder_sweep(db, ist_to_utc(local(8, 30)), rec.push_fn, rec.wa_fn)
-            assert "(in 1 h 30 min)" in rec.push[-1]["body"]
+            assert "in 1 h 30 min." in rec.push[-1]["body"]
         finally:
             db.close()
 

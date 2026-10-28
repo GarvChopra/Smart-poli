@@ -204,6 +204,7 @@ function closeDrawer() {
 hamburgerBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
 function renderNoPatientState() {

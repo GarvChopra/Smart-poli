@@ -31,11 +31,10 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
     let body;
     if (mode === 'register') {
       const name = document.getElementById('name').value.trim();
-      const role = document.getElementById('role').value;
       if (!name) throw new Error('Please enter your name.');
       const res = await fetch('/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name, role }),
+        body: JSON.stringify({ email, password, name }),
       });
       body = await res.json();
       if (!res.ok) throw new Error(body.detail || 'Could not create that account.');
@@ -58,44 +57,28 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
 
 // ---------------------------------------------------------------- Continue with Google
 // Google's own button (Google Identity Services) hands back an ID token; the server verifies it. Shown only when the
-// server has a Google client id configured. Someone new picks Patient or Caregiver once.
+// server has a Google client id configured. Someone new gets a regular account straight away (their own medicines, and family if they add any).
 (async function setUpGoogle() {
   let cfg;
   try { cfg = await (await fetch('/auth/google/config')).json(); } catch (e) { return; }
   if (!cfg || !cfg.enabled || !cfg.client_id) return;
   const box = document.getElementById('googleBox');
   const errorEl = document.getElementById('authError');
-  const roleDlg = document.getElementById('googleRole');
 
-  async function send(credential, role) {
+  async function send(credential) {
     const res = await fetch('/auth/google', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(role ? { credential, role } : { credential }),
+      body: JSON.stringify({ credential }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || 'Google sign-in failed. Try again.');
     return body;
   }
 
-  function askRole(name) {
-    return new Promise((resolve) => {
-      document.getElementById('gRoleName').textContent = name ? `, ${name.split(' ')[0]}` : '';
-      roleDlg.hidden = false;
-      const done = (role) => { roleDlg.hidden = true; resolve(role); };
-      roleDlg.querySelectorAll('.g-role-opt').forEach((b) => { b.onclick = () => done(b.dataset.role); });
-      document.getElementById('gRoleCancel').onclick = () => done(null);
-    });
-  }
-
   async function onCredential(resp) {
     errorEl.textContent = '';
     try {
-      let body = await send(resp.credential);
-      if (body.needs_role) {
-        const role = await askRole(body.name);
-        if (!role) return;
-        body = await send(resp.credential, role);
-      }
+      const body = await send(resp.credential);
       setAuth(body.token, body.user);
       window.location.href = landingAfterLogin(body.user.role, window.location.search);
     } catch (err) {

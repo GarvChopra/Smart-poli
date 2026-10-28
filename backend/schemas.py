@@ -29,6 +29,12 @@ class ManualMedicine(BaseModel):
     food: Literal["before", "after", "any"] = "any"
     duration_days: Optional[int] = Field(None, ge=1, le=365)              # None = ongoing
 
+    @field_validator("form", mode="before")
+    @classmethod
+    def _unknown_form_is_tablet(cls, v):
+        # A scan may read "other" (or nothing useful) for the form: that must not reject an otherwise valid medicine.
+        return v if v in ("tab", "cap", "syrup", "inj") else "tab"
+
 
 class FeedbackCreate(BaseModel):
     rating: int
@@ -117,7 +123,7 @@ class RegisterRequest(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(max_length=128)
     name: str = Field(max_length=100)
-    role: str  # 'patient' | 'caregiver' | 'doctor'
+    role: str = "both"  # 'both' (default: own medicines and family's) | 'patient' | 'caregiver' | 'doctor'
 
 
 class LoginRequest(BaseModel):
@@ -134,6 +140,15 @@ class GoogleLoginRequest(BaseModel):
 
 class LinkRedeem(BaseModel):
     code: str
+    nickname: Optional[str] = Field(None, max_length=30)
+
+
+class PushActionToken(BaseModel):
+    token: str = Field(..., max_length=2000)
+
+
+class LinkNickname(BaseModel):
+    nickname: Optional[str] = Field(None, max_length=30)      # empty / None = back to the patient's own name
 
 
 class MedicineCorrectionCreate(BaseModel):

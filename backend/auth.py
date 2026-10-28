@@ -29,7 +29,10 @@ JWT_SECRET = os.getenv("SMARTPOLI_JWT_SECRET") or "dev-only-insecure-secret-chan
 JWT_ALGO = "HS256"
 JWT_TTL_HOURS = 24 * 7
 
-ROLES = ("patient", "caregiver", "doctor")
+ROLES = ("patient", "caregiver", "both", "doctor")
+# A person's account can hold their own medicines AND look after family: the label only says where they landed first,
+# never what they may see. Access to anyone else's record still comes only from an active link (see has_read_access).
+PERSON_ROLES = ("patient", "caregiver", "both")
 
 
 def doctor_role_enabled() -> bool:
@@ -68,7 +71,7 @@ def create_token(user: User) -> str:
 
 def gen_link_code() -> str:
     """Short, shareable, hard-to-guess invite code (patient -> caregiver/doctor)."""
-    return secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:8].upper()
+    return "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))     # no 0/O or 1/I
 
 
 def revoke_token(db: Session, token: str) -> None:
@@ -124,15 +127,15 @@ def require_role(*roles: str):
     return _dep
 
 
-require_patient_role = require_role("patient")
-require_caregiver_role = require_role("caregiver")
+require_patient_role = require_role(*PERSON_ROLES)
+require_caregiver_role = require_role(*PERSON_ROLES)
 require_doctor_role = require_role("doctor")
 
 
 # ---------------------------------------------------------------- patient access
 
 def _owns_patient(db: Session, user: User, patient: Patient) -> bool:
-    return user.role == "patient" and patient.user_id == user.id
+    return user.role in PERSON_ROLES and patient.user_id == user.id
 
 
 def _has_active_caregiver_link(db: Session, user: User, patient_id: int) -> bool:
@@ -159,7 +162,7 @@ def has_read_access(db: Session, user: User, patient_id: int) -> bool:
         return False
     if _owns_patient(db, user, patient):
         return True
-    if user.role == "caregiver":
+    if user.role in PERSON_ROLES:
         return _has_active_caregiver_link(db, user, patient_id)
     if user.role == "doctor":
         return doctor_role_enabled() and _has_active_doctor_link(db, user, patient_id)
@@ -178,7 +181,7 @@ def has_write_access(db: Session, user: User, patient_id: int) -> bool:
 
 
 def is_linked_caregiver(db: Session, user: User, patient_id: int) -> bool:
-    return user.role == "caregiver" and _has_active_caregiver_link(db, user, patient_id)
+    return user.role in PERSON_ROLES and _has_active_caregiver_link(db, user, patient_id)
 
 
 def can_add_medicine(db: Session, user: User, patient_id: int) -> bool:
