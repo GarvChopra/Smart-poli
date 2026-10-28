@@ -104,15 +104,17 @@ def _release(db: Session, dose_id: int, kind: str, channel: str) -> None:
     db.commit()
 
 
-def _send_push(db: Session, patient_id: int, dose_ids, kind: str, msg: dict, push_fn) -> int:
-    """One notification for one or several doses (all due at the same moment); `dose_id` is the first, for the tag."""
+def _send_push(db: Session, patient_id: int, dose_ids, kind: str, msg: dict, push_fn, tag: Optional[str] = None) -> int:
+    """One notification for one or several doses (all due at the same moment); `dose_id` is the first. A notification with
+    the same `tag` REPLACES the one already on the screen (and still buzzes), so one dose's heads-up, due and follow-up
+    take one place on the lock screen instead of piling up."""
     ids = [dose_ids] if isinstance(dose_ids, int) else list(dose_ids)
     subs = db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).all()
     sent = 0
     for sub in subs:
         status = push_fn(sub.endpoint, sub.p256dh, sub.auth, {
             "title": msg["title"], "body": msg["body"], "url": "/",
-            "tag": f"dose-{ids[0]}-{kind}", "dose_id": ids[0], "dose_ids": ids, "kind": kind,
+            "tag": tag or f"dose-{ids[0]}-{kind}", "dose_id": ids[0], "dose_ids": ids, "kind": kind,
         })
         if status == "sent":
             sub.last_success_at = datetime.utcnow()
@@ -180,7 +182,8 @@ def _notify_group(db: Session, patient_id: int, kind: str, group: list, seed: in
         if db.query(PushSubscription).filter(PushSubscription.patient_id == patient_id).count():
             mine = [g for g in group if _claim(db, g[0].id, kind, "push")]
             if mine:
-                n = _send_push(db, patient_id, [g[0].id for g in mine], kind, message(mine), push_fn)
+                slot = f"dose-slot-{patient_id}-{mine[0][0].scheduled_at:%Y%m%d%H%M}"      # same person + same time = one place on screen
+                n = _send_push(db, patient_id, [g[0].id for g in mine], kind, message(mine), push_fn, tag=slot)
                 if n == 0:
                     for g in mine:
                         _release(db, g[0].id, kind, "push")        # nothing delivered: allow a retry next minute

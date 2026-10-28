@@ -239,3 +239,25 @@ def test_a_token_naming_another_patients_doses_never_puts_them_in_the_message(fa
     tok = push_actions.make_nudge_token(family.gita_user["id"], family.pid, secret_doses)     # signed, linked, but the doses are not Mum's
     assert TestClient(app).post("/push/action/nudge", json={"token": tok}).status_code == 200
     assert "SecretMedicine" not in got[-1]["body"] and "SecretMedicine" not in got[-1]["title"]
+
+
+def test_one_doses_reminders_share_one_place_on_the_lock_screen_but_missed_notices_never_replace_each_other(phone):
+    """heads-up -> last heads-up -> due -> follow-up for the same time carry the same tag (each replaces the last); another
+    time, another person, or a missed notice keeps its own."""
+    c, pid = phone
+    now = datetime.utcnow().replace(second=0, microsecond=0)
+    _, d1 = add_medicine(pid, "Metformin", [now + timedelta(minutes=25)])
+    _, d2 = add_medicine(pid, "Telmisartan", [now + timedelta(hours=3)])
+    sent = []
+    fake = lambda ep, p, a, payload: sent.append(payload) or "sent"  # noqa: E731
+    db = SessionLocal()
+    try:
+        for minutes in (0, 16, 25, 40):                                           # heads-up, last heads-up, due, follow-up
+            reminders.run_reminder_sweep(db, now + timedelta(minutes=minutes), fake, lambda *a: True)
+    finally:
+        db.close()
+    first = [p for p in sent if set(p["dose_ids"]) & set(d1)]
+    assert {p["kind"] for p in first} >= {"lead", "soon", "due", "followup"}
+    assert len({p["tag"] for p in first}) == 1, [p["tag"] for p in first]         # all four replace one another
+    later = [p for p in sent if set(p["dose_ids"]) & set(d2)]
+    assert all(p["tag"] not in {x["tag"] for x in first} for p in later)          # a different time is its own notification
