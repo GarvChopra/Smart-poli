@@ -154,6 +154,7 @@ CAREGIVER_MAY = {
     ("POST", "/caregiver/patients/{patient_id}/notes"), ("POST", "/caregiver/patients/{patient_id}/nudge"),
     ("GET", "/caregiver/patients/{patient_id}/prefs"), ("PUT", "/caregiver/patients/{patient_id}/prefs"),
     ("PATCH", "/caregiver/patients/{patient_id}/nickname"), ("DELETE", "/caregiver/notes/{note_id}"),
+    ("POST", "/caregiver/patients/{patient_id}/unlink"),
     # looking (read-only) at the same screens the patient sees
     ("GET", "/patients/{patient_id}"), ("GET", "/patients/{patient_id}/dashboard"),
     ("GET", "/patients/{patient_id}/calendar.ics"), ("GET", "/patients/{patient_id}/emergency-card"),

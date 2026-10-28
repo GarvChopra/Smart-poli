@@ -161,6 +161,26 @@ def caregiver_patients(user: User = Depends(require_caregiver_role), db: Session
     return patients
 
 
+@router.post("/caregiver/patients/{patient_id}/unlink")
+def caregiver_stop_looking_after(patient_id: int, user: User = Depends(require_caregiver_role),
+                                 db: Session = Depends(get_db_session)):
+    """The caregiver stops looking after this person. Only THEIR own link ends: the person, their data and anyone else
+    who looks after them are untouched. They can be added again with a new code or invite."""
+    link = db.query(CaregiverLink).filter(CaregiverLink.patient_id == patient_id, CaregiverLink.caregiver_user_id == user.id,
+                                          CaregiverLink.status == "active").first()
+    if link is None:
+        raise HTTPException(403, "You are not linked to this patient.")
+    link.status = "revoked"
+    db.commit()
+    log_audit(db, patient_id, f"caregiver:{user.id}", "caregiver_link_left", f"link {link.id}")
+    try:                                    # tell the person, so it never happens silently
+        care_push.push_to_patient(db, patient_id, f"{user.name} is no longer your caregiver",
+                                  "They can no longer see your medicines.", tag=f"caregiver-left-{link.id}")
+    except Exception:  # noqa: BLE001 - a notice problem must never undo the removal
+        pass
+    return {"removed": True}
+
+
 @router.patch("/caregiver/patients/{patient_id}/nickname")
 def set_caregiver_nickname(patient_id: int, body: LinkNickname, user: User = Depends(require_caregiver_role),
                            db: Session = Depends(get_db_session)):

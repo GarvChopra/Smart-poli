@@ -36,9 +36,27 @@ const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes']
 function patientFrame(root, o, active, bodyHtml) {
   root.innerHTML = `
     <a class="cg-back" href="#/">← Family</a>
-    <div class="cg-title"><h2>${esc(o.nickname || o.patient.name)}</h2>${cgBadge(o.priority)}<button class="ghost small" id="cgRename" type="button">Rename</button></div>
+    <div class="cg-title"><h2>${esc(o.nickname || o.patient.name)}</h2>${cgBadge(o.priority)}<button class="ghost small" id="cgRename" type="button">Rename</button><button class="ghost small danger-text" id="cgRemovePerson" type="button">Remove</button></div>
     <div class="cg-section">${esc((TABS.find(([key]) => key === active) || [])[1] || '')}</div>
     <div class="cg-body">${bodyHtml}</div>`;
+  root.querySelector('#cgRemovePerson').addEventListener('click', () => {
+    const who = o.label;
+    const m = showSafetyModal(`
+      <h3>Remove ${esc(who)}?</h3>
+      <p class="reg-meta">You will stop seeing ${esc(who)}'s medicines and stop getting alerts about them. ${esc(who)} and their data are not deleted, and ${esc(who)} is told. You can be added again later with a new code.</p>
+      <div id="cgRmPersonMsg" class="auth-error" role="alert"></div>
+      <div class="sm-actions"><button class="primary small danger" id="cgRmPersonYes" type="button">Remove ${esc(who)}</button><button class="ghost small" id="cgRmPersonNo" type="button">Cancel</button></div>`);
+    m.querySelector('#cgRmPersonNo').addEventListener('click', () => m.remove());
+    m.querySelector('#cgRmPersonYes').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try {
+        await api('POST', `/caregiver/patients/${o.patient.id}/unlink`);
+        overviewCache.pid = null;
+        m.remove();
+        window.location.hash = '#/';
+      } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
+    });
+  });
   root.querySelector('#cgRename').addEventListener('click', async () => {
     const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
     if (next === null) return;
