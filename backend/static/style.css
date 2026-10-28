@@ -1461,7 +1461,115 @@ body.legal-body { background: var(--paper); }
 .auth-legal { font-size: 12.5px; color: var(--ink-soft); text-align: center; margin: 14px 0 0; line-height: 1.5; }
 .auth-legal a { color: var(--teal-dark); font-weight: 600; }
 
-/* Remove sits UNDER each person's row on the Family home (not beside it) */
-.fam-item { display: grid; gap: 2px; }
-.fam-remove { justify-self: end; border: 0; background: none; color: var(--alarm); font-weight: 700; font-size: 13px; padding: 6px 10px; min-height: 32px; cursor: pointer; border-radius: 8px; }
-.fam-remove:hover { background: var(--alarm-soft); }
+/* Family redesign (28 Oct 2026): page 26px / section 21px, 44px+ taps, white radius-16 cards with one shadow, green = main action */
+.page-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 800; font-size: 26px; line-height: 1.2; }
+.section-title { margin: 0; font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 21px; line-height: 1.25; }
+.rd-card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-card); }
+.btn-go { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border: 0; border-radius: 14px; background: var(--teal); color: #fff; font: 700 15px 'Figtree', sans-serif; text-decoration: none; cursor: pointer; flex: none; }
+.btn-go:hover { background: var(--teal-dark); }
+.btn-wide { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 52px; border-radius: 14px; border: 0; font: 700 16px 'Figtree', sans-serif; cursor: pointer; text-decoration: none; }
+.btn-wide.green { background: var(--teal); color: #fff; }
+.btn-wide.grey { background: #EEF2F0; color: var(--ink); }
+.btn-wide.outline { background: #fff; color: var(--teal-dark); border: 2px solid var(--teal); }
+.pill-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: rgba(255,255,255,.75); color: var(--ink); font: 600 14px 'Noto Sans', sans-serif; text-decoration: none; cursor: pointer; }
+.pill-btn.white { background: #fff; }
+.pill-btn.red { color: var(--alarm); font-weight: 700; }
+
+/* Family list: row + bin + chevron */
+.fr { position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 14px; min-height: 72px; background: var(--surface); border: 1.5px solid transparent; border-radius: 16px; box-shadow: var(--shadow-card); }
+.fr:hover { border-color: #CFE6DD; }
+.fr.me { border-color: var(--teal); }
+.fr-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: var(--ink); text-decoration: none; }
+.fr-link::after { content: ""; position: absolute; inset: 0; border-radius: 16px; }
+.fr .fam-avatar { width: 44px; height: 44px; font-size: 18px; font-family: 'Figtree', sans-serif; }
+.fr-name { display: block; font-weight: 700; font-size: 17px; }
+.fr-sub { display: block; font-size: 14px; color: var(--ink-soft); }
+.fr-bin { position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 0; background: none; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: opacity .15s, background .15s, color .15s; }
+.fr-bin:hover, .fr-bin:focus-visible { background: var(--alarm-soft); color: var(--alarm); opacity: 1; }
+@media (hover: hover) { .fr-bin { opacity: 0; } .fr:hover .fr-bin, .fr:focus-within .fr-bin { opacity: 1; } }
+.fr-chev { color: var(--ink-faint); flex: none; }
+.share-card { padding: 18px 16px; display: grid; gap: 14px; }
+.share-card .share-head { display: flex; align-items: center; gap: 14px; font-weight: 700; font-size: 17px; }
+.share-card .share-ic { width: 52px; height: 52px; border-radius: 50%; background: var(--teal-soft); display: flex; align-items: center; justify-content: center; flex: none; }
+
+/* A person's page: coloured band under the header, then the missed/next card */
+.band { margin: -16px -16px 16px; padding: 12px 18px 14px; display: grid; gap: 10px; }
+.band-top { display: flex; align-items: center; gap: 8px; }
+.band-top .pill-btn:first-child { margin-right: auto; background: #fff; }
+.band-name { display: flex; align-items: center; gap: 12px; }
+.band-name .fam-avatar { background: #fff; width: 44px; height: 44px; font-size: 20px; font-family: 'Figtree', sans-serif; }
+.band.rose { background: var(--alarm-soft); } .band.blue { background: var(--blue-soft); } .band.green { background: var(--teal-soft); }
+.band.amber { background: var(--amber-soft); } .band.violet { background: #ECE6FB; }
+.top-card { padding: 16px; display: grid; gap: 14px; }
+.top-card.missed { box-shadow: inset 4px 0 0 var(--alarm), var(--shadow-card); }
+.top-card .kicker { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.top-card.missed .kicker { color: #B03421; }
+.top-card .big { font-weight: 700; font-size: 19px; }
+.top-card .small { font-size: 15px; color: var(--ink-soft); }
+.top-card .duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.top-card .duo > * { height: 52px; }
+.top-card .duo.one { grid-template-columns: 1fr; }
+.row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.stack { display: grid; gap: 16px; }
+
+/* Week strip + timeline (day-timeline.js) */
+.dtl { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-card); overflow: hidden; }
+.dtl .day-strip { padding: 14px 8px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; }
+.dtl .day { background: none; border: 0; font-family: inherit; color: var(--ink); display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; padding: 0; min-height: 44px; }
+.dtl .day span { font-size: 13px; color: var(--ink-soft); }
+.dtl .day b { font-size: 17px; font-weight: 700; width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.dtl .day.on span { color: var(--teal-dark); font-weight: 700; }
+.dtl .day.on b { background: var(--teal); color: #fff; }
+.dtl .tl-shadow { height: 10px; border-top: 1px solid var(--line); background: linear-gradient(rgba(22,36,31,.05), rgba(22,36,31,0)); }
+.dtl .tl { display: grid; grid-template-columns: 48px 14px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 6px 14px 10px; }
+.dtl .t { font-weight: 700; font-size: 15px; line-height: 1.2; }
+.dtl .t small { display: block; font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.dtl .ln { align-self: stretch; position: relative; }
+.dtl .ln::before { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: #CFE6DD; }
+.dtl .ln.first::before { top: 50%; } .dtl .ln.last::before { bottom: 50%; }
+.dtl .dt { position: absolute; left: 1px; top: 50%; margin-top: -6px; width: 12px; height: 12px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 3px #fff; }
+.dtl .mc { display: flex; align-items: center; gap: 12px; padding: 10px 0; min-height: 64px; }
+.dtl .ic { width: 44px; height: 44px; border-radius: 50%; background: #E8F5F0; color: var(--teal); display: flex; align-items: center; justify-content: center; flex: none; }
+.dtl .ic.bad { background: var(--alarm-soft); color: #A8331F; }
+.dtl .mn { display: block; font-weight: 600; font-size: 16px; }
+.dtl .md { display: block; font-size: 14px; color: var(--ink-soft); }
+.dtl .md.tl-missed { color: #B03421; font-weight: 600; }
+.dtl .tl-check { color: var(--teal); flex: none; }
+.dtl .empty { padding: 18px 16px; }
+
+/* Mum's Medicines: ring, per-medicine bar, 7-day strip */
+.chips { display: flex; gap: 6px; }
+.chip { height: 44px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #D3DDD9; background: #fff; font: 600 14px 'Noto Sans', sans-serif; color: var(--ink); cursor: pointer; }
+.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.sum-card { padding: 18px 16px; display: flex; align-items: center; gap: 18px; }
+.sum-card b { display: block; font-weight: 700; font-size: 17px; }
+.sum-card span { display: block; font-size: 14px; color: var(--ink-soft); }
+.med-card { padding: 16px; display: grid; gap: 12px; }
+.med-card .med-top { display: flex; align-items: flex-start; gap: 12px; }
+.med-card .med-name { display: block; font-weight: 700; font-size: 18px; }
+.med-card .med-sub { display: block; font-size: 14px; color: var(--ink-soft); }
+.med-card .med-pct { font-family: 'Figtree', sans-serif; font-weight: 800; font-size: 24px; }
+.bar { height: 10px; border-radius: 999px; background: #EDF2EF; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 999px; }
+.counts { display: flex; gap: 16px; font-size: 14px; }
+.wk { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; font-size: 11px; color: var(--ink-soft); }
+.wk b { display: block; height: 22px; border-radius: 6px; margin-bottom: 3px; color: #fff; font-size: 13px; line-height: 22px; }
+.wk .ok { background: var(--teal); } .wk .no { background: var(--alarm); } .wk .part { background: #E8B04A; } .wk .none { background: var(--line); }
+.added-chip { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; color: #1F56B8; background: var(--blue-soft); border-radius: 999px; padding: 2px 10px; }
+.good { color: var(--teal); } .bad-text { color: var(--alarm); }
+.fine-print { margin: 0; font-size: 13px; color: var(--ink-soft); text-align: center; }
+
+/* Menu: person switcher */
+.cg-switch { display: grid; gap: 4px; margin: 4px 0; }
+.cg-switch .cg-menu-link { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.cg-switch .fam-avatar { width: 30px; height: 30px; font-size: 14px; }
+
+/* Your medicines (patient app) */
+.dash-top { display: grid; gap: 10px; }
+.dash-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hero-acts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; }
+.dash-next .countdown { font-size: 15px; font-weight: 600; color: var(--teal-dark); }
+.dash-next .countdown.overdue { color: var(--alarm); }
+.btn-wide.is-early { background: #EEF2F0; color: var(--ink-soft); }
+.dtl .day-body { padding: 4px 14px 14px; }
+.dtl .day-body .tl { padding: 6px 0 4px; }

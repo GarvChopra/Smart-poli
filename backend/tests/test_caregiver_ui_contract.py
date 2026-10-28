@@ -76,7 +76,7 @@ def test_page_links_live_in_the_left_menu_not_in_a_tab_bar_on_the_page():
     body = fn("renderDrawerNav", SHELL)
     for label in ("Today", "Medicines", "Notes", "History", "Emergency"):
         assert label in SHELL, label
-    assert "Family home" in body and "My medicines" not in body and "Settings" in body and "#/p/" in body
+    assert "Family" in body and "Family home" not in body and "My medicines" not in body and "Settings" in body and "#/p/" in body
     assert "renderDrawerNav(" in fn("route", SHELL)
 
 

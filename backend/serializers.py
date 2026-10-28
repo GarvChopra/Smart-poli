@@ -99,6 +99,16 @@ def _added_by(m: Medicine) -> Optional[dict]:
     return {"user_id": uid, "name": (u.name if u and u.name else "Your caregiver")}
 
 
+def slot_of(medicine: Medicine, dose: Dose) -> Optional[str]:
+    """'morning' / 'afternoon' / ... for a dose, read from the medicine's own slot list (None for exact-time medicines)."""
+    try:
+        slots, times = json.loads(medicine.slots or "[]"), json.loads(medicine.times or "[]")
+    except ValueError:
+        return None
+    hhmm = dose.scheduled_at.strftime("%H:%M")
+    return slots[times.index(hhmm)] if hhmm in times and len(slots) == len(times) else None
+
+
 def serialize_dose(d: Dose) -> dict:
     return {
         "id": d.id,

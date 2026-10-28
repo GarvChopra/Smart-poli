@@ -74,6 +74,7 @@ from schemas import (
     PatientSettingsUpdate, PushSubscribeRequest, PushRotateRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
 )
 from serializers import (
+    slot_of as _slot_of,
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
     serialize_patient, serialize_medicine, serialize_dose,
     gather_report_data, emergency_card_data as _emergency_card_data,
@@ -1011,16 +1012,6 @@ def _guard_payload(issue: dict, can_override: bool) -> dict:
     return {"detail": issue["message"], "code": issue["code"], "can_override": can_override,
             "earliest": issue.get("earliest"), "source": issue.get("source"), "source_label": issue.get("source_label"),
             "quote": issue.get("quote"), "medicine": issue.get("medicine"), "other_medicine": issue.get("other_medicine")}
-
-
-def _slot_of(medicine: Medicine, dose: Dose) -> Optional[str]:
-    """'morning' / 'afternoon' / ... for a dose, read from the medicine's own slot list (None for exact-time medicines)."""
-    try:
-        slots, times = json.loads(medicine.slots or "[]"), json.loads(medicine.times or "[]")
-    except ValueError:
-        return None
-    hhmm = dose.scheduled_at.strftime("%H:%M")
-    return slots[times.index(hhmm)] if hhmm in times and len(slots) == len(times) else None
 
 
 _last_warm: dict = {}

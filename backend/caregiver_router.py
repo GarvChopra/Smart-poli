@@ -17,17 +17,18 @@ from typing import Optional
 import care_notes
 import care_push
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from db import get_db_session, log_audit, User, CaregiverLink, SymptomCheck, Dose, Prescription
-from auth import PERSON_ROLES, get_current_user, require_patient_write_access, require_caregiver_role, is_linked_caregiver, gen_link_code
+from auth import PERSON_ROLES, get_current_user, require_patient_read_access, require_patient_write_access, require_caregiver_role, is_linked_caregiver, gen_link_code
 from schemas import PushActionToken, LinkRedeem, LinkNickname, CareNoteCreate, CaregiverPrefsUpdate, PushSubscribeRequest, PushUnsubscribeRequest
-from serializers import get_patient_or_404, serialize_patient, gather_dashboard_data, emergency_card_data
+from serializers import get_patient_or_404, serialize_patient, serialize_dose, slot_of, gather_dashboard_data, emergency_card_data
 from doctor_intelligence import compute_priority
 from web_security import rate_limit
 from family_router import public_base_url
 from nudges import compute_nudges
+from scheduler import compute_adherence, sweep_missed_for_view
 from interactions import load_ruleset as load_interaction_ruleset
 from food_warnings import load_ruleset as load_food_ruleset
 
@@ -215,6 +216,86 @@ def _todays_doses(db: Session, patient_id: int) -> list:
         out.append({"dose_id": d.id, "medicine_id": med.id, "medicine_name": med.name, "strength": strength,
                     "state": d.state, "scheduled_at": d.scheduled_at.isoformat()})
     return out
+
+
+def _shown(med) -> bool:
+    """The medicines a person sees: not removed, not an unconfirmed line read off a photo."""
+    return not (med.status == "needs_confirmation" or not med.name or '"removed"' in (med.field_confidence or ""))
+
+
+@router.get("/patients/{patient_id}/doses")
+def doses_on_day(patient_id: int, date: Optional[str] = Query(None, description="YYYY-MM-DD on the person's own clock; default today"),
+                 user: User = Depends(require_patient_read_access), db: Session = Depends(get_db_session)):
+    """One day's doses, earliest first, in the shape of the dashboard's `today_doses`. Feeds the date strip on Your
+    medicines and on a family member's page. The person themselves or a linked caregiver; nobody else."""
+    from clock import patient_now
+    from db import Medicine
+    get_patient_or_404(db, patient_id)
+    sweep_missed_for_view(db)
+    today = patient_now(db, patient_id).date()
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date() if date else today
+    except ValueError:
+        raise HTTPException(422, "Date must look like 2026-10-28.")
+    start = datetime(day.year, day.month, day.day)
+    rows = (db.query(Dose, Medicine).join(Medicine, Dose.medicine_id == Medicine.id)
+            .join(Prescription, Medicine.prescription_id == Prescription.id)
+            .filter(Prescription.patient_id == patient_id, Dose.scheduled_at >= start,
+                    Dose.scheduled_at < start + timedelta(days=1), Dose.state != "cancelled")
+            .order_by(Dose.scheduled_at, Dose.id).all())
+    shown = [(d, m) for d, m in rows if _shown(m)]
+    return {"patient_id": patient_id, "date": day.isoformat(), "today": today.isoformat(),
+            "doses": [{**serialize_dose(d), "medicine_name": m.name or m.raw_text, "food": m.food, "slot": slot_of(m, d)} for d, m in shown],
+            "left": sum(1 for d, _ in shown if d.state in ("pending", "snoozed"))}
+
+
+def _day_state(doses: list) -> str:
+    """One day in one word, for the strip: taken (all done), missed (any missed), partial, or none (nothing due yet / nothing scheduled)."""
+    acted = [d for d in doses if d.state in ("taken", "missed", "skipped")]
+    if not acted:
+        return "none"
+    if any(d.state == "missed" for d in acted):
+        return "missed"
+    return "taken" if len(acted) == len(doses) else "partial"
+
+
+@router.get("/caregiver/patients/{patient_id}/adherence")
+def caregiver_adherence(patient_id: int, days: int = Query(7), user: User = Depends(require_caregiver_role),
+                        db: Session = Depends(get_db_session)):
+    """Adherence over the last 1, 7 or 30 days (today included, on the person's own clock): a summary, each medicine's
+    taken / missed / %, and a 7-day state per day (overall and per medicine) for the strip. Read-only."""
+    from clock import patient_now
+    from db import Medicine
+    _require_link(db, user, patient_id)
+    if days not in (1, 7, 30):
+        raise HTTPException(422, "days must be 1, 7 or 30.")
+    get_patient_or_404(db, patient_id)
+    sweep_missed_for_view(db)
+    today = patient_now(db, patient_id).date()
+    first = today - timedelta(days=max(days, 7) - 1)
+    rows = (db.query(Dose, Medicine, Prescription).join(Medicine, Dose.medicine_id == Medicine.id)
+            .join(Prescription, Medicine.prescription_id == Prescription.id)
+            .filter(Prescription.patient_id == patient_id, Dose.scheduled_at >= datetime(first.year, first.month, first.day),
+                    Dose.scheduled_at < datetime(today.year, today.month, today.day) + timedelta(days=1), Dose.state != "cancelled")
+            .all())
+    rows = [(d, m, p) for d, m, p in rows if _shown(m)]
+    window_start = datetime(today.year, today.month, today.day) - timedelta(days=days - 1)
+    in_window = [(d, m, p) for d, m, p in rows if d.scheduled_at >= window_start]
+    strip_days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+
+    def strip(doses):
+        return [{"date": day.isoformat(), "state": _day_state([d for d in doses if d.scheduled_at.date() == day])} for day in strip_days]
+
+    per_med = []
+    for mid in dict.fromkeys(m.id for _, m, _ in in_window):
+        mine = [(d, m, p) for d, m, p in in_window if m.id == mid]
+        med, pres = mine[0][1], mine[0][2]
+        entry = compute_adherence([d for d, _, _ in mine])
+        per_med.append({"medicine_id": mid, "name": med.name or med.raw_text, "taken": entry["taken"], "missed": entry["missed"],
+                        "adherence_percent": entry["adherence_percent"], "added_by_me": pres.added_by_user_id == user.id,
+                        "daily": strip([d for d, m, _ in rows if m.id == mid])})
+    return {"patient_id": patient_id, "days": days, "summary": compute_adherence([d for d, _, _ in in_window]),
+            "per_medicine": per_med, "daily": strip([d for d, _, _ in rows])}
 
 
 @router.get("/caregiver/home")

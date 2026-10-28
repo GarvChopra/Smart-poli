@@ -101,13 +101,13 @@ document.getElementById('patientSelect').addEventListener('change', (e) => {
 
 const UI_STRINGS = {
   en: {
-    navPrescriptions: 'Prescription', navDashboard: 'Dashboard', navTriage: 'Symptom check',
+    navPrescriptions: 'Prescription', navDashboard: 'Today', navTriage: 'Symptom check',
     navReport: 'Care report', navTimeline: 'Timeline', navEmergency: 'Emergency card',
     dashboardHeading: "Today's dashboard", prescriptionHeading: 'Decode a prescription',
     triageHeading: 'Symptom check', emergencyHeading: 'Emergency Card', timelineHeading: 'Treatment timeline',
   },
   hi: {
-    navPrescriptions: 'पर्ची', navDashboard: 'डैशबोर्ड', navTriage: 'लक्षण जांच',
+    navPrescriptions: 'पर्ची', navDashboard: 'आज', navTriage: 'लक्षण जांच',
     navReport: 'केयर रिपोर्ट', navTimeline: 'टाइमलाइन', navEmergency: 'इमरजेंसी कार्ड',
     dashboardHeading: 'आज का डैशबोर्ड', prescriptionHeading: 'पर्ची समझें',
     triageHeading: 'लक्षण जांच', emergencyHeading: 'इमरजेंसी कार्ड', timelineHeading: 'उपचार टाइमलाइन',
@@ -213,6 +213,19 @@ document.getElementById('deleteAccountBtn').addEventListener('click', openDelete
   pwBtn.addEventListener('click', openSetPassword);
 }
 document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
+document.getElementById('shareMineNav').addEventListener('click', () => { window.location.href = '/caregiver#/share'; });
+
+/** The menu's person switcher: the people you look after, then You (this page). A failed lookup just leaves it empty. */
+async function renderNavSwitch() {
+  const box = document.getElementById('navSwitch');
+  if (!box) return;
+  try {
+    const home = await api('GET', '/caregiver/home');
+    const colours = ['rose', 'blue', 'amber', 'violet'];
+    box.innerHTML = home.family.map((f) => `<a class="cg-menu-link" href="/caregiver#/p/${f.id}/today"><span class="fam-avatar ${colours[f.id % colours.length]}" aria-hidden="true">${escHtml((f.label || '?').trim().charAt(0).toUpperCase())}</span>${escHtml(f.label)}</a>`).join('')
+      + `<a class="cg-menu-link active" href="/"><span class="fam-avatar green" aria-hidden="true">${escHtml((currentUser.name || 'Y').trim().charAt(0).toUpperCase())}</span>You</a>`;
+  } catch (e) { box.innerHTML = ''; }
+}
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
 function renderNoPatientState() {
@@ -587,6 +600,23 @@ function interactionWarningHtml(i) {
   });
 }
 
+/** "Add medicine" on Your medicines: scan, upload a prescription PDF, or type it. The same three ways as for a family member. */
+function openAddMedicineSheet() {
+  const m = showSafetyModal(`
+    <h3>Add a medicine</h3>
+    <div class="cg-add-options">
+      <button class="primary" data-how="scan" type="button">📷 Scan a medicine</button>
+      <button class="ghost" data-how="pdf" type="button">📄 Upload prescription PDF</button>
+      <button class="ghost" data-how="manual" type="button">Enter manually</button>
+    </div>
+    <div class="sm-actions"><button class="ghost small" id="addMedCancel" type="button">Cancel</button></div>`);
+  m.querySelector('#addMedCancel').addEventListener('click', () => m.remove());
+  m.querySelectorAll('[data-how]').forEach((b) => b.addEventListener('click', () => {
+    m.remove();
+    if (b.dataset.how === 'scan') openMedicineCamera(); else if (b.dataset.how === 'pdf') openMedicinePdf(); else medicineWizard({ step: 'details' });
+  }));
+}
+
 async function afterMedicineAdded(med, out, when, sos) {
   const m = showSafetyModal(`
     <h3>Added ✓</h3>
@@ -595,7 +625,7 @@ async function afterMedicineAdded(med, out, when, sos) {
     <div class="reg-meta wz-check" id="wzCheck" style="margin-top:10px;text-align:center;">
       ${sos ? 'You can log a dose from the dashboard whenever you need it.' : '<span class="upload-spinner"></span> Checking it against your other medicines…'}</div>
     <div class="sm-actions"><button class="primary small" id="wzDone">Done</button><button class="ghost small" id="wzAnother">Add another</button></div>`);
-  const finish = () => { m.remove(); renderPrescriptions(); renderGlance(); };
+  const finish = () => { m.remove(); renderPrescriptions(); renderGlance(); if (state.activeTab === 'dashboard') renderDashboard(); };
   m.querySelector('#wzDone').addEventListener('click', finish);
   m.querySelector('#wzAnother').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
   loadMedicineInfoInto(m);                                           // "Used for: ..." appears when the lookup finishes
@@ -1548,21 +1578,22 @@ async function renderDashboard() {
     const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
     const takeable = isTakeableNow(next.scheduled_at);
     const takeFrom = new Date(new Date(next.scheduled_at) - TAKE_EARLY_MS).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const at = new Date(next.scheduled_at);
     return `
-      <div class="card hero-next-dose">
+      <div class="rd-card top-card dash-next">
         <div style="display:flex;align-items:center;gap:14px;">
           ${iconBadge('teal', 'pill')}
           <div>
-            <div style="font-size:12px;color:var(--ink-soft);">Next dose</div>
-            <div class="med-name">${next.medicine_name}</div>
-            <div style="font-size:13px;color:var(--ink-soft);">${new Date(next.scheduled_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+            <div class="kicker">Next dose</div>
+            <div class="big med-name">${escHtml(next.medicine_name)}</div>
+            <div class="small countdown ${overdue ? 'overdue' : ''}">${escHtml(at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${overdue ? 'overdue by ' : 'in '}${label}</div>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div class="countdown ${overdue ? 'overdue' : ''}">${overdue ? 'Overdue by ' : 'in '}${label}</div>
-          <button class="${takeable ? 'primary' : 'ghost is-early'} small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>
-          ${takeable ? '' : `<div class="reg-meta" style="margin-top:6px;">Not due yet · can be taken from ${takeFrom}</div>`}
+        <div class="hero-acts">
+          <button class="btn-wide grey" data-hero-skip="${next.id}" type="button">Skip</button>
+          <button class="btn-wide ${takeable ? 'green' : 'grey is-early'}" data-hero-take="${next.id}" type="button">Take now</button>
         </div>
+        ${takeable ? '' : `<div class="reg-meta">Not due yet · can be taken from ${takeFrom}</div>`}
       </div>
     `;
   })() : '';
@@ -1594,37 +1625,52 @@ async function renderDashboard() {
       <div class="missed-note">Don't take a double dose to catch up. If you're unsure whether to take a missed dose now, check the medicine's leaflet or ask your pharmacist or doctor. Your next dose stays as scheduled above.</div>
     </div>` : '';
 
+  const hour = new Date().getHours();
+  const first = ((currentUser && currentUser.name) || '').trim().split(/\s+/)[0];
+  const greeting = `Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}${first ? ', ' + first : ''}`;
   view.innerHTML = `
-    <div class="dash-head">
-      <h2>${t('dashboardHeading')}</h2>
-      <button class="ghost small" id="dashWhatsAppBtn"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
+    <div class="stack">
+    <div class="dash-top">
+      <div class="dash-bar">
+        <a class="pill-btn white" href="/caregiver"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Family</a>
+        <button class="pill-btn white" id="dashWhatsAppBtn" type="button"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
+      </div>
+      <h1 class="page-title">${escHtml(greeting)}</h1>
     </div>
     <div id="dashPushPrompt"></div>
     <div id="dashTimingChip"></div>
+    <div class="row-head"><h2 class="section-title">Your medicines</h2><button class="btn-go" id="dashAddMed" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add medicine</button></div>
     ${heroHtml}
-    <div class="card" id="todayCard">
-      <div class="card-head">${iconBadge('teal', 'calendar')}<h3>Today's medicines</h3>
-        <span class="card-art" aria-hidden="true">
-          <svg viewBox="0 0 84 48" width="84" height="48" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path class="art-heart" d="M42 40 C18 24 22 8 33 8 C38 8 41 11 42 14 C43 11 46 8 51 8 C62 8 66 24 42 40Z" fill="#E8F5F0" stroke="#0F8A70" stroke-width="2"/>
-            <path class="art-ecg" d="M2 26 H26 L31 16 L38 36 L44 10 L50 30 L54 26 H82" stroke="#0F8A70" stroke-width="2.4"/>
-          </svg>
-        </span>
-      </div>
-      ${todayHtml}
-    </div>
+    <div id="todayCard" role="region" aria-label="Today's medicines"><div id="dashDay" class="dtl"></div></div>
     ${missedHtml}
     ${dash.prn_medicines.length ? `
     <div class="card">
       <div class="card-head">${iconBadge('teal', 'pill')}<h3>As-needed</h3></div>
       ${prnHtml}
     </div>` : ''}
+    </div>
   `;
 
+  // The week strip: today is the live list with Take / Snooze / Skip; any other day is a read-only look at that day.
+  const dayBox = view.querySelector('#dashDay');
+  const showDay = async (day) => {
+    const isToday = !day || day === dash.today;
+    let body = todayHtml;
+    if (!isToday) {
+      dayBox.querySelectorAll('[data-day]').forEach((b) => b.classList.toggle('on', b.dataset.day === day));
+      try { const d = await api('GET', `/patients/${state.patientId}/doses?date=${day}`); body = DayTimeline.listHtml(d.doses, day, dash.today); }
+      catch (e) { body = `<div class="empty">${escHtml(e.message || 'Could not load this day.')}</div>`; }
+    }
+    dayBox.innerHTML = `<div class="day-strip">${DayTimeline.stripHtml(dash.today, day || dash.today)}</div><div class="tl-shadow" aria-hidden="true"></div><div class="day-body">${body}</div>`;
+    dayBox.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => showDay(b.dataset.day)));
+    if (isToday) wireToday();
+  };
+
   document.getElementById('dashWhatsAppBtn').addEventListener('click', showWhatsAppPopup);
+  document.getElementById('dashAddMed').addEventListener('click', openAddMedicineSheet);
   loadTimingChip(document.getElementById('dashTimingChip'));
   renderPushPrompt(document.getElementById('dashPushPrompt'), state.patientId);
-  view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
+  view.querySelectorAll('.missed-card [data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(`m${d.id}`));
   if (unseen) showMissedGuidance(unseen.id);
@@ -1639,6 +1685,18 @@ async function renderDashboard() {
     }));
   }
 
+  const heroSkipBtn = view.querySelector('[data-hero-skip]');
+  if (heroSkipBtn) {
+    heroSkipBtn.addEventListener('click', () => withBusy(heroSkipBtn, async () => {
+      const reason = prompt('Reason for skipping this dose?');
+      if (!reason) return;
+      try { await api('POST', `/doses/${heroSkipBtn.dataset.heroSkip}/skip`, { reason }); }
+      catch (e) { showNotice('Not possible right now', e.message); }
+      renderDashboard();
+      renderGlance();
+    }));
+  }
+
   view.querySelectorAll('[data-prn-id]').forEach(btn => {
     btn.addEventListener('click', () => withBusy(btn, async () => {
       try { await api('POST', `/medicines/${btn.dataset.prnId}/log-prn`); }
@@ -1648,7 +1706,9 @@ async function renderDashboard() {
     }));
   });
 
-  view.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
+  const wireToday = () => {
+  dayBox.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
+  dayBox.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
     const doseId = row.dataset.doseId;
     row.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => withBusy(btn, async () => {
@@ -1671,6 +1731,8 @@ async function renderDashboard() {
       }));
     });
   });
+  };
+  showDay(null);
 }
 
 // ---------------------------------------------------------------- triage (Feature 3)
@@ -2103,6 +2165,7 @@ function openTabFromHash() {
   renderSessionChip();
   applyA11yMode();
   injectNavIcons();
+  renderNavSwitch();
   await loadPatients();
   applyNavTranslation();
   // Straight to the tab in the URL (#tab=… from the voice page); rendering the
