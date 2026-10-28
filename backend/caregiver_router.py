@@ -4,8 +4,9 @@ SmartPoli — Caregiver linking + caregiver dashboard (Part 2 of the brief).
 A caregiver never gets access by typing a patient id into a box. The
 patient generates a one-time invite code; a caregiver account redeems it;
 only then does an active CaregiverLink row exist, and every caregiver
-endpoint here checks that row via auth.has_read_access — never a
-frontend-supplied role or id.
+endpoint here checks that row via auth.is_linked_caregiver — never a
+frontend-supplied role or id. Any account can be a caregiver: it is a
+relationship, not an account type.
 
 Reuses the existing dashboard/adherence/triage/emergency-card data
 (serializers.py, nudges.py) rather than a second medication system.
@@ -21,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db import get_db_session, log_audit, User, CaregiverLink, SymptomCheck, Dose
-from auth import get_current_user, require_patient_write_access, require_caregiver_role, has_read_access, gen_link_code
+from auth import get_current_user, require_patient_write_access, is_linked_caregiver, gen_link_code
 from schemas import LinkRedeem, CareNoteCreate, CaregiverPrefsUpdate, PushSubscribeRequest, PushUnsubscribeRequest
 from serializers import get_patient_or_404, serialize_patient, gather_dashboard_data, emergency_card_data
 from doctor_intelligence import compute_priority
@@ -80,18 +81,20 @@ def revoke_caregiver_link(link_id: int, user: User = Depends(get_current_user), 
     if not link:
         raise HTTPException(404, f"No caregiver link {link_id}")
     patient = get_patient_or_404(db, link.patient_id)
-    if not (user.role == "patient" and patient.user_id == user.id):
-        raise HTTPException(403, "Only the patient can revoke a caregiver's access.")
+    is_owner = patient.user_id == user.id
+    if not is_owner and not (link.status == "active" and link.caregiver_user_id == user.id):
+        raise HTTPException(403, "Only the patient or that caregiver can end this link.")   # either side may unlink
     link.status = "revoked"
     db.commit()
-    log_audit(db, link.patient_id, f"patient:{user.id}", "caregiver_link_revoked", f"link {link.id}")
+    log_audit(db, link.patient_id, f"{'patient' if is_owner else 'caregiver'}:{user.id}", "caregiver_link_revoked",
+              f"link {link.id}")
     return {"id": link.id, "status": link.status}
 
 
 # ---------------------------------------------------------------- caregiver side
 
 @router.post("/caregiver/link/redeem")
-def redeem_caregiver_link(body: LinkRedeem, user: User = Depends(require_caregiver_role),
+def redeem_caregiver_link(body: LinkRedeem, user: User = Depends(get_current_user),
                            db: Session = Depends(get_db_session)):
     code = body.code.strip().upper()
     link = db.query(CaregiverLink).filter(CaregiverLink.code == code).first()
@@ -101,6 +104,10 @@ def redeem_caregiver_link(body: LinkRedeem, user: User = Depends(require_caregiv
         raise HTTPException(409, "This invite has been revoked.")
     if link.status == "active" and link.caregiver_user_id != user.id:
         raise HTTPException(409, "This invite has already been used by another caregiver.")
+    if user.role == "doctor":
+        raise HTTPException(403, "A doctor account cannot redeem a caregiver invite.")
+    if get_patient_or_404(db, link.patient_id).user_id == user.id:
+        raise HTTPException(400, "This is your own profile; share the code with your family member instead.")
 
     link.caregiver_user_id = user.id
     link.status = "active"
@@ -113,7 +120,7 @@ def redeem_caregiver_link(body: LinkRedeem, user: User = Depends(require_caregiv
 
 
 @router.get("/caregiver/patients")
-def caregiver_patients(user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+def caregiver_patients(user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
     links = db.query(CaregiverLink).filter(
         CaregiverLink.caregiver_user_id == user.id, CaregiverLink.status == "active",
     ).all()
@@ -128,9 +135,9 @@ def caregiver_patients(user: User = Depends(require_caregiver_role), db: Session
 
 
 @router.get("/caregiver/patients/{patient_id}/overview")
-def caregiver_patient_overview(patient_id: int, user: User = Depends(require_caregiver_role),
+def caregiver_patient_overview(patient_id: int, user: User = Depends(get_current_user),
                                 db: Session = Depends(get_db_session)):
-    if not has_read_access(db, user, patient_id):
+    if not is_linked_caregiver(db, user, patient_id):
         raise HTTPException(403, "You are not linked to this patient.")
 
     patient = get_patient_or_404(db, patient_id)
@@ -198,20 +205,21 @@ def caregiver_patient_overview(patient_id: int, user: User = Depends(require_car
 # ---------------------------------------------------------------- notes the caregiver writes
 
 def _require_link(db: Session, user: User, patient_id: int) -> None:
-    if not has_read_access(db, user, patient_id):
+    # A real link, not just read access: the profile's owner must not reach care-team-only notes through these routes.
+    if not is_linked_caregiver(db, user, patient_id):
         raise HTTPException(403, "You are not linked to this patient.")
 
 
 @router.get("/caregiver/patients/{patient_id}/notes")
 def caregiver_list_notes(patient_id: int, kind: Optional[str] = None, medicine_id: Optional[int] = None,
-                         user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+                         user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
     _require_link(db, user, patient_id)
     return {"notes": care_notes.list_notes(db, patient_id, "caregiver", kind=kind, medicine_id=medicine_id),
             "disclaimer": care_notes.DISCLAIMER}
 
 
 @router.post("/caregiver/patients/{patient_id}/notes")
-def caregiver_create_note(patient_id: int, body: CareNoteCreate, user: User = Depends(require_caregiver_role),
+def caregiver_create_note(patient_id: int, body: CareNoteCreate, user: User = Depends(get_current_user),
                           db: Session = Depends(get_db_session)):
     _require_link(db, user, patient_id)
     try:
@@ -230,7 +238,7 @@ def caregiver_create_note(patient_id: int, body: CareNoteCreate, user: User = De
 
 
 @router.delete("/caregiver/notes/{note_id}")
-def caregiver_delete_note(note_id: int, user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+def caregiver_delete_note(note_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
     from db import CareNote
     note = db.query(CareNote).filter(CareNote.id == note_id, CareNote.deleted_at.is_(None)).first()
     if note is None or note.author_user_id != user.id:
@@ -247,7 +255,7 @@ NUDGE_COOLDOWN = timedelta(minutes=15)
 
 
 @router.post("/caregiver/patients/{patient_id}/nudge")
-def caregiver_nudge(patient_id: int, user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+def caregiver_nudge(patient_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
     """'Remind now': a gentle push to the patient's phone. At most once per 15 minutes per patient (whoever pressed it)."""
     from db import AuditLog
     _require_link(db, user, patient_id)
@@ -273,7 +281,7 @@ def caregiver_nudge(patient_id: int, user: User = Depends(require_caregiver_role
 # ---------------------------------------------------------------- phone alerts
 
 @router.post("/caregiver/push/subscribe")
-def caregiver_push_subscribe(body: PushSubscribeRequest, user: User = Depends(require_caregiver_role),
+def caregiver_push_subscribe(body: PushSubscribeRequest, user: User = Depends(get_current_user),
                              db: Session = Depends(get_db_session)):
     """Remember this phone for the caregiver's alerts. The same device subscribing again just updates its row."""
     from db import UserPushSubscription
@@ -287,7 +295,7 @@ def caregiver_push_subscribe(body: PushSubscribeRequest, user: User = Depends(re
 
 
 @router.post("/caregiver/push/unsubscribe")
-def caregiver_push_unsubscribe(body: PushUnsubscribeRequest, user: User = Depends(require_caregiver_role),
+def caregiver_push_unsubscribe(body: PushUnsubscribeRequest, user: User = Depends(get_current_user),
                                db: Session = Depends(get_db_session)):
     from db import UserPushSubscription
     db.query(UserPushSubscription).filter(UserPushSubscription.endpoint == body.endpoint,
@@ -297,7 +305,7 @@ def caregiver_push_unsubscribe(body: PushUnsubscribeRequest, user: User = Depend
 
 
 @router.get("/caregiver/patients/{patient_id}/prefs")
-def caregiver_get_prefs(patient_id: int, user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+def caregiver_get_prefs(patient_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
     from db import CaregiverPrefs
     _require_link(db, user, patient_id)
     row = db.query(CaregiverPrefs).filter(CaregiverPrefs.user_id == user.id, CaregiverPrefs.patient_id == patient_id).first()
@@ -305,7 +313,7 @@ def caregiver_get_prefs(patient_id: int, user: User = Depends(require_caregiver_
 
 
 @router.put("/caregiver/patients/{patient_id}/prefs")
-def caregiver_put_prefs(patient_id: int, body: CaregiverPrefsUpdate, user: User = Depends(require_caregiver_role),
+def caregiver_put_prefs(patient_id: int, body: CaregiverPrefsUpdate, user: User = Depends(get_current_user),
                         db: Session = Depends(get_db_session)):
     from db import CaregiverPrefs
     _require_link(db, user, patient_id)

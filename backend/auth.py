@@ -124,15 +124,16 @@ def require_role(*roles: str):
     return _dep
 
 
-require_patient_role = require_role("patient")
-require_caregiver_role = require_role("caregiver")
 require_doctor_role = require_role("doctor")
 
 
 # ---------------------------------------------------------------- patient access
+# Patient and caregiver are relationships, not account types: anyone owns the profiles they created (themselves, or a
+# family member without a phone) and looks after the people whose invite code they redeemed. The `role` column now
+# only marks doctor accounts; old 'caregiver' rows behave exactly like 'patient' ones.
 
 def _owns_patient(db: Session, user: User, patient: Patient) -> bool:
-    return user.role == "patient" and patient.user_id == user.id
+    return patient.user_id == user.id
 
 
 def _has_active_caregiver_link(db: Session, user: User, patient_id: int) -> bool:
@@ -159,11 +160,9 @@ def has_read_access(db: Session, user: User, patient_id: int) -> bool:
         return False
     if _owns_patient(db, user, patient):
         return True
-    if user.role == "caregiver":
-        return _has_active_caregiver_link(db, user, patient_id)
     if user.role == "doctor":
         return doctor_role_enabled() and _has_active_doctor_link(db, user, patient_id)
-    return False
+    return _has_active_caregiver_link(db, user, patient_id)
 
 
 def has_write_access(db: Session, user: User, patient_id: int) -> bool:
@@ -178,7 +177,14 @@ def has_write_access(db: Session, user: User, patient_id: int) -> bool:
 
 
 def is_linked_caregiver(db: Session, user: User, patient_id: int) -> bool:
-    return user.role == "caregiver" and _has_active_caregiver_link(db, user, patient_id)
+    return user.role != "doctor" and _has_active_caregiver_link(db, user, patient_id)
+
+
+def audit_actor(db: Session, user: User, patient_id: int) -> str:
+    """'patient:<id>' when acting on a profile they own, otherwise 'caregiver:<id>' (or 'doctor:<id>')."""
+    if user.role == "doctor":
+        return f"doctor:{user.id}"
+    return f"{'patient' if has_write_access(db, user, patient_id) else 'caregiver'}:{user.id}"
 
 
 def can_add_medicine(db: Session, user: User, patient_id: int) -> bool:

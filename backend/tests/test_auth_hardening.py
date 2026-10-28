@@ -84,7 +84,7 @@ def test_a_token_cannot_claim_a_role_the_database_did_not_grant():
         fake = jwt.encode({**claims, "role": "doctor"}, auth.JWT_SECRET, algorithm=auth.JWT_ALGO)   # validly signed, lying
         assert client.get("/auth/me", headers=bearer(fake)).json()["role"] == "patient"
         assert client.get("/doctor/patients", headers=bearer(fake)).status_code == 403
-        assert client.get("/caregiver/patients", headers=bearer(fake)).status_code == 403
+        assert client.get("/caregiver/patients", headers=bearer(fake)).json() == []      # only the people they were linked to
 
 
 def test_tokens_issued_before_revocation_existed_still_work_until_they_expire():

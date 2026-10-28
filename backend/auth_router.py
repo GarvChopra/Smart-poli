@@ -54,7 +54,7 @@ def doctor_signup_open() -> bool:
 
 def _serialize_user(user: User, db: Session) -> dict:
     out = {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
-    if user.role == "patient":
+    if user.role != "doctor":
         out["patient_ids"] = [p.id for p in db.query(Patient).filter(Patient.user_id == user.id).all()]
     return out
 

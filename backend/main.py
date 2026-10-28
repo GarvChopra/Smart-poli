@@ -82,7 +82,7 @@ from serializers import (
 from auth import (
     get_current_user, require_patient_write_access, require_patient_read_access,
     require_medicine_write_access, require_dose_write_access, require_prescription_write_access,
-    has_write_access, has_read_access, can_add_medicine, is_linked_caregiver, doctor_role_enabled,
+    has_write_access, has_read_access, can_add_medicine, is_linked_caregiver, doctor_role_enabled, audit_actor,
 )
 from nudges import compute_nudges
 from clock import patient_now, is_valid_timezone, patient_timezone
@@ -428,8 +428,8 @@ def on_shutdown():
 @app.post("/patients")
 def create_patient(body: PatientCreate, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db_session)):
-    if user.role != "patient":
-        raise HTTPException(403, "Only a patient account can create a patient profile.")
+    if user.role == "doctor":       # anyone else: their own profile, or a family member's who has no phone
+        raise HTTPException(403, "A doctor account cannot create a patient profile.")
     patient = Patient(user_id=user.id, name=body.name, age=body.age, sex=body.sex,
                        blood_group=body.blood_group,
                        allergies=body.allergies, emergency_contact=body.emergency_contact)
@@ -441,12 +441,11 @@ def create_patient(body: PatientCreate, user: User = Depends(get_current_user),
 
 @app.get("/patients")
 def list_patients(user: User = Depends(get_current_user), db: Session = Depends(get_db_session)):
-    """Only the calling patient's own profiles — this used to return every
+    """Only the profiles the caller owns — this used to return every
     patient in the system to anyone (Part 18: 'no unrestricted patient
-    APIs'). Caregivers/doctors have their own /caregiver and /doctor
-    listings, which are relationship-scoped."""
-    if user.role != "patient":
-        raise HTTPException(403, "Use /caregiver/patients or /doctor/patients for this role.")
+    APIs'). People they look after come from /caregiver/patients."""
+    if user.role == "doctor":
+        raise HTTPException(403, "Use /doctor/patients for this role.")
     return [serialize_patient(p) for p in db.query(Patient).filter(Patient.user_id == user.id).all()]
 
 
@@ -575,7 +574,7 @@ async def scan_medicine(
     if result is None or not result["candidates"]:
         # Why it failed is kept (no photo, no text from it) so a failed scan in production can be diagnosed.
         reason = f"ai={why.get('ai', '?')} keywords={why.get('keywords', '?')}"
-        log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_scan_failed", reason)
+        log_audit(db, patient_id, audit_actor(db, user, patient_id), "medicine_scan_failed", reason)
         logger.warning("Medicine scan found nothing: %s", reason)
         ai_reason = why.get("ai", "")
         if ai_reason in ("read", "no_medicine_seen"):
@@ -585,7 +584,7 @@ async def scan_medicine(
             msg = ("Our reader is busy right now and couldn't read that photo. Try again in a minute, "
                    "or enter it manually instead.")
         raise HTTPException(422, msg)
-    log_audit(db, patient_id, f"{user.role}:{user.id}", "medicine_scanned",
+    log_audit(db, patient_id, audit_actor(db, user, patient_id), "medicine_scanned",
               f"{len(result['candidates'])} candidate(s) from {len(result['lines_read'])} text line(s)")
     return result
 
@@ -604,7 +603,7 @@ def add_medicine_manually(body: ManualMedicine, background: BackgroundTasks, use
     if by_caregiver and not is_linked_caregiver(db, user, body.patient_id):
         raise HTTPException(403, "Only the patient or their linked caregiver can add a medicine.")
     try:
-        out = create_manual_medicine(db, body, f"{user.role}:{user.id}",
+        out = create_manual_medicine(db, body, f"{'caregiver' if by_caregiver else 'patient'}:{user.id}",
                                      added_by_user_id=user.id if by_caregiver else None)
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -741,7 +740,7 @@ def remove_medicine(medicine_id: int, user: User = Depends(get_current_user),
     medicine.field_confidence = json.dumps(fc)
     medicine.status = "needs_confirmation"               # every list and check already skips these
     db.commit()
-    log_audit(db, pid, f"{user.role}:{user.id}", "medicine_removed", f"medicine {medicine.id}: {cancelled} upcoming dose(s) cancelled")
+    log_audit(db, pid, audit_actor(db, user, pid), "medicine_removed", f"medicine {medicine.id}: {cancelled} upcoming dose(s) cancelled")
     return {"removed": True, "medicine_id": medicine.id, "upcoming_doses_cancelled": cancelled}
 
 
