@@ -85,7 +85,7 @@ document.querySelectorAll('.form').forEach((f) => f.addEventListener('submit', a
   const email = input.value.trim();
   const problem = (msg) => { note.textContent = msg; note.classList.add('err'); };
   if (!emailOk(email)) { problem('Please enter a valid email.'); input.focus(); return; }
-  btn.disabled = true; note.classList.remove('err');
+  btn.disabled = true; btn.classList.add('loading'); btn.setAttribute('aria-busy', 'true'); note.classList.remove('err');
   try {
     const token = await turnstileToken();
     const r = await api('/waitlist', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, website: '', token, ref: REF || undefined }) });
@@ -94,7 +94,7 @@ document.querySelectorAll('.form').forEach((f) => f.addEventListener('submit', a
     else if (r.status === 503) problem('Signups are paused for a moment. Please come back soon.');
     else problem('That did not work. Please check the email and try again.');
   } catch { problem('Could not reach the server. Please try again.'); }
-  btn.disabled = false;
+  btn.disabled = false; btn.classList.remove('loading'); btn.removeAttribute('aria-busy');
 }));
 
 // ---- confirmed: show their own place and share link ----
@@ -115,11 +115,18 @@ async function showPlace(code) {
   const m = /^#c=([A-Za-z0-9_-]+)$/.exec(location.hash);
   if (m) {
     history.replaceState(null, '', location.pathname + location.search);   // the token never stays in the address bar
+    let r = null;
     if (TOKEN_RE.test(m[1])) {
-      const r = await api('/waitlist/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: m[1] }) }).catch(() => null);
+      r = await api('/waitlist/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: m[1] }) }).catch(() => null);
       if (r && r.ok && CODE_RE.test(r.data.code)) { store.set('sp_code', r.data.code); await showPlace(r.data.code); return; }
     }
     root.classList.add('joined', 'pending');
+    if (TOKEN_RE.test(m[1]) && !r) {                    // the network failed, not the link: put the token back so a reload retries
+      history.replaceState(null, '', location.pathname + location.search + '#c=' + m[1]);
+      $('pos').textContent = 'Could not reach the server.';
+      document.querySelector('.pending-copy').textContent = 'Check your connection and reload this page to try again.';
+      return;
+    }
     $('pos').textContent = 'That link has expired.';
     document.querySelector('.pending-copy').textContent = 'Join again below and we’ll send a fresh one.';
     return;

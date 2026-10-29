@@ -1,17 +1,18 @@
 name = "smartpoli-waitlist"
 main = "src/index.js"
+routes = [{ pattern = "api.smartpoli.in", custom_domain = true }]
 compatibility_date = "2026-10-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "smartpoli-waitlist"
-database_id = "REPLACE_AFTER_wrangler_d1_create"   # public id, not a secret
+database_id = "61451cd9-b855-4791-a439-304d4cd8a831"   # public id, not a secret
 
 [vars]
 # Real values are set at deploy time. Secrets (RESEND_API_KEY, TURNSTILE_SECRET) go in `wrangler secret put`, never in this file.
-ALLOWED_ORIGIN = "http://localhost:8788"
-SITE_URL = "http://localhost:8788"
-MAIL_FROM = "SmartPoli <hello@example.com>"
+ALLOWED_ORIGIN = "https://smartpoli.in"
+SITE_URL = "https://smartpoli.in"
+MAIL_FROM = "SmartPoli <hello@smartpoli.in>"
 WAITLIST_OPEN = "true"          # "false" closes signups instantly (kill switch)
 BOARD_MIN_SIGNUPS = "20"
 BOARD_MIN_REFERRALS = "5"
