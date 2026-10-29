@@ -41,9 +41,9 @@ navDrawer.addEventListener('click', (e) => {
   if (e.target.closest('a')) closeDrawer();
 });
 
-// ---------------------------------------------------------------- router: #/  #/settings  #/p/:id/(today|history|notes|emergency)
+// ---------------------------------------------------------------- router: #/  #/settings  #/p/:id/(today|history|report|notes|emergency)
 
-const MENU_PAGES = [['today', 'Today'], ['history', 'History'], ['notes', 'Notes'], ['emergency', 'Emergency']];
+const MENU_PAGES = [['today', 'Today'], ['history', 'History'], ['report', 'Care report'], ['notes', 'Notes'], ['emergency', 'Emergency']];
 
 /** The one menu. Family first: tap it to unroll the list of people (it scrolls by itself when long); the person you are on
  * has a border. Rolled up, their name sits small above their pages. Then Settings and Feedback. */
@@ -67,7 +67,7 @@ function renderDrawerNav(path) {
   nav.innerHTML = html;
 }
 
-const PAGE_FOR = { today: pageToday, notes: pageNotes, history: pageHistory, emergency: pageEmergency };
+const PAGE_FOR = { today: pageToday, history: pageHistory, report: pageReport, notes: pageNotes, emergency: pageEmergency };
 
 async function route() {
   const root = document.getElementById('page');
@@ -79,7 +79,7 @@ async function route() {
     else if (path === '/settings') await pageSettings(root);
     else if (path === '/feedback') pageFeedback(root);
     else if ((m = path.match(/^\/p\/(\d+)\/medicines$/))) { window.location.hash = `#/p/${m[1]}/history`; return; }   // the old Medicines page: History took its place
-    else if ((m = path.match(/^\/p\/(\d+)\/(today|notes|history|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
+    else if ((m = path.match(/^\/p\/(\d+)\/(today|history|report|notes|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
     else window.location.hash = '#/';
     renderDrawerNav(path);
     api('GET', '/caregiver/home').then((h) => { navFamily = h.family; renderDrawerNav(drawerPath); }).catch(() => {});

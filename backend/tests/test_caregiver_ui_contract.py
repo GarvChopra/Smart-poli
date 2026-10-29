@@ -17,7 +17,7 @@ def fn(name, src=PAGES):
 def test_each_page_is_its_own_function_with_its_own_route():
     for name in ("pagePatients", "pageToday", "pageNotes", "pageHistory", "pageEmergency", "pageSettings"):
         assert f"function {name}(" in PAGES, name
-    for route in ("#/settings", "today|notes|history|emergency"):
+    for route in ("#/settings", "today|history|report|notes|emergency"):
         assert route in SHELL, route
     assert "hashchange" in SHELL and "pageToday" in SHELL and "pageNotes" in SHELL
     assert "caregiver-pages.js" in HTML and HTML.index("caregiver-pages.js") < HTML.index("caregiver.js\"")   # pages load first
@@ -37,12 +37,18 @@ def test_notes_page_has_messages_to_the_patient_and_care_team_only_handover_note
 def test_there_is_no_medicines_page_and_history_is_a_month_calendar_you_tap_a_day_on():
     assert "pageMedicines" not in PAGES and "pageMedicines" not in SHELL and "['medicines', 'Medicines']" not in SHELL
     body = fn("pageHistory")
-    assert "/calendar" in body and "hc-ring" in PAGES and "data-day" in body and "DayTimeline.listHtml" in body   # ring, month, tapped day
-    assert "Per-medicine adherence" not in body and "Missed doses (last 2 weeks)" not in body
+    assert "/calendar" in body and "hc-grid" in body and "data-day" in body and "DayTimeline.listHtml" in body   # month, tapped day
+    assert "Per-medicine adherence" not in body and "Missed doses" not in body and "symptom" not in body.lower() and "hc-ring" not in body   # only the calendar
     popup = fn("openAddMedicinePopup")
     assert 'data-how="scan"' in popup and 'data-how="pdf"' in popup and 'data-how="manual"' in popup
     today = fn("pageToday")
     assert "cgAddMedBtn" in today and "openAddMedicinePopup" in today
+
+
+def test_care_report_page_is_the_persons_own_report_read_only_with_a_pdf():
+    body = fn("pageReport")
+    assert "/report" in body and "Download PDF" in body and "rp-medbox" in body and "How doses went" in body
+    assert "pageReport" in SHELL and "Care report" in SHELL
 
 
 def test_today_page_has_remind_now_and_no_numbers_or_alert_strips():
@@ -74,7 +80,7 @@ def test_page_links_live_in_the_left_menu_not_in_a_tab_bar_on_the_page():
     assert "cg-tabs" not in PAGES and "<nav class=\"cg-tabs\"" not in PAGES
     assert 'id="drawerNav"' in HTML
     body = fn("renderDrawerNav", SHELL)
-    for label in ("Today", "Notes", "History", "Emergency"):
+    for label in ("Today", "Notes", "History", "Care report", "Emergency"):
         assert label in SHELL, label
     assert "Family" in body and "Family home" not in body and "My medicines" not in body and "Settings" in body and "#/p/" in body
     assert "renderDrawerNav(" in fn("route", SHELL)
