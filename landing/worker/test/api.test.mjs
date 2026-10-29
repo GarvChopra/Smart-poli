@@ -89,7 +89,9 @@ test('join -> confirm -> place; reused and fake tokens fail; replies never revea
   const c = await confirm(API, a.j._token);
   assert.equal(c.r.status, 200);
   assert.match(c.j.code, /^[A-HJKMNP-Z2-9]{10}$/);
-  assert.equal((await confirm(API, a.j._token)).r.status, 400);   // single use
+  const c2 = await confirm(API, a.j._token);                      // the reply may have been lost: the same link answers the same
+  assert.equal(c2.r.status, 200);
+  assert.equal(c2.j.code, c.j.code);
   const me = await fetch(API + '/waitlist/me', { headers: { 'x-code': c.j.code } });
   assert.deepEqual(await me.json(), { place: 1, referrals: 0, total: 1 });
   assert.equal((await join(API, 'asha@example.com')).j._token, undefined);   // confirmed already: no new token

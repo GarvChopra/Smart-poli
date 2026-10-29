@@ -1,4 +1,6 @@
 // SmartPoli waitlist page. Every piece of text that comes from the server or the visitor goes in with textContent, never as HTML.
+// the API only trusts https://smartpoli.in, so www visitors move to it before anything else runs
+if (location.hostname === 'www.smartpoli.in') location.replace('https://smartpoli.in' + location.pathname + location.search + location.hash);
 const root = document.documentElement;
 const API = (document.querySelector('meta[name=api-base]') || {}).content || '';
 const TS_KEY = (document.querySelector('meta[name=turnstile-site-key]') || {}).content || '';

@@ -1,7 +1,7 @@
 // SmartPoli waitlist API (Cloudflare Worker + D1). It holds waitlist emails only and shares nothing with the app or its database.
 // Four routes, everything else is a tiny 404 that costs nothing:
 //   POST /waitlist          join (always the same reply, so nobody can tell whether an email is already on the list)
-//   POST /waitlist/confirm  confirm an email with the single-use token from the email
+//   POST /waitlist/confirm  confirm an email with the token from the email (reopening it within 24 hours answers the same)
 //   GET  /waitlist/me       the caller's own place (X-Code header)
 //   GET  /waitlist/board    top 5 opted-in initials, empty until the list is big enough
 
@@ -92,7 +92,7 @@ async function sendConfirmEmail(env, email, token) {
       from: env.MAIL_FROM, to: email, subject: 'Confirm your place on the SmartPoli waitlist',
       text: `Tap to confirm your email and hold your place (valid for 24 hours):\n${link}\n\nIf this wasn't you, ignore this email and nothing happens.\nSmartPoli is a reminder and information tool, not medical advice.`,
     }),
-  }).catch(() => {});
+  }).then((r) => { if (!r.ok) console.log('resend', r.status); }).catch(() => console.log('resend unreachable'));   // shows in `wrangler tail`; the user can retry after the cooldown
 }
 async function turnstileOk(env, token, ip) {
   if (!env.TURNSTILE_SECRET) return true;
@@ -142,8 +142,8 @@ async function confirm(req, env) {
   if (typeof body.token !== 'string' || !TOKEN_RE.test(body.token)) return fail(400, 'invalid link');
   const now = Math.floor(Date.now() / 1000), hash = await sha256(body.token);
   const row = await env.DB.prepare(
-    `UPDATE waitlist SET confirmed_at = ?2, confirm_hash = NULL
-     WHERE confirm_hash = ?1 AND confirmed_at IS NULL AND last_email_at > ?2 - ?3 RETURNING code`).bind(hash, now, TOKEN_TTL).first();
+    `UPDATE waitlist SET confirmed_at = COALESCE(confirmed_at, ?2)   -- reopening the link inside its 24 hours answers the same, so a lost reply is harmless
+     WHERE confirm_hash = ?1 AND last_email_at > ?2 - ?3 RETURNING code`).bind(hash, now, TOKEN_TTL).first();
   return row ? reply({ ok: true, code: row.code }) : fail(400, 'invalid link');
 }
 
