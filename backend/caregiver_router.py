@@ -300,6 +300,34 @@ def caregiver_adherence(patient_id: int, days: int = Query(7), user: User = Depe
             "per_medicine": per_med, "daily": strip([d for d, _, _ in rows])}
 
 
+@router.get("/caregiver/patients/{patient_id}/calendar")
+def caregiver_calendar(patient_id: int, month: Optional[str] = Query(None, description="YYYY-MM on the person's own clock; default this month"),
+                       user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
+    """Every dose of one month (cancelled and removed medicines left out) for the History calendar. The page works out
+    each day's mark, the adherence ring and the tapped day's list from these rows. Read-only."""
+    from clock import patient_now
+    from db import Medicine
+    _require_link(db, user, patient_id)
+    get_patient_or_404(db, patient_id)
+    sweep_missed_for_view(db)
+    today = patient_now(db, patient_id).date()
+    try:
+        first = datetime.strptime(month, "%Y-%m").date() if month else today.replace(day=1)
+    except ValueError:
+        raise HTTPException(422, "Month must look like 2026-10.")
+    if abs((first.year - today.year) * 12 + first.month - today.month) > 24:
+        raise HTTPException(422, "Pick a month within two years of today.")
+    nxt = datetime(first.year + (first.month == 12), first.month % 12 + 1, 1)
+    rows = (db.query(Dose, Medicine).join(Medicine, Dose.medicine_id == Medicine.id)
+            .join(Prescription, Medicine.prescription_id == Prescription.id)
+            .filter(Prescription.patient_id == patient_id, Dose.scheduled_at >= datetime(first.year, first.month, 1),
+                    Dose.scheduled_at < nxt, Dose.state != "cancelled")
+            .order_by(Dose.scheduled_at, Dose.id).all())
+    return {"patient_id": patient_id, "month": first.strftime("%Y-%m"), "today": today.isoformat(),
+            "doses": [{"dose_id": d.id, "medicine_id": m.id, "medicine_name": m.name or m.raw_text, "food": m.food,
+                       "state": d.state, "scheduled_at": d.scheduled_at.isoformat()} for d, m in rows if _shown(m)]}
+
+
 @router.get("/caregiver/home")
 def caregiver_home(user: User = Depends(require_caregiver_role), db: Session = Depends(get_db_session)):
     """The phone home: "You" first, then the family this person looks after. `today` is ONLY the caller's own doses -

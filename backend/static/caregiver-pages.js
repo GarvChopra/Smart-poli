@@ -1,10 +1,9 @@
 // SmartPoli — caregiver portal pages. One function per page; caregiver.js (the shell) routes to them.
 //
 //   #/                          Family
-//   #/p/:id/today               A person's page (missed / next dose, Remind now, Call / WhatsApp, Add medicine, week strip + timeline)
-//   #/p/:id/medicines           Medicines (adherence ring, per-medicine bar and 7-day strip, Today / 7 / 30 days)
+//   #/p/:id/today               A person's page (missed / next dose, Remind now, Add medicine, week strip + timeline)
+//   #/p/:id/history             History (adherence ring, month calendar, tap a day for its doses, symptom checks)
 //   #/p/:id/notes               Notes (messages to the patient + care-team-only handover notes)
-//   #/p/:id/history             History (adherence, missed doses, symptom checks)
 //   #/p/:id/emergency           Emergency info
 //   #/settings                  Phone alerts, link a patient
 //
@@ -30,12 +29,10 @@ async function getOverview(pid, force = false) {
   return data;
 }
 
-const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes'], ['history', 'History'], ['emergency', 'Emergency']];
-
 const FAMILY_COLOURS = ['rose', 'blue', 'amber', 'violet'];            // not green: that is You
 const colourOf = (id) => FAMILY_COLOURS[Number(id) % FAMILY_COLOURS.length];          // same person, same colour on every page and in the menu
 const initialOf = (name) => esc((name || '?').trim().charAt(0).toUpperCase());
-const PAGE_LABELS = { medicines: 'Medicines', notes: 'Notes', history: 'History', emergency: 'Emergency' };        // Today carries the band instead
+const PAGE_LABELS = { notes: 'Notes', history: 'History', emergency: 'Emergency' };        // Today carries the band instead
 
 /** The frame every person page shares. Today opens with the person's name and Rename / Remove side by side (no coloured
  * band, no back button: the menu's Family item is the way back); every other page is its own title with the name under it. */
@@ -332,20 +329,10 @@ function openAddMedicinePopup(pid, name, onDone) {
 
 // ---------------------------------------------------------------- Today
 
-const phoneDigits = (p) => String(p || '').replace(/[^\d]/g, '');
-
 async function pageToday(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid, true);
   const next = (o.upcoming_doses || []).find((d) => ['pending', 'snoozed'].includes(d.state));
-  const alerts = (o.alerts || []).map((a) => `<div class="alert-item">${esc(a)}</div>`).join('');
-  const nudges = (o.nudges || []).map((n) => `<div class="nudge-banner ${esc(n.level)}">${esc(n.text)}</div>`).join('');
-  const ph = o.phones || {};
-  const own = ph.patient, ec = ph.emergency_contact;
-  const extras = [
-    own ? `<a class="ghost small cg-link" href="https://wa.me/${esc(phoneDigits(own))}" target="_blank" rel="noopener">WhatsApp</a>` : '',
-    ec ? `<a class="ghost small cg-link" href="tel:${esc(ec.phone)}">Call ${esc(ec.label || 'emergency contact')}</a>` : '',
-  ].join('');
   // A missed dose wins the top card; with nothing missed it is the next dose. Filled from today's timeline below.
   const topCard = (missed) => {
     const kicker = missed ? 'Missed' : 'Next dose';
@@ -353,14 +340,11 @@ async function pageToday(root, pid) {
     const when = missed ? `Was due at ${clockOf(missed.scheduled_at)}` : next ? fmtDay(next.scheduled_at) : '';
     return `<div class="rd-card top-card${missed ? ' missed' : ''}">
       <div><div class="kicker">${kicker}</div><div class="big">${esc(name)}</div>${when ? `<div class="small">${esc(when)}</div>` : ''}</div>
-      <div class="duo${own ? '' : ' one'}"><button class="btn-wide green" id="cgRemind" type="button">Remind now</button>
-        ${own ? `<a class="btn-wide grey" href="tel:${esc(own)}">Call ${esc(o.label)}</a>` : ''}</div>
-      ${extras ? `<div class="cg-actions">${extras}</div>` : ''}
+      <div class="duo one"><button class="btn-wide green" id="cgRemind" type="button">Remind now</button></div>
       <div id="cgRemindMsg" class="reg-meta" role="status"></div>
     </div>`;
   };
   patientFrame(root, o, 'today', `
-    ${nudges}${alerts}
     <div id="cgTop">${topCard(null)}</div>
     <div class="row-head"><h2 class="section-title">Medicines</h2><button class="btn-go" id="cgAddMedBtn" type="button">${PLUS}Add medicine</button></div>
     <div id="cgDay"></div>`);
@@ -432,33 +416,6 @@ function wireDeleteButtons(root, onDone) {
 
 // ---------------------------------------------------------------- Medicines
 
-async function pageMedicines(root, pid) {
-  root.innerHTML = '<div class="empty">Loading…</div>';
-  const o = await getOverview(pid);
-  // Medicines: only what is being taken now. Adding one is "+ Add medicine" on the Today page; notes live on the Notes page.
-  const meds = (o.per_medicine || []).filter((m) => m.taking !== false);
-  const cards = meds.map((m) => `
-    <div class="card cg-med" data-med="${esc(m.medicine_id)}">
-      <div class="cg-med-head"><strong>${esc(m.name)}</strong>
-        <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
-      ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
-        <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
-    </div>`).join('') || emptyBox('No medicines are being taken right now.');
-  patientFrame(root, o, 'medicines', cards);
-  const reload = () => pageMedicines(root, pid);
-  root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
-    const m = showSafetyModal(`
-      <h3>Remove ${esc(b.dataset.name)}?</h3>
-      <div class="sm-headline" style="font-weight:500;">Its reminders stop. What was already taken or missed stays in the history.</div>
-      <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
-    m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
-    m.querySelector('#cgRmYes').addEventListener('click', async () => {
-      try { await api('DELETE', `/medicines/${b.dataset.removeMed}`); m.remove(); overviewCache.pid = null; reload(); }
-      catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
-    });
-  }));
-}
-
 // ---------------------------------------------------------------- Notes
 
 async function pageNotes(root, pid) {
@@ -489,24 +446,101 @@ async function pageNotes(root, pid) {
   wireDeleteButtons(root, reload);
 }
 
-// ---------------------------------------------------------------- History
+/** Remove a medicine this caregiver added: its reminders stop, what was taken or missed stays in the history. */
+function openRemoveMedicine(id, name, onDone) {
+  const m = showSafetyModal(`
+    <h3>Remove ${esc(name)}?</h3>
+    <div class="sm-headline" style="font-weight:500;">Its reminders stop. What was already taken or missed stays in the history.</div>
+    <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
+  m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
+  m.querySelector('#cgRmYes').addEventListener('click', async () => {
+    try { await api('DELETE', `/medicines/${id}`); m.remove(); overviewCache.pid = null; onDone(); }
+    catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
+  });
+}
+
+// ---------------------------------------------------------------- History: adherence ring + a month calendar; tap a day for that day's doses
+
+const RING_C = 2 * Math.PI * 40;
+const MARKS = { ok: ['✓', 'All taken'], part: ['–', 'Some taken'], bad: ['!', 'Missed'] };
+
+const ringHtml = (pct) => `<svg class="hc-ring" viewBox="0 0 100 100" role="img" aria-label="Adherence ${pct === null ? 'not known yet' : pct + ' percent'}">
+  <circle cx="50" cy="50" r="40" class="hc-track"></circle>
+  ${pct === null ? '' : `<circle cx="50" cy="50" r="40" class="hc-arc" stroke-dasharray="${(RING_C * pct / 100).toFixed(1)} ${RING_C.toFixed(1)}" transform="rotate(-90 50 50)"></circle>`}
+  <text x="50" y="56" text-anchor="middle">${pct === null ? '—' : pct + '%'}</text></svg>`;
+
+/** One day in one mark: nothing done yet = no mark; any missed = bad; everything taken = ok; otherwise some taken. */
+function dayMark(doses) {
+  const acted = doses.filter((d) => ['taken', 'missed', 'skipped'].includes(d.state));
+  if (!acted.length) return '';
+  if (acted.some((d) => d.state === 'missed')) return 'bad';
+  return acted.length === doses.length && acted.every((d) => d.state === 'taken') ? 'ok' : 'part';
+}
 
 async function pageHistory(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid);
-  const missed = (o.recent_missed || []).map((d) => `
-    <div class="dose-row"><div class="time">${esc(fmtDay(d.scheduled_at))}</div><div style="flex:1;padding:0 10px;">${esc(d.medicine_name)}</div><span class="badge missed">missed</span></div>`).join('')
-    || emptyBox('No missed doses in the last two weeks.');
   const symptoms = (o.recent_symptom_checks || []).map((c) => `
     <div class="dose-row"><div class="time">${esc(new Date(c.created_at).toLocaleDateString())}</div><div style="flex:1;padding:0 10px;">${esc(c.action)}</div><span class="badge ${esc(c.severity.toLowerCase())}">${esc(c.severity)}</span></div>`).join('')
     || emptyBox('No symptom checks recorded.');
-  const perMed = (o.per_medicine || []).map((m) => `
-    <div class="cg-permed"><span>${esc(m.name)}</span><span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>`).join('')
-    || emptyBox('No medicines are being taken right now.');
+  const added = (o.per_medicine || []).filter((m) => m.added_by_me && m.taking !== false).map((m) => `
+    <div class="cg-added-row"><strong>${esc(m.name)}</strong><button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}" type="button">Remove</button></div>`).join('');
   patientFrame(root, o, 'history', `
-    <div class="card"><div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Per-medicine adherence</h3></div>${perMed}</div>
-    <div class="card"><div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses (last 2 weeks)</h3></div>${missed}</div>
+    <div id="hcCal"></div>
+    ${added ? `<div class="card"><div class="card-head">${iconBadge('teal', 'pill')}<h3>Medicines you added</h3></div>${added}</div>` : ''}
     <div class="card"><div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Recent symptom checks</h3></div>${symptoms}</div>`);
+  root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => openRemoveMedicine(b.dataset.removeMed, b.dataset.name, () => pageHistory(root, pid))));
+
+  const box = root.querySelector('#hcCal');
+  let data = null, month = null, sel = null, med = 'all', latest = 0;
+  const shiftMonth = (m, by) => { const [y, n] = m.split('-').map(Number); const d = new Date(y, n - 1 + by, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+
+  async function load(m) {
+    const mine = ++latest;                                   // a slow reply for an earlier tap must not overwrite the month now shown
+    let next;
+    try { next = await api('GET', `/caregiver/patients/${pid}/calendar${m ? `?month=${m}` : ''}`); }
+    catch (e) { if (mine === latest) box.innerHTML = `<div class="empty">${esc(e.message || 'Could not load this month.')}</div>`; return; }
+    if (mine !== latest) return;
+    data = next; month = data.month;
+    sel = data.today.startsWith(month) ? data.today : `${month}-01`;
+    if (med !== 'all' && !data.doses.some((d) => String(d.medicine_id) === med)) med = 'all';
+    draw();
+  }
+
+  function draw() {
+    const [y, mo] = month.split('-').map(Number);
+    const monthName = new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long' });
+    const names = new Map(data.doses.map((d) => [String(d.medicine_id), d.medicine_name]));
+    const shown = med === 'all' ? data.doses : data.doses.filter((d) => String(d.medicine_id) === med);
+    const byDay = {};
+    shown.forEach((d) => { (byDay[d.scheduled_at.slice(0, 10)] = byDay[d.scheduled_at.slice(0, 10)] || []).push(d); });
+    const past = shown.filter((d) => d.scheduled_at.slice(0, 10) <= data.today);
+    const count = (s) => past.filter((d) => d.state === s).length;
+    const acted = count('taken') + count('missed') + count('skipped');
+    const pct = acted ? Math.round(count('taken') / acted * 100) : null;
+    const cells = Array.from({ length: new Date(y, mo - 1, 1).getDay() }, () => '<span class="hc-d blank"></span>').join('')
+      + Array.from({ length: new Date(y, mo, 0).getDate() }, (_, i) => {
+        const day = i + 1, key = `${month}-${String(day).padStart(2, '0')}`, mark = dayMark(byDay[key] || []);
+        return `<button class="hc-d${key === data.today ? ' today' : ''}${key === sel ? ' sel' : ''}" type="button" data-day="${key}" aria-pressed="${key === sel}" aria-label="${day} ${monthName}${mark ? ', ' + MARKS[mark][1].toLowerCase() : ''}"><span class="n">${day}</span>${mark ? `<i class="hc-mk ${mark}" aria-hidden="true">${MARKS[mark][0]}</i>` : ''}</button>`;
+      }).join('');
+    const [sy, sm, sd] = sel.split('-').map(Number);
+    const chips = [['all', 'All'], ...names].map(([id, label]) => `<button class="hc-chip${id === med ? ' on' : ''}" type="button" data-med="${esc(id)}" aria-pressed="${id === med}">${esc(label)}</button>`).join('');
+    box.innerHTML = `
+      <div class="card hc-ringcard">${ringHtml(pct)}
+        <div><div class="hc-k">Adherence · ${esc(monthName)}</div><div class="hc-miss"><b>${count('missed')}</b> doses missed</div></div></div>
+      <div class="card hc-cal">
+        <div class="hc-head"><button class="hc-nav" type="button" data-shift="-1" aria-label="Previous month">‹</button><b>${esc(monthName)} ${y}</b><button class="hc-nav" type="button" data-shift="1" aria-label="Next month">›</button></div>
+        ${names.size > 1 ? `<div class="hc-chips">${chips}</div>` : ''}
+        <div class="hc-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w) => `<span class="hc-wd" aria-hidden="true">${w}</span>`).join('')}${cells}</div>
+        <div class="hc-legend">${['ok', 'part', 'bad'].map((k) => `<span><i class="hc-mk ${k}" aria-hidden="true">${MARKS[k][0]}</i>${MARKS[k][1]}</span>`).join('')}</div>
+      </div>
+      <h3 class="hc-daytitle">${esc(new Date(sy, sm - 1, sd).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))}</h3>
+      <div class="dtl">${DayTimeline.listHtml(byDay[sel] || [], sel, data.today)}</div>`;
+    box.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { sel = b.dataset.day; draw(); }));
+    box.querySelectorAll('[data-med]').forEach((b) => b.addEventListener('click', () => { med = b.dataset.med; draw(); }));
+    box.querySelectorAll('[data-shift]').forEach((b) => b.addEventListener('click', () => load(shiftMonth(month, Number(b.dataset.shift)))));
+  }
+  load(null);
 }
 
 // ---------------------------------------------------------------- Emergency

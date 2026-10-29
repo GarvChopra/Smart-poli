@@ -75,3 +75,18 @@ def test_adherence_needs_a_link_and_a_valid_window():
     from conftest import register_and_login
     register_and_login(other, role="caregiver", name="Nobody")
     assert other.get(f"/caregiver/patients/{pid}/adherence").status_code == 403
+
+
+def test_calendar_returns_one_month_of_doses_for_a_linked_caregiver_only_and_refuses_a_bad_month():
+    pid, patient, cg = _world()
+    add_medicine(pid, "Amlodipine", [MIDNIGHT + timedelta(minutes=5), MIDNIGHT - timedelta(days=40) + timedelta(minutes=5)],
+                 states=["taken", "missed"])
+    month = MIDNIGHT.strftime("%Y-%m")
+    r = cg.get(f"/caregiver/patients/{pid}/calendar", params={"month": month})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["month"] == month and all(d["scheduled_at"].startswith(month) for d in body["doses"])
+    assert any(d["state"] == "taken" and d["medicine_name"] == "Amlodipine" for d in body["doses"])
+    assert cg.get(f"/caregiver/patients/{pid}/calendar", params={"month": "soon"}).status_code == 422
+    assert cg.get(f"/caregiver/patients/{pid}/calendar", params={"month": "2099-01"}).status_code == 422
+    assert TestClient(app).get(f"/caregiver/patients/{pid}/calendar").status_code in (401, 403)
