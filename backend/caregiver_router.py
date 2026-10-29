@@ -237,6 +237,8 @@ def doses_on_day(patient_id: int, date: Optional[str] = Query(None, description=
         day = datetime.strptime(date, "%Y-%m-%d").date() if date else today
     except ValueError:
         raise HTTPException(422, "Date must look like 2026-10-28.")
+    if abs((day - today).days) > 366:
+        raise HTTPException(422, "Pick a day within a year of today.")
     start = datetime(day.year, day.month, day.day)
     rows = (db.query(Dose, Medicine).join(Medicine, Dose.medicine_id == Medicine.id)
             .join(Prescription, Medicine.prescription_id == Prescription.id)

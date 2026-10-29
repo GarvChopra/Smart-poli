@@ -1555,7 +1555,7 @@ button.cg-menu-link { display: flex; align-items: center; width: 100%; min-heigh
 .drop .m { display: flex; align-items: center; min-height: 42px; padding: 0 calc(var(--pad) + 12px); font: 500 14px 'Noto Sans', sans-serif; color: var(--ink); text-decoration: none; }
 .drop .m.you { color: var(--ink-soft); }
 .drop .m.open { border: 2px solid var(--ink); font-weight: 700; min-height: 38px; padding-left: calc(var(--pad) + 10px); }
-.who { margin: 8px 0 2px; padding: 8px 14px 2px; font: 700 11px 'Figtree', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); word-break: break-word; }
+.nav-drawer .who { margin: 8px 0 2px; padding: 8px 14px 2px; font: 700 11px 'Figtree', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); word-break: break-word; }
 .pgl { font: 700 11px 'Figtree', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
 /* the drawer scrolls; its rows must never shrink to fit (the Family list was squeezed flat on phones) */
 nav.pill-nav.nav-drawer > * { flex-shrink: 0; }

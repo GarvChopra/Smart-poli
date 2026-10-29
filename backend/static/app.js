@@ -1655,13 +1655,16 @@ async function renderDashboard() {
 
   // The week strip: today is the live list with Take / Snooze / Skip; any other day is a read-only look at that day.
   const dayBox = view.querySelector('#dashDay');
+  let latestDay = 0;
   const showDay = async (day) => {
+    const mine = ++latestDay;                                  // a slow reply for an earlier tap must not overwrite the day now shown
     const isToday = !day || day === dash.today;
     let body = todayHtml;
     if (!isToday) {
       dayBox.querySelectorAll('[data-day]').forEach((b) => b.classList.toggle('on', b.dataset.day === day));
       try { const d = await api('GET', `/patients/${state.patientId}/doses?date=${day}`); body = DayTimeline.listHtml(d.doses, day, dash.today); }
       catch (e) { body = `<div class="empty">${escHtml(e.message || 'Could not load this day.')}</div>`; }
+      if (mine !== latestDay) return;
     }
     dayBox.innerHTML = `<div class="day-strip">${DayTimeline.stripHtml(dash.today, day || dash.today)}</div><div class="tl-shadow" aria-hidden="true"></div><div class="day-body">${body}</div>`;
     dayBox.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => showDay(b.dataset.day)));

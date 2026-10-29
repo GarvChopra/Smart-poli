@@ -37,7 +37,7 @@ let famOpen = true;                 // the Family list in the menu: open on the 
 let navFamily = null;               // who is in that list (from /caregiver/home)
 let drawerPath = '/';
 navDrawer.addEventListener('click', (e) => {
-  if (e.target.closest('.fam-toggle')) { famOpen = !famOpen; renderDrawerNav(drawerPath); return; }
+  if (e.target.closest('.fam-toggle')) { famOpen = !famOpen; renderDrawerNav(drawerPath); navDrawer.querySelector('.fam-toggle').focus(); return; }
   if (e.target.closest('a')) closeDrawer();
 });
 
@@ -55,7 +55,7 @@ function renderDrawerNav(path) {
   const open = m ? Number(m[1]) : null;
   const link = (href, label, on) => `<a class="cg-menu-link${on ? ' active' : ''}" href="${href}">${esc(label)}</a>`;
   const people = (navFamily || []).map((f) => `<a class="m${open === f.id ? ' open' : ''}" href="#/p/${f.id}/today">${esc(f.label)}</a>`).join('');
-  let html = `<button class="cg-menu-link fam-toggle" type="button" aria-expanded="${famOpen}" aria-controls="famList">Family<span class="dd-chev" aria-hidden="true">${famOpen ? '▾' : '▸'}</span></button>`;
+  let html = `<button class="cg-menu-link fam-toggle" type="button" aria-expanded="${famOpen}"${famOpen ? ' aria-controls="famList"' : ''}>Family<span class="dd-chev" aria-hidden="true">${famOpen ? '▾' : '▸'}</span></button>`;
   if (famOpen) html += `<div class="drop" id="famList"><a class="m${path === '/' ? ' open' : ''}" href="#/">All family</a>${people}<a class="m you" href="/">You</a></div>`;
   if (m) {
     const pid = m[1];

@@ -338,7 +338,7 @@ async function pageToday(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid, true);
   const next = (o.upcoming_doses || []).find((d) => ['pending', 'snoozed'].includes(d.state));
-  const alerts = (o.alerts || []).filter((a) => /EMERGENCY/.test(a)).map((a) => `<div class="alert-item">${esc(a)}</div>`).join('');   // the adherence / missed alerts are on the Medicines page
+  const alerts = (o.alerts || []).map((a) => `<div class="alert-item">${esc(a)}</div>`).join('');
   const nudges = (o.nudges || []).map((n) => `<div class="nudge-banner ${esc(n.level)}">${esc(n.text)}</div>`).join('');
   const ph = o.phones || {};
   const own = ph.patient, ec = ph.emergency_contact;

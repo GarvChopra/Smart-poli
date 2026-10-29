@@ -47,12 +47,14 @@ const DayTimeline = (() => {
   /** Draw into `el`. `fetchDay(dateISO)` defaults to the shared endpoint; `onLoaded(data)` lets the page react (e.g. a missed card). */
   function mount(el, patientId, opts = {}) {
     const get = opts.fetchDay || ((day) => apiFetch('GET', `/patients/${patientId}/doses${day ? `?date=${day}` : ''}`));
-    let today = null;
+    let today = null, latest = 0;
     el.classList.add('dtl');
     async function show(day) {
+      const mine = ++latest;                                   // a slow reply for an earlier tap must not overwrite the day now shown
       el.innerHTML = '<div class="empty">Loading…</div>';
       let data;
-      try { data = await get(day); } catch (e) { el.innerHTML = `<div class="empty">${text(e.message || 'Could not load this day.')}</div>`; return; }
+      try { data = await get(day); } catch (e) { if (mine === latest) el.innerHTML = `<div class="empty">${text(e.message || 'Could not load this day.')}</div>`; return; }
+      if (mine !== latest) return;
       today = data.today;
       const doses = data.doses || [];
       el.innerHTML = `<div class="day-strip">${stripHtml(today, data.date)}</div>

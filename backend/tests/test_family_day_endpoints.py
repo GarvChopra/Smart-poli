@@ -42,6 +42,7 @@ def test_doses_skip_removed_medicines_and_refuse_a_bad_date_and_a_stranger():
     assert patient.delete(f"/medicines/{mid}").status_code == 200
     assert [d["medicine_name"] for d in patient.get(f"/patients/{pid}/doses").json()["doses"]] == ["Kept"]
     assert patient.get(f"/patients/{pid}/doses", params={"date": "yesterday"}).status_code == 422
+    assert patient.get(f"/patients/{pid}/doses", params={"date": "9999-12-31"}).status_code == 422   # was a 500
     stranger = TestClient(app)
     new_patient(stranger, "Someone")
     assert stranger.get(f"/patients/{pid}/doses").status_code == 403
