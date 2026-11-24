@@ -8,15 +8,33 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest  # noqa: E402
-from fastapi.routing import APIRoute  # noqa: E402
+from fastapi import APIRouter, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from conftest import register_and_login  # noqa: E402
 from db import Medicine, SessionLocal, init_db  # noqa: E402
 from main import app  # noqa: E402
+from route_inventory import api_operations  # noqa: E402
 from timing_helpers import add_medicine, new_patient  # noqa: E402
 
 PARAMS = {"patient_id", "medicine_id", "prescription_id", "dose_id"}
+
+
+def test_inventory_includes_hidden_routes_from_nested_routers():
+    application = FastAPI()
+    family = APIRouter()
+    records = APIRouter()
+
+    @records.get("/records/{patient_id}", include_in_schema=False)
+    def hidden_record(patient_id: int):
+        return patient_id
+
+    family.include_router(records, prefix="/family")
+    application.include_router(family, prefix="/api")
+
+    operations = {(method, route.path) for route, method in api_operations(application)}
+    assert ("GET", "/api/family/records/{patient_id}") in operations
+    assert "/api/family/records/{patient_id}" not in application.openapi()["paths"]
 
 
 def victim():
@@ -32,13 +50,10 @@ def victim():
 
 def routes_with_foreign_ids():
     out = []
-    for r in app.routes:
-        if not isinstance(r, APIRoute):
-            continue
-        names = set(re.findall(r"{(\w+)}", r.path))
+    for route, method in api_operations(app):
+        names = set(re.findall(r"{(\w+)}", route.path))
         if names and names <= PARAMS:
-            for m in sorted(r.methods - {"HEAD", "OPTIONS"}):
-                out.append((m, r.path))
+            out.append((method, route.path))
     return out
 
 

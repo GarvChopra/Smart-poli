@@ -6,6 +6,19 @@
 })();
 
 let mode = 'login';
+let recoveryEnabled = false;
+const forgotPassword = document.getElementById('forgotPassword');
+
+async function loadRecoveryOption() {
+  try {
+    const response = await fetch('/auth/password-recovery/config');
+    recoveryEnabled = response.ok && (await response.json()).enabled === true;
+    forgotPassword.hidden = !recoveryEnabled || mode !== 'login';
+  } catch (_) {
+    // Login still works if recovery configuration is unavailable.
+  }
+}
+loadRecoveryOption();
 
 if (new URLSearchParams(window.location.search).get('deleted') === '1') {
   const note = document.getElementById('authError');
@@ -15,6 +28,7 @@ if (new URLSearchParams(window.location.search).get('deleted') === '1') {
 document.querySelectorAll('.auth-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     mode = tab.dataset.mode;
+    forgotPassword.hidden = !recoveryEnabled || mode !== 'login';
     document.querySelectorAll('.auth-tab').forEach((t) => t.classList.toggle('active', t === tab));
     document.getElementById('registerFields').style.display = mode === 'register' ? 'block' : 'none';
     document.getElementById('passwordHint').style.display = mode === 'register' ? 'block' : 'none';

@@ -17,9 +17,9 @@ from typing import Optional
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey, UniqueConstraint,
-    event, inspect, text
+    event, inspect, select, text
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
+from sqlalchemy.orm import column_property, declarative_base, sessionmaker, relationship, Session
 
 DATABASE_URL = os.getenv("SMARTPOLI_DATABASE_URL", "sqlite:///./smartpoli.db")
 
@@ -515,6 +515,26 @@ class RevokedToken(Base):
     jti = Column(String, primary_key=True)
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PasswordRecovery(Base):
+    """One reset slot per account, with a marker for invalidating legacy sessions."""
+    __tablename__ = "password_recovery"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    token_digest = Column(String(64), unique=True, nullable=True)
+    credential_stamp = Column(String(64), nullable=True)
+    requested_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+
+# Read the recovery version in the same query as the password hash so an
+# in-flight login cannot issue a current session using the old password.
+User.recovery_version = column_property(
+    select(PasswordRecovery.completed_at).where(PasswordRecovery.user_id == User.id)
+    .correlate_except(PasswordRecovery).scalar_subquery()
+)
 
 
 class RegulatoryLookupCache(Base):

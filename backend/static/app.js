@@ -41,7 +41,7 @@ function getDashboard() {
   }
   const promise = apiFetch('GET', `/patients/${state.patientId}/dashboard`);
   dashboardCache = { patientId: state.patientId, at: now, promise };
-  promise.catch(() => { dashboardCache = null; });
+  promise.catch(() => { if (dashboardCache?.promise === promise) dashboardCache = null; });
   return promise;
 }
 
@@ -87,7 +87,7 @@ function renderFoodWarningRows(warnings) {
 async function loadPatients() {
   state.patients = await api('GET', '/patients');
   const select = document.getElementById('patientSelect');
-  select.innerHTML = state.patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  select.innerHTML = state.patients.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
   if (!state.patientId && state.patients.length) state.patientId = state.patients[0].id;
   if (state.patientId) select.value = state.patientId;
   // Only people who manage more than one patient (e.g. a parent) ever see a patient switcher.
@@ -101,13 +101,13 @@ document.getElementById('patientSelect').addEventListener('change', (e) => {
 
 const UI_STRINGS = {
   en: {
-    navPrescriptions: 'Prescription', navDashboard: 'Dashboard', navTriage: 'Symptom check',
+    navPrescriptions: 'Prescription', navDashboard: 'Today', navTriage: 'Symptom check',
     navReport: 'Care report', navTimeline: 'Timeline', navEmergency: 'Emergency card',
     dashboardHeading: "Today's dashboard", prescriptionHeading: 'Decode a prescription',
     triageHeading: 'Symptom check', emergencyHeading: 'Emergency Card', timelineHeading: 'Treatment timeline',
   },
   hi: {
-    navPrescriptions: 'पर्ची', navDashboard: 'डैशबोर्ड', navTriage: 'लक्षण जांच',
+    navPrescriptions: 'पर्ची', navDashboard: 'आज', navTriage: 'लक्षण जांच',
     navReport: 'केयर रिपोर्ट', navTimeline: 'टाइमलाइन', navEmergency: 'इमरजेंसी कार्ड',
     dashboardHeading: 'आज का डैशबोर्ड', prescriptionHeading: 'पर्ची समझें',
     triageHeading: 'लक्षण जांच', emergencyHeading: 'इमरजेंसी कार्ड', timelineHeading: 'उपचार टाइमलाइन',
@@ -150,7 +150,7 @@ function renderSessionChip() {
   const chip = document.getElementById('sessionChip');
   if (!chip || !currentUser) return;
   chip.innerHTML = `
-    <span class="who">${currentUser.name}</span>
+    <span class="who">${escHtml(currentUser.name)}</span>
     <button class="ghost small" id="logoutBtn">Log out</button>
   `;
   document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -212,7 +212,25 @@ document.getElementById('deleteAccountBtn').addEventListener('click', openDelete
   window.refreshAccountLabels = labelPw;
   pwBtn.addEventListener('click', openSetPassword);
 }
-document.getElementById('familyBtn').addEventListener('click', () => { window.location.href = '/caregiver'; });
+/** Family in the menu: tap to unroll the people (scrolls by itself when long). You are on your own page, so You has the border. */
+let navFamily = null;
+function renderNavDrop() {
+  const btn = document.getElementById('familyBtn'), box = document.getElementById('navDrop');
+  const open = btn.getAttribute('aria-expanded') === 'true';
+  btn.querySelector('.dd-chev').textContent = open ? '▾' : '▸';
+  box.hidden = !open;
+  if (!open) return;
+  box.innerHTML = '<a class="m" href="/caregiver">All family</a>'
+    + (navFamily || []).map((f) => `<a class="m" href="/caregiver#/p/${f.id}/today">${escHtml(f.label)}</a>`).join('')
+    + '<a class="m open" href="/">You</a>';
+}
+document.getElementById('familyBtn').addEventListener('click', () => {
+  const btn = document.getElementById('familyBtn');
+  btn.setAttribute('aria-expanded', btn.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
+  renderNavDrop();
+});
+api('GET', '/caregiver/home').then((h) => { navFamily = h.family; renderNavDrop(); }).catch(() => {});          // a failed lookup leaves just All family and You
+
 document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer(); if (window.SmartTour) SmartTour.show(); });
 
 function renderNoPatientState() {
@@ -381,11 +399,20 @@ async function renderSafetyCenter() {
 // always shows next dose, today's adherence and anything needing attention,
 // independent of whichever tab is open.
 
+let glanceRequest = 0;
 async function renderGlance() {
   const panel = document.getElementById('glancePanel');
-  if (!panel || !state.patientId) return;
-  const patient = state.patients.find(p => p.id === state.patientId);
-  const dash = await getDashboard();
+  const patientId = state.patientId;
+  if (!panel || !patientId) return;
+  const request = ++glanceRequest;
+  const isCurrent = () => request === glanceRequest && state.patientId === patientId;
+  if (panel.dataset.patientId !== String(patientId)) panel.textContent = '';
+  const patient = state.patients.find(p => p.id === patientId);
+  let dash;
+  try { dash = await getDashboard(); }
+  catch { if (isCurrent()) panel.textContent = ''; return; }
+  if (!isCurrent()) return;
+  panel.dataset.patientId = String(patientId);
   const pct = dash.adherence.adherence_percent;
   const next = dash.upcoming_doses[0];
 
@@ -399,7 +426,7 @@ async function renderGlance() {
 
   panel.innerHTML = `
     <div class="glance-card">
-      <div class="glance-card-head"><h4>At a glance — ${patient ? patient.name : ''}</h4></div>
+      <div class="glance-card-head"><h4>At a glance — ${escHtml(patient ? patient.name : '')}</h4></div>
       <div class="glance-block glance-ring">
         <span class="ring" data-pct="${pct === null ? '—' : pct + '%'}" style="--ring-pct:${pct === null ? 0 : pct}"></span>
         <div>
@@ -412,7 +439,7 @@ async function renderGlance() {
         <div style="flex:1;">
           <h4 style="margin-bottom:2px;">Next dose</h4>
           ${next
-            ? `<div class="glance-next-dose">${next.medicine_name}<span class="when">${new Date(next.scheduled_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>`
+            ? `<div class="glance-next-dose">${escHtml(next.medicine_name)}<span class="when">${new Date(next.scheduled_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>`
             : '<div class="glance-empty">Nothing scheduled.</div>'}
         </div>
       </div>
@@ -587,6 +614,23 @@ function interactionWarningHtml(i) {
   });
 }
 
+/** "Add medicine" on Your medicines: scan, upload a prescription PDF, or type it. The same three ways as for a family member. */
+function openAddMedicineSheet() {
+  const m = showSafetyModal(`
+    <h3>Add a medicine</h3>
+    <div class="cg-add-options">
+      <button class="primary" data-how="scan" type="button">📷 Scan a medicine</button>
+      <button class="ghost" data-how="pdf" type="button">📄 Upload prescription PDF</button>
+      <button class="ghost" data-how="manual" type="button">Enter manually</button>
+    </div>
+    <div class="sm-actions"><button class="ghost small" id="addMedCancel" type="button">Cancel</button></div>`);
+  m.querySelector('#addMedCancel').addEventListener('click', () => m.remove());
+  m.querySelectorAll('[data-how]').forEach((b) => b.addEventListener('click', () => {
+    m.remove();
+    if (b.dataset.how === 'scan') openMedicineCamera(); else if (b.dataset.how === 'pdf') openMedicinePdf(); else medicineWizard({ step: 'details' });
+  }));
+}
+
 async function afterMedicineAdded(med, out, when, sos) {
   const m = showSafetyModal(`
     <h3>Added ✓</h3>
@@ -595,7 +639,7 @@ async function afterMedicineAdded(med, out, when, sos) {
     <div class="reg-meta wz-check" id="wzCheck" style="margin-top:10px;text-align:center;">
       ${sos ? 'You can log a dose from the dashboard whenever you need it.' : '<span class="upload-spinner"></span> Checking it against your other medicines…'}</div>
     <div class="sm-actions"><button class="primary small" id="wzDone">Done</button><button class="ghost small" id="wzAnother">Add another</button></div>`);
-  const finish = () => { m.remove(); renderPrescriptions(); renderGlance(); };
+  const finish = () => { m.remove(); renderPrescriptions(); renderGlance(); if (state.activeTab === 'dashboard') renderDashboard(); };
   m.querySelector('#wzDone').addEventListener('click', finish);
   m.querySelector('#wzAnother').addEventListener('click', () => { m.remove(); medicineWizard({ step: 'details' }); });
   loadMedicineInfoInto(m);                                           // "Used for: ..." appears when the lookup finishes
@@ -836,12 +880,12 @@ function renderRxResult(result) {
     <div class="medicine-line ${m.status === 'needs_confirmation' ? 'needs_confirmation' : ''}" data-med-id="${m.id}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
         <div>
-          <strong>${m.name || '(name not read)'}</strong> ${m.dose_amount ? m.dose_amount + (m.dose_unit || '') : ''}
-          <div class="raw">"${m.raw_text}"</div>
+          <strong>${escHtml(m.name || '(name not read)')}</strong> ${escHtml(m.dose_amount ? m.dose_amount + (m.dose_unit || '') : '')}
+          <div class="raw">"${escHtml(m.raw_text)}"</div>
         </div>
         <span class="badge ${badgeClass(m.status)}">${m.status.replace('_', ' ')}</span>
       </div>
-      <div class="plain">${state.lang === 'hi' && m.plain_language_hi ? m.plain_language_hi : (m.plain_language || '')}</div>
+      <div class="plain">${escHtml(state.lang === 'hi' && m.plain_language_hi ? m.plain_language_hi : (m.plain_language || ''))}</div>
       ${verificationHtml(m.verification)}
       <div style="margin-top:8px;">
         ${Object.entries(m.field_confidence).filter(([k]) => k !== 'source').map(([k, v]) => `
@@ -999,11 +1043,11 @@ function renderDoseCalendar(doses) {
       </div>
       <div class="dose-calendar-day-body">
         ${g.doses.map(d => `
-          <div class="dose-calendar-slot" data-dose-id="${d.id}" data-med-name="${d.medicine_name}" data-scheduled-at="${d.scheduled_at}">
+          <div class="dose-calendar-slot" data-dose-id="${d.id}" data-med-name="${escHtml(d.medicine_name)}" data-scheduled-at="${escHtml(d.scheduled_at)}">
             <div class="dose-calendar-time">${new Date(d.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
             <div class="dose-calendar-dot"></div>
             <div class="dose-calendar-info">
-              <div class="dose-calendar-med">${d.medicine_name}</div>
+              <div class="dose-calendar-med">${escHtml(d.medicine_name)}</div>
               <div class="dose-calendar-actions">
                 <button class="ghost small" data-act="take">Take</button>
                 <button class="ghost small" data-act="snooze">Snooze</button>
@@ -1332,10 +1376,11 @@ function markMissedSeen(id) { askedThisOpen.add(`m${id}`); }
 
 /** Calm "what now?" popup for a missed dose: one plain line first, the label's own words tucked behind "More details",
  * and only the actions the rule engine supports. Never suggests doubling up. */
-async function showMissedGuidance(doseId) {
+async function showMissedGuidance(doseId, isCurrent = () => true) {
   markMissedSeen(doseId);
   let g = null;
   try { g = await api('GET', `/doses/${doseId}/missed-guidance`); } catch (e) { g = null; }
+  if (!isCurrent()) return;
   const name = g ? escHtml(g.medicine) : 'this medicine';
   const headline = g ? escHtml(g.headline)
     : 'SmartPoli could not load guidance just now. Ask your pharmacist or doctor what to do.';
@@ -1533,10 +1578,21 @@ function regulatoryHtml(data) {
     <div class="reg-meta" style="margin-top:10px;">Not medical advice. Missing from a list does not mean unsafe.</div>`;
 }
 
+let dashboardRequest = 0;
 async function renderDashboard() {
+  const patientId = state.patientId;
+  if (state.activeTab !== 'dashboard' || !patientId) return;
   const view = document.getElementById('view-dashboard');
+  const request = ++dashboardRequest;
+  const isCurrent = () => request === dashboardRequest && state.patientId === patientId && state.activeTab === 'dashboard';
   view.innerHTML = `<div class="empty">Loading...</div>`;
-  const dash = await getDashboard();
+  let dash;
+  try { dash = await getDashboard(); }
+  catch (err) {
+    if (isCurrent()) view.innerHTML = `<div class="empty">${escHtml(err.message || 'Could not load your medicines.')}</div>`;
+    return;
+  }
+  if (!isCurrent()) return;
 
   const next = dash.upcoming_doses[0];
   const heroHtml = next ? (() => {
@@ -1548,28 +1604,29 @@ async function renderDashboard() {
     const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
     const takeable = isTakeableNow(next.scheduled_at);
     const takeFrom = new Date(new Date(next.scheduled_at) - TAKE_EARLY_MS).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const at = new Date(next.scheduled_at);
     return `
-      <div class="card hero-next-dose">
+      <div class="rd-card top-card dash-next">
         <div style="display:flex;align-items:center;gap:14px;">
           ${iconBadge('teal', 'pill')}
           <div>
-            <div style="font-size:12px;color:var(--ink-soft);">Next dose</div>
-            <div class="med-name">${next.medicine_name}</div>
-            <div style="font-size:13px;color:var(--ink-soft);">${new Date(next.scheduled_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+            <div class="kicker">Next dose</div>
+            <div class="big med-name">${escHtml(next.medicine_name)}</div>
+            <div class="small countdown ${overdue ? 'overdue' : ''}">${escHtml(at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${overdue ? 'overdue by ' : 'in '}${label}</div>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div class="countdown ${overdue ? 'overdue' : ''}">${overdue ? 'Overdue by ' : 'in '}${label}</div>
-          <button class="${takeable ? 'primary' : 'ghost is-early'} small" data-hero-take="${next.id}" style="margin-top:8px;">Mark taken</button>
-          ${takeable ? '' : `<div class="reg-meta" style="margin-top:6px;">Not due yet · can be taken from ${takeFrom}</div>`}
+        <div class="hero-acts">
+          <button class="btn-wide grey" data-hero-skip="${next.id}" type="button">Skip</button>
+          <button class="btn-wide ${takeable ? 'green' : 'grey is-early'}" data-hero-take="${next.id}" type="button">Take now</button>
         </div>
+        ${takeable ? '' : `<div class="reg-meta">Not due yet · can be taken from ${takeFrom}</div>`}
       </div>
     `;
   })() : '';
 
   const prnHtml = dash.prn_medicines.map(m => `
     <div class="dose-row">
-      <div><strong>${m.name || m.raw_text}</strong> <span style="color:var(--ink-soft);font-size:12px;">as-needed</span></div>
+      <div><strong>${escHtml(m.name || m.raw_text)}</strong> <span style="color:var(--ink-soft);font-size:12px;">as-needed</span></div>
       <button class="ghost small" data-prn-id="${m.id}">Log a dose</button>
     </div>
   `).join('');
@@ -1594,46 +1651,74 @@ async function renderDashboard() {
       <div class="missed-note">Don't take a double dose to catch up. If you're unsure whether to take a missed dose now, check the medicine's leaflet or ask your pharmacist or doctor. Your next dose stays as scheduled above.</div>
     </div>` : '';
 
+  const hour = new Date().getHours();
+  const first = ((currentUser && currentUser.name) || '').trim().split(/\s+/)[0];
+  const greeting = `Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}${first ? ', ' + first : ''}`;
   view.innerHTML = `
-    <div class="dash-head">
-      <h2>${t('dashboardHeading')}</h2>
-      <button class="ghost small" id="dashWhatsAppBtn"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
+    <div class="stack">
+    <div class="dash-top">
+      <h1 class="page-title">${escHtml(greeting)}</h1>
+      <button class="pill-btn" id="dashWhatsAppBtn" type="button"><span class="icon">${ICONS.messageCircle}</span>WhatsApp</button>
     </div>
     <div id="dashPushPrompt"></div>
     <div id="dashTimingChip"></div>
+    <div class="row-head"><h2 class="section-title">Your medicines</h2><button class="btn-go" id="dashAddMed" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add medicine</button></div>
     ${heroHtml}
-    <div class="card" id="todayCard">
-      <div class="card-head">${iconBadge('teal', 'calendar')}<h3>Today's medicines</h3>
-        <span class="card-art" aria-hidden="true">
-          <svg viewBox="0 0 84 48" width="84" height="48" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path class="art-heart" d="M42 40 C18 24 22 8 33 8 C38 8 41 11 42 14 C43 11 46 8 51 8 C62 8 66 24 42 40Z" fill="#E8F5F0" stroke="#0F8A70" stroke-width="2"/>
-            <path class="art-ecg" d="M2 26 H26 L31 16 L38 36 L44 10 L50 30 L54 26 H82" stroke="#0F8A70" stroke-width="2.4"/>
-          </svg>
-        </span>
-      </div>
-      ${todayHtml}
-    </div>
+    <div id="todayCard" role="region" aria-label="Today's medicines"><div id="dashDay" class="dtl"></div></div>
     ${missedHtml}
     ${dash.prn_medicines.length ? `
     <div class="card">
       <div class="card-head">${iconBadge('teal', 'pill')}<h3>As-needed</h3></div>
       ${prnHtml}
     </div>` : ''}
+    </div>
   `;
 
+  // The week strip: today is the live list with Take / Snooze / Skip; any other day is a read-only look at that day.
+  const dayBox = view.querySelector('#dashDay');
+  let latestDay = 0;
+  const showDay = async (day) => {
+    if (!isCurrent()) return;
+    const mine = ++latestDay;                                  // a slow reply for an earlier tap must not overwrite the day now shown
+    const isToday = !day || day === dash.today;
+    let body = todayHtml;
+    if (!isToday) {
+      dayBox.querySelectorAll('[data-day]').forEach((b) => b.classList.toggle('on', b.dataset.day === day));
+      try { const d = await api('GET', `/patients/${patientId}/doses?date=${day}`); body = DayTimeline.listHtml(d.doses, day, dash.today); }
+      catch (e) { body = `<div class="empty">${escHtml(e.message || 'Could not load this day.')}</div>`; }
+      if (!isCurrent() || mine !== latestDay) return;
+    }
+    dayBox.innerHTML = `<div class="day-strip">${DayTimeline.stripHtml(dash.today, day || dash.today)}</div><div class="tl-shadow" aria-hidden="true"></div><div class="day-body">${body}</div>`;
+    dayBox.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => showDay(b.dataset.day)));
+    if (isToday) wireToday();
+  };
+
   document.getElementById('dashWhatsAppBtn').addEventListener('click', showWhatsAppPopup);
+  document.getElementById('dashAddMed').addEventListener('click', openAddMedicineSheet);
   loadTimingChip(document.getElementById('dashTimingChip'));
-  renderPushPrompt(document.getElementById('dashPushPrompt'), state.patientId);
-  view.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp))));
+  renderPushPrompt(document.getElementById('dashPushPrompt'), patientId);
+  view.querySelectorAll('.missed-card [data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp), isCurrent)));
   // A dose that was just missed gets the calm guidance popup once.
   const unseen = recentMissed.find((d) => !missedSeen().has(`m${d.id}`));
-  if (unseen) showMissedGuidance(unseen.id);
+  if (unseen) showMissedGuidance(unseen.id, isCurrent);
   else if (!document.querySelector('.tour-root')) { const due = nextDueToAsk(dash); if (due) showDuePopup(due); }          // a dose that is due right now
 
   const heroTakeBtn = view.querySelector('[data-hero-take]');
   if (heroTakeBtn) {
     heroTakeBtn.addEventListener('click', () => withBusy(heroTakeBtn, async () => {
       await takeDoseWithGuard(heroTakeBtn.dataset.heroTake, next.medicine_name, next.scheduled_at);
+      renderDashboard();
+      renderGlance();
+    }));
+  }
+
+  const heroSkipBtn = view.querySelector('[data-hero-skip]');
+  if (heroSkipBtn) {
+    heroSkipBtn.addEventListener('click', () => withBusy(heroSkipBtn, async () => {
+      const reason = prompt('Reason for skipping this dose?');
+      if (!reason) return;
+      try { await api('POST', `/doses/${heroSkipBtn.dataset.heroSkip}/skip`, { reason }); }
+      catch (e) { showNotice('Not possible right now', e.message); }
       renderDashboard();
       renderGlance();
     }));
@@ -1648,7 +1733,9 @@ async function renderDashboard() {
     }));
   });
 
-  view.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
+  const wireToday = () => {
+  dayBox.querySelectorAll('[data-missed-help]').forEach((b) => b.addEventListener('click', () => showMissedGuidance(Number(b.dataset.missedHelp), isCurrent)));
+  dayBox.querySelectorAll('.dose-calendar-slot[data-dose-id]').forEach(row => {
     const doseId = row.dataset.doseId;
     row.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => withBusy(btn, async () => {
@@ -1671,6 +1758,8 @@ async function renderDashboard() {
       }));
     });
   });
+  };
+  showDay(null);
 }
 
 // ---------------------------------------------------------------- triage (Feature 3)
@@ -1947,9 +2036,9 @@ function renderNotesList(notes) {
   if (!notes.length) return '<div class="empty">No notes yet.</div>';
   return notes.map(n => `
     <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;">
-      <strong>${formatNoteActor(n.actor)}</strong>
+      <strong>${escHtml(formatNoteActor(n.actor))}</strong>
       <span style="color:var(--ink-soft);"> · ${new Date(n.at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
-      <div>${n.note}</div>
+      <div>${escHtml(n.note)}</div>
     </div>
   `).join('');
 }
@@ -2016,6 +2105,7 @@ async function renderSettingsCareTeam() {
       <div class="card-head">${iconBadge('teal', 'shield')}<h3>Care team</h3></div>
       <p style="color:var(--ink-soft);font-size:13px;">Link a caregiver (a family member or someone who looks after you).
         They can see your medicines and doses, and add a medicine for you — you'll see who added it and can remove it.
+        They can also see your full Care Report, including symptom history and any clinical notes.
         Nothing is shared until you generate a code and they redeem it.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
         <button class="ghost small" id="genCaregiverCodeBtn">Link a caregiver</button>

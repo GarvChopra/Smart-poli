@@ -152,14 +152,18 @@ def test_one_email_is_one_account_whichever_way_you_come_in():
     h = {"Authorization": f"Bearer {first['token']}"}
     uid = first["user"]["id"]
     assert first["user"]["has_password"] is False
-    # the form refuses a second account for that email and says why
+    # The form refuses a second account without naming the existing sign-in method.
     dup = c.post("/auth/register", json={"email": "OP.agent@gmail.com", "password": "password123", "name": "X"})
-    assert dup.status_code == 409 and "Google" in dup.json()["detail"] and "Set a password" in dup.json()["detail"]
+    assert dup.status_code == 409
+    assert dup.json()["detail"] == "Couldn’t create an account. Try logging in or use Continue with Google if you normally sign in that way."
     # no password yet: the form cannot log in; setting one needs a signed-in session and a decent password
     assert c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "password123"}).status_code == 401
     assert TestClient(app).post("/auth/set-password", json={"new_password": "password123"}).status_code == 401
     assert c.post("/auth/set-password", json={"new_password": "short"}, headers=h).status_code == 400
     assert c.post("/auth/set-password", json={"new_password": "password123"}, headers=h).json() == {"ok": True, "has_password": True}
+    dup_with_password = c.post("/auth/register", json={"email": "OP.agent@gmail.com", "password": "password123", "name": "X"})
+    assert dup_with_password.status_code == dup.status_code
+    assert dup_with_password.json() == dup.json()
     # now both ways open the same account
     form = c.post("/auth/login", json={"email": "op.agent@gmail.com", "password": "password123"}).json()
     again = c.post("/auth/google", json={"credential": id_token("op.agent@gmail.com")}).json()

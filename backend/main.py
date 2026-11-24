@@ -36,6 +36,7 @@ from web_security import AdmissionLimitMiddleware, BodySizeLimitMiddleware, Secu
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
@@ -74,6 +75,7 @@ from schemas import (
     PatientSettingsUpdate, PushSubscribeRequest, PushRotateRequest, PushUnsubscribeRequest, RescheduleDose, RoutineUpdate, TakeDose,
 )
 from serializers import (
+    slot_of as _slot_of,
     get_patient_or_404, get_prescription_or_404, get_medicine_or_404, get_dose_or_404,
     serialize_patient, serialize_medicine, serialize_dose,
     gather_report_data, emergency_card_data as _emergency_card_data,
@@ -94,6 +96,8 @@ from emergency_tokens import patient_id_for_token, rotate_token
 from emergency_page import render_public_card, INACTIVE_CARD_HTML
 from health_card_pdf import build_wallet_card_pdf
 import auth_router
+import password_recovery
+from public_urls import allowed_hosts, public_base_url
 import family_router
 import caregiver_router
 import doctor_router
@@ -137,6 +141,9 @@ app.add_middleware(BodySizeLimitMiddleware)
 # Fewer requests inside at once than database connections (15), leaving room for the reminder sweep and background work.
 app.add_middleware(AdmissionLimitMiddleware, limit=int(os.getenv("SMARTPOLI_MAX_CONCURRENT_REQUESTS", "12")))
 app.add_middleware(GZipMiddleware, minimum_size=600)          # app.js / style.css shrink about 4x on a slow phone connection
+_allowed_hosts = allowed_hosts()
+if _allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts, www_redirect=False)
 app.add_exception_handler(StarletteHTTPException, not_found_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
@@ -145,6 +152,7 @@ INTERACTION_RULESET = load_interaction_ruleset()
 FOOD_RULESET = load_food_ruleset()
 
 app.include_router(auth_router.router)
+app.include_router(password_recovery.router)
 app.include_router(caregiver_router.router)
 app.include_router(family_router.router)
 app.include_router(doctor_router.router)
@@ -167,6 +175,7 @@ class PublicStaticFiles(StaticFiles):
 
 # One explicit route table for the pages: only these URLs return an HTML page.
 PAGES = {"/": "index.html", "/login": "login.html", "/voice": "voice.html", "/install": "install.html",
+         "/reset-password": "reset-password.html",
          "/caregiver": "caregiver.html", "/doctor": "doctor.html", "/offline": "offline.html",
          "/terms": "terms.html", "/privacy": "privacy.html"}
 
@@ -202,7 +211,8 @@ def _page_route(file_name: str):
     def serve():
         if file_name == "doctor.html" and not doctor_role_enabled():
             return RedirectResponse("/login", status_code=307)       # the doctor role is switched off for now
-        return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": "no-cache"})
+        cache = "no-store" if file_name == "reset-password.html" else "no-cache"
+        return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": cache})
     return serve
 
 
@@ -350,6 +360,10 @@ def _check_secure_config() -> None:
         problems.append("SMARTPOLI_JWT_SECRET is not set: sessions are signed with a public development secret.")
     if os.getenv("SMARTPOLI_SKIP_TWILIO_SIGNATURE") == "1":
         problems.append("SMARTPOLI_SKIP_TWILIO_SIGNATURE=1: WhatsApp webhook requests are NOT being verified.")
+    try:
+        public_base_url()
+    except ValueError as exc:
+        problems.append(str(exc))
     for p in problems:
         logger.warning("SECURITY CONFIG: %s", p)
     if problems and os.getenv("SMARTPOLI_REQUIRE_SECURE_CONFIG") == "1":
@@ -1011,16 +1025,6 @@ def _guard_payload(issue: dict, can_override: bool) -> dict:
     return {"detail": issue["message"], "code": issue["code"], "can_override": can_override,
             "earliest": issue.get("earliest"), "source": issue.get("source"), "source_label": issue.get("source_label"),
             "quote": issue.get("quote"), "medicine": issue.get("medicine"), "other_medicine": issue.get("other_medicine")}
-
-
-def _slot_of(medicine: Medicine, dose: Dose) -> Optional[str]:
-    """'morning' / 'afternoon' / ... for a dose, read from the medicine's own slot list (None for exact-time medicines)."""
-    try:
-        slots, times = json.loads(medicine.slots or "[]"), json.loads(medicine.times or "[]")
-    except ValueError:
-        return None
-    hhmm = dose.scheduled_at.strftime("%H:%M")
-    return slots[times.index(hhmm)] if hhmm in times and len(slots) == len(times) else None
 
 
 _last_warm: dict = {}
@@ -1793,15 +1797,18 @@ def patient_report_pdf(patient_id: int, user: User = Depends(require_patient_rea
 @app.get("/patients/{patient_id}/emergency-card")
 def get_emergency_card_data(patient_id: int, user: User = Depends(require_patient_read_access),
                              db: Session = Depends(get_db_session)):
-    return _emergency_card_data(db, patient_id)
+    origin = public_base_url()
+    data = _emergency_card_data(db, patient_id)
+    return {**data, "card_url": origin + data["card_path"]}
 
 
 @app.get("/patients/{patient_id}/emergency-card/qr.png")
-def emergency_card_qr(patient_id: int, request: Request, user: User = Depends(require_patient_read_access),
+def emergency_card_qr(patient_id: int, user: User = Depends(require_patient_read_access),
                        db: Session = Depends(get_db_session)):
+    origin = public_base_url()
     get_patient_or_404(db, patient_id)
     import qrcode
-    url = str(request.base_url).rstrip("/") + _emergency_card_data(db, patient_id)["card_path"]
+    url = origin + _emergency_card_data(db, patient_id)["card_path"]
     img = qrcode.make(url, border=2)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -1846,11 +1853,12 @@ def get_card_photo(patient_id: int, user: User = Depends(require_patient_read_ac
 
 
 @app.get("/patients/{patient_id}/emergency-card/card.pdf")
-def get_wallet_card_pdf(patient_id: int, request: Request, user: User = Depends(require_patient_read_access),
+def get_wallet_card_pdf(patient_id: int, user: User = Depends(require_patient_read_access),
                         db: Session = Depends(get_db_session)):
+    origin = public_base_url()
     data = _emergency_card_data(db, patient_id)
     photo = card_photo(db, patient_id) if data["profile"]["share"]["photo"] else None
-    pdf = build_wallet_card_pdf(data, str(request.base_url).rstrip("/") + data["card_path"],
+    pdf = build_wallet_card_pdf(data, origin + data["card_path"],
                                 photo[0] if photo else None)
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="smartpoli-health-card.pdf"'})

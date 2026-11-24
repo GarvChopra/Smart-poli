@@ -12,18 +12,18 @@ characters and are rate limited per device.
 """
 
 import logging
-import os
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import care_push
 from auth import PERSON_ROLES, gen_link_code, require_role
-from db import CaregiverLink, FamilyInvite, Patient, User, get_db_session, log_audit
+from db import AuditLog, CaregiverLink, FamilyInvite, Patient, User, get_db_session
+from public_urls import public_base_url
 from web_security import rate_limit
 
 logger = logging.getLogger(__name__)
@@ -51,41 +51,20 @@ def clean_code(raw: str) -> str:
     return "".join(ch for ch in (raw or "").upper() if ch.isalnum())[:12]
 
 
-LIVE_URL = "https://smartpoli.onrender.com"
-
-
-def _is_local(url: str) -> bool:
-    return url.split("//", 1)[-1].startswith(("localhost", "127.0.0.1", "[::1]", "0.0.0.0"))
-
-
-def public_base_url(request: Request) -> str:
-    """The address to put in a link someone else will open. Always the real site, never this computer's: the first of
-    SMARTPOLI_PUBLIC_URL / SMARTPOLI_PUBLIC_BASE_URL (already set on the live server for WhatsApp links) that is not a
-    local address; else the request's own address when it is a hosted one, given as https (behind the host's proxy the
-    request looks like plain http); else the live site. A copy running on localhost therefore still shares the live link."""
-    for name in ("SMARTPOLI_PUBLIC_URL", "SMARTPOLI_PUBLIC_BASE_URL"):
-        configured = (os.getenv(name) or "").strip().rstrip("/")
-        if configured and not _is_local(configured):
-            return configured
-    base = str(request.base_url).rstrip("/")
-    if _is_local(base):
-        return LIVE_URL
-    return "https://" + base.split("//", 1)[-1] if base.startswith("http://") else base
-
-
-def _serialize(inv: FamilyInvite, request: Optional[Request] = None) -> dict:
+def _serialize(inv: FamilyInvite, origin: Optional[str] = None) -> dict:
     expired = inv.status == "pending" and inv.expires_at < datetime.utcnow()
     out = {"id": inv.id, "code": pretty(inv.code), "nickname": inv.nickname,
            "status": "expired" if expired else inv.status, "expires_at": inv.expires_at.isoformat() + "Z",
            "accepted_at": inv.accepted_at.isoformat() + "Z" if inv.accepted_at else None}
-    if request is not None:
-        out["url"] = f"{public_base_url(request)}/join/{inv.code}"
+    if origin is not None:
+        out["url"] = f"{origin}/join/{inv.code}"
     return out
 
 
 @router.post("/family/invites")
-def create_invite(body: InviteCreate, request: Request, user: User = Depends(require_person),
+def create_invite(body: InviteCreate, user: User = Depends(require_person),
                   db: Session = Depends(get_db_session), _rl=Depends(rate_limit("family-invite", 30, 3600))):
+    origin = public_base_url()
     now = datetime.utcnow()
     pending = db.query(FamilyInvite).filter(FamilyInvite.from_user_id == user.id, FamilyInvite.status == "pending",
                                             FamilyInvite.expires_at > now).count()
@@ -98,24 +77,28 @@ def create_invite(body: InviteCreate, request: Request, user: User = Depends(req
                        expires_at=now + timedelta(days=INVITE_DAYS))
     db.add(inv)
     db.commit()
-    return _serialize(inv, request)
+    return _serialize(inv, origin)
 
 
 @router.get("/family/invites")
-def my_invites(request: Request, user: User = Depends(require_person), db: Session = Depends(get_db_session)):
+def my_invites(user: User = Depends(require_person), db: Session = Depends(get_db_session)):
+    origin = public_base_url()
     rows = (db.query(FamilyInvite).filter(FamilyInvite.from_user_id == user.id)
             .order_by(FamilyInvite.created_at.desc()).limit(30).all())
-    return [_serialize(i, request) for i in rows]
+    return [_serialize(i, origin) for i in rows]
 
 
 @router.post("/family/invites/{invite_id}/cancel")
 def cancel_invite(invite_id: int, user: User = Depends(require_person), db: Session = Depends(get_db_session)):
-    inv = db.query(FamilyInvite).filter(FamilyInvite.id == invite_id, FamilyInvite.from_user_id == user.id).first()
+    own_invite = db.query(FamilyInvite).filter(FamilyInvite.id == invite_id, FamilyInvite.from_user_id == user.id)
+    inv = own_invite.first()
     if inv is None:
         raise HTTPException(404, "No such invite.")
-    if inv.status == "pending":
-        inv.status = "cancelled"
-        db.commit()
+    # A concurrent accept must not be overwritten by a stale pending read.
+    own_invite.filter(FamilyInvite.status == "pending").update(
+        {FamilyInvite.status: "cancelled"}, synchronize_session=False,
+    )
+    db.commit()
     return _serialize(inv)
 
 
@@ -149,25 +132,45 @@ def accept_invite(code: str, user: User = Depends(require_person), db: Session =
     inv = _open_invite(db, code)
     if inv.from_user_id == user.id:
         raise HTTPException(400, "This is your own invite. Send it to the person you are adding.")
+
+    # Serialize accepts for this account on PostgreSQL, including distinct
+    # invites that could otherwise create duplicate profiles. NO KEY UPDATE
+    # is compatible with the locks taken by other foreign-key checks.
+    if db.query(User.id).filter(User.id == user.id).with_for_update(key_share=True).scalar() is None:
+        raise HTTPException(401, "This account no longer exists.")
+
+    # Claim the code in the same transaction as creating the link or profile.
+    # The pending check also serializes the claim against cancellation.
+    now = datetime.utcnow()
+    claimed = db.query(FamilyInvite).filter(
+        FamilyInvite.id == inv.id, FamilyInvite.status == "pending", FamilyInvite.expires_at >= now,
+    ).update({
+        FamilyInvite.status: "accepted", FamilyInvite.accepted_by_user_id: user.id,
+        FamilyInvite.accepted_at: now,
+    }, synchronize_session=False)
+    if not claimed:
+        db.expire_all()
+        _open_invite(db, code)  # Preserve the ordinary used, expired and cancelled errors.
+        raise HTTPException(409, "This invite is no longer available.")
+
     patient = db.query(Patient).filter(Patient.user_id == user.id).order_by(Patient.id).first()
     if patient is None:                                   # first time: their own profile ("You") is created now
         patient = Patient(user_id=user.id, name=user.name)
         db.add(patient)
-        db.commit()
-        log_audit(db, patient.id, f"user:{user.id}", "patient_created", user.name)
+        db.flush()
+        db.add(AuditLog(patient_id=patient.id, actor=f"user:{user.id}", action="patient_created", detail=user.name))
     link = db.query(CaregiverLink).filter(CaregiverLink.patient_id == patient.id,
                                           CaregiverLink.caregiver_user_id == inv.from_user_id).first()
     if link is None:
         link = CaregiverLink(patient_id=patient.id, caregiver_user_id=inv.from_user_id, code=gen_link_code(),
-                             status="active", accepted_at=datetime.utcnow(), nickname=inv.nickname)
+                             status="active", accepted_at=now, nickname=inv.nickname)
         db.add(link)
     else:
-        link.status, link.accepted_at = "active", datetime.utcnow()
+        link.status, link.accepted_at = "active", now
         link.nickname = link.nickname or inv.nickname
-    inv.status, inv.accepted_by_user_id, inv.accepted_at = "accepted", user.id, datetime.utcnow()
+    db.add(AuditLog(patient_id=patient.id, actor=f"user:{user.id}", action="family_invite_accepted",
+                    detail=f"caregiver user {inv.from_user_id} (invite {inv.id})"))
     db.commit()
-    log_audit(db, patient.id, f"user:{user.id}", "family_invite_accepted",
-              f"caregiver user {inv.from_user_id} (invite {inv.id})")
     try:                                                  # tell the person who invited that it worked
         care_push.push_to_user(db, inv.from_user_id, f"{user.name} joined your family",
                                "You can now see their medicines.", tag=f"family-joined-{inv.id}", url="/caregiver")

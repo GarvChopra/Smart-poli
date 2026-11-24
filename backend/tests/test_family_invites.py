@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from conftest import register_and_login  # noqa: E402
@@ -47,6 +48,7 @@ def test_full_flow_gita_invites_mum_who_confirms_and_gita_then_looks_after_her()
     other, _ = _person("Dad")
     assert other.post(f"/family/join/{inv['code']}").status_code == 409
     assert gita.get("/family/invites").json()[0]["status"] == "accepted"
+    assert gita.post(f"/family/invites/{inv['id']}/cancel").json()["status"] == "accepted"
 
 
 def test_an_invite_needs_a_signed_in_account_and_cannot_be_used_on_yourself():
@@ -95,6 +97,31 @@ def test_joining_again_is_harmless_and_a_new_account_gets_its_own_you_profile():
     again = mum.post(f"/family/join/{_invite(gita)['code']}").json()                  # a second invite from the same person
     assert again["patient_id"] == r["patient_id"]
     assert len(gita.get("/caregiver/home").json()["family"]) == 1
+
+
+def test_invite_claim_and_profile_creation_roll_back_together(monkeypatch):
+    import family_router
+
+    init_db()
+    inviter, _ = _person("Inviter")
+    recipient, _ = _person("Recipient")
+    invite = _invite(inviter)
+    original_audit = family_router.AuditLog
+
+    def fail_final_audit(**values):
+        if values["action"] == "family_invite_accepted":
+            raise RuntimeError("Simulated transaction failure")
+        return original_audit(**values)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(family_router, "AuditLog", fail_final_audit)
+        with pytest.raises(RuntimeError, match="Simulated transaction failure"):
+            recipient.post(f"/family/join/{invite['code']}")
+
+    assert inviter.get("/family/invites").json()[0]["status"] == "pending"
+    assert inviter.get("/caregiver/home").json()["family"] == []
+    assert recipient.get("/auth/me").json()["patient_ids"] == []
+    assert recipient.post(f"/family/join/{invite['code']}").status_code == 200
 
 
 def test_too_many_open_invites_are_refused():
@@ -171,27 +198,16 @@ def test_codes_a_patient_makes_avoid_look_alike_characters_and_ignore_dashes_and
     assert gita.post("/caregiver/link/redeem", json={"code": typed}).status_code == 200
 
 
-def test_links_people_share_always_point_at_the_real_site_never_this_computer(monkeypatch):
-    from starlette.requests import Request
-    import family_router as fr
-    def req(base):
-        return Request({"type": "http", "scheme": base.split(":")[0], "server": (base.split("//")[1].split(":")[0], 80), "path": "/",
-                        "headers": [(b"host", base.split("//")[1].encode())], "query_string": b""})
-    monkeypatch.delenv("SMARTPOLI_PUBLIC_URL", raising=False)
-    assert fr.public_base_url(req("http://127.0.0.1:8123")) == "https://smartpoli.onrender.com"
-    assert fr.public_base_url(req("http://localhost:8000")) == "https://smartpoli.onrender.com"
-    assert fr.public_base_url(req("http://myapp.onrender.com")) == "https://myapp.onrender.com"      # proxy hides https
-    monkeypatch.setenv("SMARTPOLI_PUBLIC_BASE_URL", "http://127.0.0.1:8000")                      # a local setting never wins
-    assert fr.public_base_url(req("http://127.0.0.1:8123")) == "https://smartpoli.onrender.com"
-    monkeypatch.setenv("SMARTPOLI_PUBLIC_BASE_URL", "https://live.example.org/")                  # the live server's existing setting does
-    assert fr.public_base_url(req("http://127.0.0.1:8123")) == "https://live.example.org"
-    monkeypatch.setenv("SMARTPOLI_PUBLIC_URL", "https://care.example.org/")                       # and the explicit one is first
-    assert fr.public_base_url(req("http://127.0.0.1:8123")) == "https://care.example.org"
-    # and both kinds of invite carry it
+def test_both_invite_types_use_the_configured_origin(monkeypatch):
+    monkeypatch.setenv("SMARTPOLI_PUBLIC_BASE_URL", "https://app.example.test/")
+    monkeypatch.setenv("SMARTPOLI_PUBLIC_URL", "https://care.example.test/")
     init_db()
     mum, _ = _person("Sunita")
     pid = mum.post("/patients", json={"name": "Sunita"}).json()["id"]
-    code = mum.post(f"/patients/{pid}/caregiver-links").json()
-    assert code["url"] == f"https://care.example.org/join/{code['code']}"
+    headers = {"Host": "proxy.example.test", "X-Forwarded-Host": "edge.example.test"}
+    code = mum.post(f"/patients/{pid}/caregiver-links", headers=headers).json()
+    assert code["url"] == f"https://care.example.test/join/{code['code']}"
     gita, _ = _person("Gita")
-    assert gita.post("/family/invites", json={}).json()["url"].startswith("https://care.example.org/join/")
+    invite = gita.post("/family/invites", json={}, headers=headers).json()
+    assert invite["url"].startswith("https://care.example.test/join/")
+    assert gita.get("/family/invites", headers=headers).json()[0]["url"] == invite["url"]

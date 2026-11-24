@@ -73,12 +73,8 @@ def register(body: RegisterRequest, db: Session = Depends(get_db_session), _rl=D
         raise HTTPException(400, f"role must be one of: {', '.join(ROLES)}")
     if body.role == "doctor" and not doctor_signup_open():
         raise HTTPException(400, "Doctor accounts are not open yet. Sign up as a patient or caregiver.")
-    existing = find_account_for_email(db, email)
-    if existing:
-        if not existing.password_hash:       # made with Google: the same account, it just has no password yet
-            raise HTTPException(409, "This email already has a SmartPoli account made with Google. Tap Continue with Google, "
-                                     "then choose Set a password in Settings to also log in with a password.")
-        raise HTTPException(409, "An account with this email already exists.")
+    if find_account_for_email(db, email):
+        raise HTTPException(409, "Couldn’t create an account. Try logging in or use Continue with Google if you normally sign in that way.")
 
     user = User(email=email, password_hash=hash_password(body.password), role=body.role, name=body.name.strip())
     db.add(user)

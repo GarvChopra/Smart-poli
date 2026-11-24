@@ -59,6 +59,10 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 # ---------------------------------------------------------------- tokens
 
+def _recovery_version(user: User) -> Optional[str]:
+    return user.recovery_version.isoformat() if user.recovery_version else None
+
+
 def create_token(user: User, remember: Optional[bool] = None) -> str:
     """`remember` True/False picks the long/short session; None keeps the default length. Whatever was picked is written
     into the token (`rem`), so a later refresh gives the same kind of session."""
@@ -71,6 +75,7 @@ def create_token(user: User, remember: Optional[bool] = None) -> str:
         "exp": datetime.utcnow() + timedelta(hours=hours),
         "iat": datetime.utcnow(),
         "jti": secrets.token_urlsafe(16),   # lets a logout revoke exactly this session
+        "rv": _recovery_version(user),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
@@ -122,6 +127,8 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(401, "This account no longer exists.")
+    if payload.get("rv") != _recovery_version(user):
+        raise HTTPException(401, "Your password changed. Please log in again.")
     return user
 
 

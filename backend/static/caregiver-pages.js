@@ -1,10 +1,10 @@
 // SmartPoli — caregiver portal pages. One function per page; caregiver.js (the shell) routes to them.
 //
-//   #/                          Patients
-//   #/p/:id/today               Today (alerts, next doses, Remind now, Call / WhatsApp)
-//   #/p/:id/medicines           Medicines (adherence + a notes thread per medicine)
+//   #/                          Family
+//   #/p/:id/today               A person's page (missed / next dose, Remind now, Add medicine, week strip + timeline)
+//   #/p/:id/history             History (medication calendar: month, medicine chips, tap a day for its doses)
+//   #/p/:id/report              Care report (the person's own report, read-only)
 //   #/p/:id/notes               Notes (messages to the patient + care-team-only handover notes)
-//   #/p/:id/history             History (adherence, missed doses, symptom checks)
 //   #/p/:id/emergency           Emergency info
 //   #/settings                  Phone alerts, link a patient
 //
@@ -18,34 +18,48 @@ const PRIORITY_LABELS = { emergency: 'Emergency', high: 'High', medium: 'Medium'
 const cgBadge = (p) => (p ? `<span class="badge ${esc(p.level)}">${esc(PRIORITY_LABELS[p.level] || p.level)}</span>` : '');
 const fmtDay = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-// ---------------------------------------------------------------- shared: the overview of one patient (cached briefly)
+// ---------------------------------------------------------------- shared: recheck access whenever a patient page opens
 
-const overviewCache = { pid: null, at: 0, data: null };
+const overviewLabel = { pid: null, name: '' };
+let overviewRequest = 0;
 
-async function getOverview(pid, force = false) {
-  if (!force && overviewCache.pid === pid && Date.now() - overviewCache.at < 20000) return overviewCache.data;
+async function getOverview(pid) {
+  const request = ++overviewRequest;
   const data = await api('GET', `/caregiver/patients/${pid}/overview`);
   data.label = data.nickname || data.patient.name;                 // what this caregiver calls them: "Mum"
-  Object.assign(overviewCache, { pid, at: Date.now(), data });
+  if (request === overviewRequest) Object.assign(overviewLabel, { pid, name: data.label });
   return data;
 }
 
-const TABS = [['today', 'Today'], ['medicines', 'Medicines'], ['notes', 'Notes'], ['history', 'History'], ['emergency', 'Emergency']];
+function invalidateOverview(pid) {
+  overviewRequest++;
+  if (overviewLabel.pid === pid) Object.assign(overviewLabel, { pid: null, name: '' });
+}
 
-/** The frame every patient page shares: back link, name, the tab bar, and a body to fill. */
+const FAMILY_COLOURS = ['rose', 'blue', 'amber', 'violet'];            // not green: that is You
+const colourOf = (id) => FAMILY_COLOURS[Number(id) % FAMILY_COLOURS.length];          // same person, same colour on every page and in the menu
+const initialOf = (name) => esc((name || '?').trim().charAt(0).toUpperCase());
+const PAGE_LABELS = { history: 'Medication calendar', report: 'Care report', notes: 'Notes', emergency: 'Emergency' };        // Today carries the band instead
+
+/** The frame every person page shares. Today opens with the person's name and Rename / Remove side by side (no coloured
+ * band, no back button: the menu's Family item is the way back); every other page is its own title with the name under it. */
 function patientFrame(root, o, active, bodyHtml) {
-  root.innerHTML = `
-    <a class="cg-back" href="#/">← Family</a>
-    <div class="cg-title"><h2>${esc(o.nickname || o.patient.name)}</h2>${cgBadge(o.priority)}<button class="ghost small" id="cgRename" type="button">Rename</button><button class="ghost small danger-text" id="cgRemovePerson" type="button">Remove</button></div>
-    <div class="cg-section">${esc((TABS.find(([key]) => key === active) || [])[1] || '')}</div>
-    <div class="cg-body">${bodyHtml}</div>`;
-  root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => { window.location.hash = '#/'; }));
+  const who = o.nickname || o.patient.name;
+  const head = active === 'today' ? `
+    <div class="person-head"><h1 class="page-title">${esc(who)}</h1>${cgBadge(o.priority)}
+      <span class="ph-actions"><button class="pill-btn" id="cgRename" type="button">Rename</button><button class="pill-btn red" id="cgRemovePerson" type="button">Remove</button></span></div>` : `
+    <div class="plain-head"><h1 class="page-title">${esc(who)}</h1><span class="pgl">${esc(PAGE_LABELS[active] || '')}</span></div>`;
+  root.innerHTML = `${head}<div class="stack"><div class="cg-body">${bodyHtml}</div></div>`;
+  if (active !== 'today') return;
+  root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => {
+    if (root.isConnected) window.location.hash = '#/';
+  }));
   root.querySelector('#cgRename').addEventListener('click', async () => {
     const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
     if (next === null) return;
     await api('PATCH', `/caregiver/patients/${o.patient.id}/nickname`, { nickname: next.trim() || null });
-    o.nickname = next.trim() || null;
-    getOverview(o.patient.id, true).then(() => route());
+    invalidateOverview(o.patient.id);
+    if (root.isConnected) route();
   });
 }
 
@@ -61,7 +75,7 @@ function openRemovePerson(pid, who, onDone) {
     e.target.disabled = true;
     try {
       await api('POST', `/caregiver/patients/${pid}/unlink`);
-      overviewCache.pid = null;
+      invalidateOverview(pid);
       m.remove();
       onDone();
     } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
@@ -72,18 +86,14 @@ function emptyBox(text) { return `<div class="empty">${esc(text)}</div>`; }
 
 // ---------------------------------------------------------------- Patients
 
-const FAMILY_COLOURS = ['rose', 'blue', 'green', 'amber', 'violet'];
-const DOSE_PILL = {
-  taken: ['taken', 'Taken'], missed: ['missed', 'Missed'], skipped: ['pending', 'Skipped'],
-  pending: ['pending', 'Pending'], snoozed: ['pending', 'Snoozed'],
-};
-const TODAY_PREVIEW = 4;
-const CAPSULE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.2 9.2l5.6 5.6"/></svg>';
+const BIN = '<svg class="bin-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>';
+const CHEVRON = '<svg class="fr-chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>';
+const SHARE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"></path></svg>';
+const PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const clockOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const medCount = (n) => `${n} ${n === 1 ? 'medicine' : 'medicines'} today`;
+const todayLine = (n, missed) => `${n} today${missed ? ` · <b class="fam-missed">${missed} missed</b>` : ''}`;
 
-/** The phone home: "You" first, then the people you look after. Today below it is YOUR doses only; each family
- * member's day is on their own screen (tap their row). */
+/** The phone home: the people you look after, then You. Each person's day is on their own page (tap their row). Returns the home data. */
 async function pagePatients(root) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const home = await api('GET', '/caregiver/home');
@@ -91,44 +101,31 @@ async function pagePatients(root) {
   // Someone looks after family but this phone is not set up to be told when a dose is missed: offer it right here.
   const alertsOff = home.family.length > 0 && pushOk() && !(await caregiverPhoneSubscription());
   const youRow = `
-    <a class="fam-row fam-you" id="youRow" href="/">
-      <span class="fam-avatar green" aria-hidden="true">${esc((currentUser.name || 'Y').trim().charAt(0).toUpperCase())}</span>
-      <span class="fam-text"><b>You</b><small>${you.patient_id ? medCount(you.medicines_today) : 'Add your own medicines'}</small></span>
-      <span class="fam-chev" aria-hidden="true">›</span>
-    </a>`;
-  const familyRows = home.family.map((f, i) => `
-    <div class="fam-item">
-    <a class="fam-row" href="#/p/${f.id}/today">
-      <span class="fam-avatar ${FAMILY_COLOURS[i % FAMILY_COLOURS.length]}" aria-hidden="true">${esc((f.label || '?').trim().charAt(0).toUpperCase())}</span>
-      <span class="fam-text"><b>${esc(f.label)}</b>
-        <small>${medCount(f.medicines_today)}${f.missed_today ? ` · <span class="fam-missed">${f.missed_today} missed</span>` : ''}</small></span>
-      <span class="fam-chev" aria-hidden="true">›</span>
-    </a>
-    <button class="fam-remove" type="button" data-remove="${esc(f.id)}" data-label="${esc(f.label)}" aria-label="Remove ${esc(f.label)}">Remove</button>
+    <div class="fr me">
+      <a class="fr-link" id="youRow" href="/">
+        <span class="fam-avatar green" aria-hidden="true">${initialOf(currentUser.name || 'Y')}</span>
+        <span><span class="fr-name">You</span><span class="fr-sub">${you.patient_id ? todayLine(you.medicines_today, 0) : 'Add your own medicines'}</span></span>
+      </a>${CHEVRON}
+    </div>`;
+  const familyRows = home.family.map((f) => `
+    <div class="fam-item fr">
+      <a class="fr-link" href="#/p/${f.id}/today">
+        <span class="fam-avatar ${colourOf(f.id)}" aria-hidden="true">${initialOf(f.label)}</span>
+        <span><span class="fr-name">${esc(f.label)}</span><span class="fr-sub">${todayLine(f.medicines_today, f.missed_today)}</span></span>
+      </a>
+      <button class="fam-remove fr-bin" type="button" data-remove="${esc(f.id)}" data-label="${esc(f.label)}" aria-label="Remove ${esc(f.label)}" title="Remove ${esc(f.label)}">${BIN}</button>
+      ${CHEVRON}
     </div>`).join('');
-  const doseRow = (d) => {
-    const [cls, label] = DOSE_PILL[d.state] || DOSE_PILL.pending;
-    return `<div class="dose-row">
-      <span class="dose-icon" aria-hidden="true">${CAPSULE}</span>
-      <span class="fam-text"><b>${esc(d.medicine_name)}${d.strength ? ' ' + esc(d.strength) : ''}</b>
-        <small>${esc(clockOf(d.scheduled_at))}</small></span>
-      <span class="dose-pill ${cls}">${label}</span></div>`;
-  };
-  const doses = home.today;
   root.innerHTML = `
-    <div class="cg-phone">
-      <section>
-        <div class="cg-row-head"><h2>Family</h2><button class="add-member" id="addMemberBtn" type="button">Add member</button></div>
-        <div class="fam-list">${familyRows}${youRow}</div>
-        ${alertsOff ? `<div class="fam-alerts"><span>Get an alert on this phone when a dose is missed.</span>
-          <button class="add-member" id="alertsOnBtn" type="button">Turn on</button></div><div id="alertsMsg" class="cg-err"></div>` : ''}
-        <p class="reg-meta fam-hint">${home.family.length ? '' : 'Add a family member to see their medicines and get an alert if they miss a dose. '}Want someone to look after <i>your</i> medicines? <button class="view-all" id="shareMineBtn" type="button">Share my medicines</button></p>
-      </section>
-      <section>
-        <div class="cg-row-head"><h2>Today</h2>${doses.length > TODAY_PREVIEW ? '<button class="view-all" id="viewAllBtn" type="button">View all</button>' : ''}</div>
-        <div class="fam-list" id="todayList">${doses.length ? doses.slice(0, TODAY_PREVIEW).map(doseRow).join('')
-          : `<div class="empty">${you.patient_id ? 'Nothing to take today.' : 'Tap You to add your own medicines.'}</div>`}</div>
-      </section>
+    <div class="stack cg-phone">
+      <div class="row-head"><h1 class="page-title">Family</h1><button class="btn-go" id="addMemberBtn" type="button">${PLUS}Add member</button></div>
+      <div class="fam-list">${familyRows}${youRow}</div>
+      ${alertsOff ? `<div class="fam-alerts"><span>Get an alert on this phone when a dose is missed.</span>
+        <button class="pill-btn white" id="alertsOnBtn" type="button">Turn on</button></div><div id="alertsMsg" class="cg-err"></div>` : ''}
+      <div class="rd-card share-card">
+        <div class="share-head"><span class="share-ic" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0C6455" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11a4 4 0 1 0-8 0M3 21a9 9 0 0 1 18 0"></path><path d="M12 3v4M10 5h4"></path></svg></span>Let family help you</div>
+        <button class="btn-wide outline" id="shareMineBtn" type="button">${SHARE_ICON}Share my medicines</button>
+      </div>
     </div>`;
 
   // "You" opens the person's own app. The very first time there is no profile yet: make it, then go.
@@ -141,7 +138,7 @@ async function pagePatients(root) {
       if (auth && auth.user) { auth.user.patient_ids = [made.id]; setAuth(auth.token, auth.user); }
       window.location.href = '/';
     } catch (err) {
-      root.querySelector('#youRow small').textContent = err.message || 'Could not open your profile. Please try again.';
+      root.querySelector('#youRow .fr-sub').textContent = err.message || 'Could not open your profile. Please try again.';
     }
   });
   root.querySelector('#addMemberBtn').addEventListener('click', openAddMember);
@@ -153,13 +150,7 @@ async function pagePatients(root) {
     catch (e) { root.querySelector('#alertsMsg').textContent = e.message; }
   });
   root.querySelector('#shareMineBtn').addEventListener('click', () => openShareMine(you));
-  const all = root.querySelector('#viewAllBtn');
-  if (all) all.addEventListener('click', () => {
-    const open = all.dataset.open !== '1';
-    all.dataset.open = open ? '1' : '0';
-    all.textContent = open ? 'Show less' : 'View all';
-    root.querySelector('#todayList').innerHTML = (open ? doses : doses.slice(0, TODAY_PREVIEW)).map(doseRow).join('');
-  });
+  return home;
 }
 
 // ---------------------------------------------------------------- Add member: a link / code to send, or a code you were sent
@@ -225,7 +216,7 @@ async function openShareMine(you) {
     m.querySelector('.safety-modal').innerHTML = `
       <h3>Send this to who will look after you</h3>
       <div class="am-code" aria-label="Your code">${esc(code)}</div>
-      <p class="reg-meta" style="text-align:center;">Works once, for 7 days. They'll see your medicines only after they enter it. You can remove them any time in Settings.</p>
+      <p class="reg-meta" style="text-align:center;">Works once, for 7 days. When they redeem it, they can see your medicines and full Care Report, including symptom history and any clinical notes. You can remove their access any time in Settings.</p>
       <div class="am-share">
         <a class="primary" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(text)}">Share on WhatsApp</a>
         ${navigator.share ? '<button class="ghost" id="smShare" type="button">Share…</button>' : ''}
@@ -315,7 +306,6 @@ function wireLinkForm(root) {
 function startAddMedicine(pid, patientName, how, onDone) {
   MedWizard.patientId = () => pid;
   MedWizard.onAdded = (med, out, when) => {
-    overviewCache.pid = null;
     const clashes = [...(out.conflicts || []).map((c) => c.medicines.join(' + ')),
       ...(out.interactions || []).map((i) => `${capName(i.drug_a)} + ${capName(i.drug_b)}`)];
     const m = showSafetyModal(`
@@ -347,48 +337,50 @@ function openAddMedicinePopup(pid, name, onDone) {
 
 // ---------------------------------------------------------------- Today
 
-const phoneDigits = (p) => String(p || '').replace(/[^\d]/g, '');
-
 async function pageToday(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
-  const o = await getOverview(pid, true);
+  const o = await getOverview(pid);
   const next = (o.upcoming_doses || []).find((d) => ['pending', 'snoozed'].includes(d.state));
-  const nextHtml = next
-    ? `<div class="cg-next"><div class="reg-meta">Next dose</div><div class="cg-next-name">${esc(next.medicine_name)}</div><div class="reg-meta">${esc(fmtDay(next.scheduled_at))}</div></div>`
-    : emptyBox('Nothing scheduled.');
-  const alerts = (o.alerts || []).map((a) => `<div class="alert-item">${esc(a)}</div>`).join('') || '<div class="empty">Nothing needs attention.</div>';
-  const nudges = (o.nudges || []).map((n) => `<div class="nudge-banner ${esc(n.level)}">${esc(n.text)}</div>`).join('');
-  const ph = o.phones || {};
-  const own = ph.patient, ec = ph.emergency_contact;
-  const contact = [
-    own ? `<a class="ghost small cg-link" href="tel:${esc(own)}">Call ${esc(o.label)}</a><a class="ghost small cg-link" href="https://wa.me/${esc(phoneDigits(own))}" target="_blank" rel="noopener">WhatsApp</a>` : '',
-    ec ? `<a class="ghost small cg-link" href="tel:${esc(ec.phone)}">Call ${esc(ec.label || 'emergency contact')}</a>` : '',
-  ].join('');
+  // A missed dose wins the top card; with nothing missed it is the next dose. Filled from today's timeline below.
+  const topCard = (missed) => {
+    const kicker = missed ? 'Missed' : 'Next dose';
+    const name = missed ? missed.medicine_name : next ? next.medicine_name : 'Nothing scheduled';
+    const when = missed ? `Was due at ${clockOf(missed.scheduled_at)}` : next ? fmtDay(next.scheduled_at) : '';
+    return `<div class="rd-card top-card${missed ? ' missed' : ''}">
+      <div><div class="kicker">${kicker}</div><div class="big">${esc(name)}</div>${when ? `<div class="small">${esc(when)}</div>` : ''}</div>
+      <div class="duo one"><button class="btn-wide green" id="cgRemind" type="button">Remind now</button></div>
+      <div id="cgRemindMsg" class="reg-meta" role="status"></div>
+    </div>`;
+  };
   patientFrame(root, o, 'today', `
-    ${nudges}
-    ${nextHtml}
-    <div class="cg-actions">
-      <button class="primary" id="cgRemind">Remind now</button>
-      <button class="ghost" id="cgAddMedBtn" type="button">+ Add medicine</button>
-      ${contact}
-    </div>
-    <div id="cgRemindMsg" class="reg-meta" role="status"></div>
-    <div class="stat-row" style="margin:14px 0;">
-      <div class="stat"><div><div class="num">${esc(o.adherence.adherence_percent ?? '—')}${o.adherence.adherence_percent !== null ? '%' : ''}</div><div class="label">Adherence</div></div></div>
-      <div class="stat"><div><div class="num">${esc(o.adherence.taken)}</div><div class="label">Taken</div></div></div>
-      <div class="stat"><div><div class="num">${esc(o.adherence.missed)}</div><div class="label">Missed</div></div></div>
-    </div>
-    <div class="card"><div class="card-head">${iconBadge('amber', 'alertCircle')}<h3>Alerts</h3></div>${alerts}</div>`);
-  root.querySelector('#cgAddMedBtn').addEventListener('click', () => openAddMedicinePopup(pid, o.label, () => { window.location.hash = `#/p/${pid}/medicines`; }));
-  const btn = root.querySelector('#cgRemind');
-  const msg = root.querySelector('#cgRemindMsg');
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    try {
-      const r = await api('POST', `/caregiver/patients/${pid}/nudge`);
-      msg.textContent = r.sent ? `Reminder sent to ${r.patient}.` : (r.note || 'Nothing was delivered.');
-    } catch (e) { msg.textContent = e.message; }
-    setTimeout(() => { btn.disabled = false; }, 1500);
+    <div id="cgTop">${topCard(null)}</div>
+    <div class="row-head"><h2 class="section-title">Medicines</h2><button class="btn-go" id="cgAddMedBtn" type="button">${PLUS}Add medicine</button></div>
+    <div id="cgDay"></div>`);
+  const wireRemind = () => {
+    const btn = root.querySelector('#cgRemind');
+    const msg = root.querySelector('#cgRemindMsg');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const r = await api('POST', `/caregiver/patients/${pid}/nudge`);
+        msg.textContent = r.sent ? `Reminder sent to ${r.patient}.` : (r.note || 'Nothing was delivered.');
+      } catch (e) { msg.textContent = e.message; }
+      setTimeout(() => { btn.disabled = false; }, 1500);
+    });
+  };
+  wireRemind();
+  root.querySelector('#cgAddMedBtn').addEventListener('click', () => openAddMedicinePopup(pid, o.label, () => {
+    if (root.isConnected) route();
+  }));
+  const top = root.querySelector('#cgTop');
+  DayTimeline.mount(root.querySelector('#cgDay'), pid, {
+    onLoaded: (data) => {
+      if (!top.isConnected || data.date !== data.today) return;                // the top card stays about the current person's day
+      const missed = data.doses.filter((d) => d.state === 'missed').pop() || null;
+      if (!missed) return;
+      top.innerHTML = topCard(missed);
+      wireRemind();
+    },
   });
 }
 
@@ -435,33 +427,6 @@ function wireDeleteButtons(root, onDone) {
 
 // ---------------------------------------------------------------- Medicines
 
-async function pageMedicines(root, pid) {
-  root.innerHTML = '<div class="empty">Loading…</div>';
-  const o = await getOverview(pid);
-  // Medicines: only what is being taken now. Adding one is "+ Add medicine" on the Today page; notes live on the Notes page.
-  const meds = (o.per_medicine || []).filter((m) => m.taking !== false);
-  const cards = meds.map((m) => `
-    <div class="card cg-med" data-med="${esc(m.medicine_id)}">
-      <div class="cg-med-head"><strong>${esc(m.name)}</strong>
-        <span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>
-      ${m.added_by_me ? `<div class="cg-added-row"><span class="reg-chip">Added by you</span>
-        <button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}">Remove</button></div>` : ''}
-    </div>`).join('') || emptyBox('No medicines are being taken right now.');
-  patientFrame(root, o, 'medicines', cards);
-  const reload = () => pageMedicines(root, pid);
-  root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => {
-    const m = showSafetyModal(`
-      <h3>Remove ${esc(b.dataset.name)}?</h3>
-      <div class="sm-headline" style="font-weight:500;">Its reminders stop. What was already taken or missed stays in the history.</div>
-      <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
-    m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
-    m.querySelector('#cgRmYes').addEventListener('click', async () => {
-      try { await api('DELETE', `/medicines/${b.dataset.removeMed}`); m.remove(); overviewCache.pid = null; reload(); }
-      catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
-    });
-  }));
-}
-
 // ---------------------------------------------------------------- Notes
 
 async function pageNotes(root, pid) {
@@ -492,24 +457,145 @@ async function pageNotes(root, pid) {
   wireDeleteButtons(root, reload);
 }
 
-// ---------------------------------------------------------------- History
+/** Remove a medicine this caregiver added: its reminders stop, what was taken or missed stays in the history. */
+function openRemoveMedicine(id, name, onDone) {
+  const m = showSafetyModal(`
+    <h3>Remove ${esc(name)}?</h3>
+    <div class="sm-headline" style="font-weight:500;">Its reminders stop. What was already taken or missed stays in the history.</div>
+    <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
+  m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
+  m.querySelector('#cgRmYes').addEventListener('click', async () => {
+    try { await api('DELETE', `/medicines/${id}`); m.remove(); onDone(); }
+    catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
+  });
+}
+
+// ---------------------------------------------------------------- History: adherence ring + a month calendar; tap a day for that day's doses
+
+const DOTS = { ok: 'taken', bad: 'missed', up: 'upcoming' };
+
+/** One day in one dot: any missed = bad; else any taken = ok; doses still to come = up; nothing scheduled = no dot. */
+function dayDot(doses, upcoming) {
+  if (!doses.length) return '';
+  if (doses.some((d) => d.state === 'missed')) return 'bad';
+  if (doses.some((d) => d.state === 'taken')) return 'ok';
+  return upcoming || doses.some((d) => ['pending', 'snoozed'].includes(d.state)) ? 'up' : '';
+}
 
 async function pageHistory(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const o = await getOverview(pid);
-  const missed = (o.recent_missed || []).map((d) => `
-    <div class="dose-row"><div class="time">${esc(fmtDay(d.scheduled_at))}</div><div style="flex:1;padding:0 10px;">${esc(d.medicine_name)}</div><span class="badge missed">missed</span></div>`).join('')
-    || emptyBox('No missed doses in the last two weeks.');
-  const symptoms = (o.recent_symptom_checks || []).map((c) => `
-    <div class="dose-row"><div class="time">${esc(new Date(c.created_at).toLocaleDateString())}</div><div style="flex:1;padding:0 10px;">${esc(c.action)}</div><span class="badge ${esc(c.severity.toLowerCase())}">${esc(c.severity)}</span></div>`).join('')
-    || emptyBox('No symptom checks recorded.');
-  const perMed = (o.per_medicine || []).map((m) => `
-    <div class="cg-permed"><span>${esc(m.name)}</span><span class="reg-meta">${m.adherence_percent === null ? '—' : esc(m.adherence_percent) + '%'} · ${esc(m.taken)} taken / ${esc(m.missed)} missed</span></div>`).join('')
-    || emptyBox('No medicines are being taken right now.');
+  const added = (o.per_medicine || []).filter((m) => m.added_by_me && m.taking !== false).map((m) => `
+    <div class="cg-added-row"><strong>${esc(m.name)}</strong><button class="ghost small" data-remove-med="${esc(m.medicine_id)}" data-name="${esc(m.name)}" type="button">Remove</button></div>`).join('');
   patientFrame(root, o, 'history', `
-    <div class="card"><div class="card-head">${iconBadge('teal', 'chartBar')}<h3>Per-medicine adherence</h3></div>${perMed}</div>
-    <div class="card"><div class="card-head">${iconBadge('alarm', 'clock')}<h3>Missed doses (last 2 weeks)</h3></div>${missed}</div>
-    <div class="card"><div class="card-head">${iconBadge('teal', 'stethoscope')}<h3>Recent symptom checks</h3></div>${symptoms}</div>`);
+    <div id="hcCal"></div>
+    ${added ? `<div class="card"><div class="card-head">${iconBadge('teal', 'pill')}<h3>Medicines you added</h3></div>${added}</div>` : ''}`);
+  root.querySelectorAll('[data-remove-med]').forEach((b) => b.addEventListener('click', () => openRemoveMedicine(b.dataset.removeMed, b.dataset.name, () => pageHistory(root, pid))));
+
+  const box = root.querySelector('#hcCal');
+  let data = null, month = null, sel = null, med = 'all', latest = 0;
+  const shiftMonth = (m, by) => { const [y, n] = m.split('-').map(Number); const d = new Date(y, n - 1 + by, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+
+  async function load(m) {
+    const mine = ++latest;                                   // a slow reply for an earlier tap must not overwrite the month now shown
+    let next;
+    try { next = await api('GET', `/caregiver/patients/${pid}/calendar${m ? `?month=${m}` : ''}`); }
+    catch (e) { if (mine === latest) box.innerHTML = `<div class="empty">${esc(e.message || 'Could not load this month.')}</div>`; return; }
+    if (mine !== latest) return;
+    data = next; month = data.month;
+    sel = data.today.startsWith(month) ? data.today : `${month}-01`;
+    if (med !== 'all' && !data.doses.some((d) => String(d.medicine_id) === med)) med = 'all';
+    draw();
+  }
+
+  function draw() {
+    const [y, mo] = month.split('-').map(Number);
+    const monthName = new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long' });
+    const names = new Map(data.doses.map((d) => [String(d.medicine_id), d.medicine_name]));
+    const shown = med === 'all' ? data.doses : data.doses.filter((d) => String(d.medicine_id) === med);
+    const byDay = {};
+    shown.forEach((d) => { (byDay[d.scheduled_at.slice(0, 10)] = byDay[d.scheduled_at.slice(0, 10)] || []).push(d); });
+    const lead = new Date(y, mo - 1, 1).getDay(), dim = new Date(y, mo, 0).getDate(), prevDim = new Date(y, mo - 1, 0).getDate();
+    const out = (n) => `<span class="hc-d out"><span class="n">${n}</span></span>`;
+    const cells = Array.from({ length: lead }, (_, i) => out(prevDim - lead + 1 + i)).join('')
+      + Array.from({ length: dim }, (_, i) => {
+        const day = i + 1, key = `${month}-${String(day).padStart(2, '0')}`, dot = dayDot(byDay[key] || [], key > data.today);
+        return `<button class="hc-d${key === data.today ? ' today' : ''}${key === sel ? ' sel' : ''}" type="button" data-day="${key}" aria-pressed="${key === sel}" aria-label="${day} ${monthName}${dot ? ', ' + DOTS[dot] : ''}"><span class="n">${day}</span>${dot ? `<i class="hc-dot ${dot}" aria-hidden="true"></i>` : ''}</button>`;
+      }).join('')
+      + Array.from({ length: (7 - ((lead + dim) % 7)) % 7 }, (_, i) => out(i + 1)).join('');
+    const [sy, sm, sd] = sel.split('-').map(Number);
+    const chips = [['all', 'All'], ...names].map(([id, label]) => `<button class="hc-chip${id === med ? ' on' : ''}" type="button" data-med="${esc(id)}" aria-pressed="${id === med}" title="${esc(label)}">${esc(label)}</button>`).join('');
+    const title = sel === data.today ? `Today, ${sd} ${new Date(sy, sm - 1, sd).toLocaleDateString(undefined, { month: 'short' })}`
+      : new Date(sy, sm - 1, sd).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    box.innerHTML = `
+      <div class="card hc-cal">
+        <div class="hc-head"><button class="hc-nav" type="button" data-shift="-1" aria-label="Previous month">‹</button><b>${esc(monthName)} ${y}</b><button class="hc-nav" type="button" data-shift="1" aria-label="Next month">›</button></div>
+        ${names.size > 1 ? `<div class="hc-scroller"><div class="hc-chips">${chips}</div></div>` : ''}
+        <div class="hc-grid">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((w) => `<span class="hc-wd" aria-hidden="true">${w}</span>`).join('')}${cells}</div>
+        <div class="hc-legend">${Object.entries(DOTS).map(([k, t]) => `<span><i class="hc-dot ${k}" aria-hidden="true"></i>${t[0].toUpperCase() + t.slice(1)}</span>`).join('')}</div>
+      </div>
+      <h3 class="hc-daytitle">${esc(title)}</h3>
+      <div class="dtl hc-tl" role="region" aria-label="Doses for selected day" tabindex="0">${DayTimeline.listHtml(byDay[sel] || [], sel, data.today)}</div>`;
+    box.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { sel = b.dataset.day; draw(); }));
+    box.querySelectorAll('[data-med]').forEach((b) => b.addEventListener('click', () => { med = b.dataset.med; draw(); }));
+    box.querySelectorAll('[data-shift]').forEach((b) => b.addEventListener('click', () => load(shiftMonth(month, Number(b.dataset.shift)))));
+  }
+  load(null);
+}
+
+// ---------------------------------------------------------------- Care report: the report the person sees in their own app, read-only
+
+async function downloadReportPdf(pid) {
+  const auth = getAuth();
+  const res = await fetch(`/patients/${pid}/report/pdf`, { headers: auth && auth.token ? { Authorization: `Bearer ${auth.token}` } : {} });
+  if (!res.ok) throw new Error(((await res.json().catch(() => ({}))).detail) || `Download failed (${res.status})`);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = 'smartpoli-report.pdf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 15000);
+}
+
+async function pageReport(root, pid) {
+  root.innerHTML = '<div class="empty">Loading…</div>';
+  const o = await getOverview(pid);
+  const r = await api('GET', `/patients/${pid}/report`);
+  const seen = new Set();
+  const meds = r.prescriptions.flatMap((p) => p.medicines).filter((m) => {            // the same medicine entered twice shows once
+    const k = `${(m.name || m.raw_text || '').toLowerCase()}|${m.dose_amount}|${m.dose_unit}|${m.when}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  const medRows = meds.map((m) => `
+    <div class="rp-med"><div class="rp-med-name">${esc(m.name || m.raw_text)} <span class="rp-dose">${esc(`${m.dose_amount || ''}${m.dose_unit || ''}`)}</span></div>
+      ${m.when ? `<div class="rp-when">${esc(m.when)}</div>` : ''}</div>`).join('') || emptyBox('No medicines yet.');
+  const a = r.adherence;
+  const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const missed = r.missed_doses.map((d) => `<div class="rp-line"><span>${esc(d.medicine_name)}</span><span class="rp-sub">${esc(when(d.scheduled_at))}</span></div>`).join('');
+  const notes = (r.doctor_caregiver_notes || []).map((n) => `
+    <div class="rp-line"><span><strong>${esc(String(n.actor || '').split(':')[0].replace(/^./, (c) => c.toUpperCase()))}</strong> ${esc(n.note)}</span><span class="rp-sub">${esc(when(n.at))}</span></div>`).join('');
+  const more = (title, count, body) => `<details class="rp-more"><summary>${title} <span class="rp-count">${count}</span></summary><div class="rp-medbox">${body}</div></details>`;
+  patientFrame(root, o, 'report', `
+    <div class="card report-simple">
+      <div class="rp-head"><h2>Care report</h2>
+        <div class="rp-who">${esc(r.patient.name)}${r.patient.age ? ', ' + esc(r.patient.age) : ''}${r.patient.sex ? ', ' + esc(r.patient.sex) : ''}</div>
+        <div class="rp-sub">Prepared ${esc(new Date(r.generated_at + 'Z').toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }))}</div></div>
+      ${r.patient.allergies ? `<div class="rp-allergy"><strong>Allergies:</strong> ${esc(r.patient.allergies)}</div>` : ''}
+      <h3 class="rp-title">Medicines</h3>
+      <div class="rp-medbox">${medRows}</div>
+      <h3 class="rp-title">How doses went</h3>
+      <div class="rp-stats">
+        <div><div class="rp-num">${esc(a.taken)}</div><div class="rp-sub">Taken</div></div>
+        <div><div class="rp-num">${esc(a.missed)}</div><div class="rp-sub">Missed</div></div>
+        <div><div class="rp-num">${a.adherence_percent === null ? '—' : esc(a.adherence_percent) + '%'}</div><div class="rp-sub">On time</div></div>
+      </div>
+      ${r.missed_doses.length ? more('Missed doses', r.missed_doses.length, missed) : ''}
+      ${notes ? more('Care team notes', r.doctor_caregiver_notes.length, notes) : ''}
+      <div class="rp-actions"><button class="primary" id="cgReportPdf" type="button">Download PDF</button></div>
+      <div id="cgReportMsg" class="reg-meta" role="status"></div>
+      <footer class="disclaimer">${esc(r.disclaimer)}</footer>
+    </div>`);
+  root.querySelector('#cgReportPdf').addEventListener('click', () => downloadReportPdf(pid).catch((e) => { root.querySelector('#cgReportMsg').textContent = e.message; }));
 }
 
 // ---------------------------------------------------------------- Emergency

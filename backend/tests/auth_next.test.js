@@ -12,9 +12,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'static', 'auth.js'),
 test('patient goes back to the voice page', () => {
   assert.strictEqual(ctx.landingAfterLogin('patient', '?next=/voice'), '/voice');
 });
-test('external or odd targets are ignored', () => {
+test('external or odd targets are ignored and the patient lands on Family home', () => {
   for (const bad of ['https://evil.com', '//evil.com/x.html', '/static/../main.py', '/voice\njs', 'javascript:alert(1)', '/auth/login']) {
-    assert.strictEqual(ctx.landingAfterLogin('patient', '?next=' + encodeURIComponent(bad)), '/', bad);
+    assert.strictEqual(ctx.landingAfterLogin('patient', '?next=' + encodeURIComponent(bad)), '/caregiver', bad);
   }
 });
 test('doctors and caregivers keep their own landing page', () => {
