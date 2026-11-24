@@ -13,7 +13,7 @@
 <script>try{if(sessionStorage.getItem("sp_splash"))document.documentElement.classList.add("no-splash")}catch(e){}</script>
 <link rel="stylesheet" href="/static/splash.css">
 </head>
-<body class="auth-body">
+<body class="auth-body auth-account">
 <div id="splash" aria-hidden="true"><div class="sp-bg"><i class="sp-blob sp-b1"></i><i class="sp-blob sp-b2"></i><i class="sp-blob sp-b3"></i><b class="sp-cross sp-c1">+</b><b class="sp-cross sp-c2">+</b><b class="sp-cross sp-c3">+</b><b class="sp-cross sp-c4">+</b><b class="sp-cross sp-c5">+</b></div><div class="sp-center"><div class="sp-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><div class="sp-word">Smart<b>Poli</b></div><div class="sp-dots"><i></i><i></i><i></i></div></div></div>
 <div class="auth-shell">
   <div class="auth-brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
@@ -38,7 +38,10 @@
       <label for="password" style="margin-top:12px;">Password</label>
       <input type="password" id="password" autocomplete="current-password" required>
       <div id="passwordHint" class="auth-hint" style="display:none;">At least 8 characters.</div>
-      <label class="auth-remember"><input type="checkbox" id="remember" checked> Remember me</label>
+      <div class="auth-options">
+        <label class="auth-remember"><input type="checkbox" id="remember" checked> Remember me</label>
+        <a id="forgotPassword" class="auth-link" href="/reset-password" hidden>Forgot password?</a>
+      </div>
 
       <button type="submit" class="primary" id="submitBtn" style="margin-top:18px;width:100%;">Log in</button>
       <div id="authError" class="auth-error" role="alert"></div>

@@ -95,6 +95,7 @@ from emergency_tokens import patient_id_for_token, rotate_token
 from emergency_page import render_public_card, INACTIVE_CARD_HTML
 from health_card_pdf import build_wallet_card_pdf
 import auth_router
+import password_recovery
 import family_router
 import caregiver_router
 import doctor_router
@@ -146,6 +147,7 @@ INTERACTION_RULESET = load_interaction_ruleset()
 FOOD_RULESET = load_food_ruleset()
 
 app.include_router(auth_router.router)
+app.include_router(password_recovery.router)
 app.include_router(caregiver_router.router)
 app.include_router(family_router.router)
 app.include_router(doctor_router.router)
@@ -168,6 +170,7 @@ class PublicStaticFiles(StaticFiles):
 
 # One explicit route table for the pages: only these URLs return an HTML page.
 PAGES = {"/": "index.html", "/login": "login.html", "/voice": "voice.html", "/install": "install.html",
+         "/reset-password": "reset-password.html",
          "/caregiver": "caregiver.html", "/doctor": "doctor.html", "/offline": "offline.html",
          "/terms": "terms.html", "/privacy": "privacy.html"}
 
@@ -203,7 +206,8 @@ def _page_route(file_name: str):
     def serve():
         if file_name == "doctor.html" and not doctor_role_enabled():
             return RedirectResponse("/login", status_code=307)       # the doctor role is switched off for now
-        return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": "no-cache"})
+        cache = "no-store" if file_name == "reset-password.html" else "no-cache"
+        return HTMLResponse(_versioned_html(file_name), headers={"Cache-Control": cache})
     return serve
 
 

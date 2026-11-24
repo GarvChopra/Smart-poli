@@ -553,13 +553,18 @@ footer.disclaimer { margin-top: 22px; font-size: 12.5px; color: var(--ink-soft);
   .card { border: none; padding: 0; }
 }
 
-/* ---------------------------------------------------------------- auth (login.html) */
+/* ---------------------------------------------------------------- authentication pages */
 
 body.auth-body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
 .auth-shell { width: 100%; max-width: 400px; }
 .auth-brand { font-size: 24px; font-weight: 800; color: var(--teal-dark); display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .auth-tagline { color: var(--ink-soft); font-size: 14px; margin: 0 0 20px; }
 .auth-card { padding: 24px; }
+.auth-account .auth-card :is(input[type="email"], input[type="password"], input[type="text"]) { font-size: 16px; min-height: 44px; }
+.auth-account .auth-card button.primary[type="submit"] { min-height: 44px; }
+.auth-account .auth-card button.primary[type="submit"]:focus-visible { box-shadow: var(--focus-ring); }
+.auth-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 600; }
+.auth-link[hidden], .reset-form[hidden] { display: none; }
 .auth-tabs { display: flex; gap: 4px; background: var(--paper); border-radius: 999px; padding: 4px; margin-bottom: 18px; }
 .auth-tab { flex: 1; border: none; border-radius: 999px; background: transparent; color: var(--ink-soft); min-height: 36px; padding: 6px 10px; }
 .auth-tab:hover { background: transparent; color: var(--ink); }
@@ -568,6 +573,29 @@ body.auth-body { display: flex; align-items: center; justify-content: center; mi
 .auth-error { color: var(--alarm); font-size: 13px; margin-top: 10px; min-height: 1em; }
 .auth-demo-note { font-size: 12px; color: var(--ink-soft); margin-top: 18px; text-align: center; line-height: 1.7; }
 .auth-demo-note code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+.reset-card h1 { margin: 0 0 16px; font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; }
+.reset-form { display: grid; gap: 16px; }
+.reset-form p { margin: 0; }
+.reset-form > p { color: var(--ink-soft); font-size: 14px; }
+.reset-form .auth-hint { margin-top: 4px; font-size: 13px; }
+.reset-form button { width: 100%; }
+.reset-status { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.reset-status:not(:empty) {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+.reset-status.is-error { background: var(--alarm-soft); color: #8a291b; }
+.reset-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 16px; margin-top: 8px; }
+
+@media (max-width: 400px) {
+  body.auth-account { padding: 16px; }
+  .auth-account .auth-card { padding: 20px; }
+  .reset-card h1 { font-size: 24px; }
+}
 
 /* ---------------------------------------------------------------- topbar identity */
 
@@ -1437,7 +1465,8 @@ button[data-busy="1"]:not(.is-busy) { opacity: .55; }
 .fam-hint .view-all { color: var(--teal-dark); font-weight: 700; font-size: 14px; text-decoration: underline; padding: 4px 0; }
 
 /* Remember me, delete account, add-medicine popup */
-.auth-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.auth-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; margin-top: 6px; }
+.auth-remember { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; color: var(--ink); cursor: pointer; }
 .auth-remember input { width: 18px; height: 18px; margin: 0; }
 button.danger { background: var(--alarm); border-color: var(--alarm); color: #fff; }
 .danger-text { color: var(--alarm); border-color: var(--alarm-soft); }
