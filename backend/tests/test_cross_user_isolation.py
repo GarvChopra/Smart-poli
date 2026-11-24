@@ -14,12 +14,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest  # noqa: E402
-from fastapi.routing import APIRoute  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from conftest import register_and_login  # noqa: E402
 from db import init_db  # noqa: E402
 from main import app  # noqa: E402
+from route_inventory import api_operations  # noqa: E402
 
 MED = {"name": "Metformin", "strength": "500mg", "form": "tab", "times": ["08:00", "20:00"], "food": "any", "duration_days": 5}
 
@@ -43,10 +43,7 @@ def _deps(route):
 
 
 def _routes():
-    for r in app.routes:
-        if isinstance(r, APIRoute) and not r.path.startswith("/static"):
-            for m in sorted(r.methods - {"HEAD", "OPTIONS"}):
-                yield r, m
+    return api_operations(app)
 
 
 @pytest.fixture(scope="module")
@@ -148,8 +145,16 @@ def test_a_stranger_gets_nothing_from_anitas_ids_on_any_route(world):
     assert not inconclusive, f"these answered 422 (body rejected before the access check could be proven): {inconclusive}"
 
 
+FAMILY_READS = (
+    "/patients/{patient_id}/doses",
+    "/caregiver/patients/{patient_id}/adherence",
+    "/caregiver/patients/{patient_id}/calendar",
+)
+
+
 # What a linked caregiver may do on Anita's record - and nothing else.
 CAREGIVER_MAY = {
+    *(("GET", path) for path in FAMILY_READS),
     ("GET", "/caregiver/patients/{patient_id}/overview"), ("GET", "/caregiver/patients/{patient_id}/notes"),
     ("POST", "/caregiver/patients/{patient_id}/notes"), ("POST", "/caregiver/patients/{patient_id}/nudge"),
     ("GET", "/caregiver/patients/{patient_id}/prefs"), ("PUT", "/caregiver/patients/{patient_id}/prefs"),
@@ -186,6 +191,18 @@ def test_a_linked_caregiver_does_only_caregiver_things_and_never_acts_as_the_pat
         assert r.status_code not in _OK, f"CAREGIVER got {r.status_code} from {method} {route.path}: {r.text[:200]}"
         checked += 1
     assert checked > 30
+
+
+def test_family_read_operations_require_the_right_relationship(world):
+    pid = world["ids"]["patient_id"]
+    methods_and_paths = {(method, route.path) for route, method in _routes()}
+    for path in FAMILY_READS:
+        assert ("GET", path) in methods_and_paths
+        url = path.format(patient_id=pid)
+        assert TestClient(app).get(url).status_code == 401
+        assert world["stranger"].get(url).status_code == 403
+        assert world["gita"].get(url).status_code == 200
+        assert world["anita"].get(url).status_code == (403 if path.startswith("/caregiver/") else 200)
 
 
 def test_the_caregiver_cannot_take_remove_or_rewrite_what_the_patient_owns(world):
@@ -225,6 +242,8 @@ def test_once_anita_removes_the_caregiver_everything_is_refused_again(world):
     pid = ids["patient_id"]
     assert gita.get(f"/caregiver/patients/{pid}/overview").status_code == 200
     assert anita.post(f"/caregiver-links/{ids['link_id']}/revoke").status_code == 200
+    for path in FAMILY_READS:
+        assert gita.get(path.format(patient_id=pid)).status_code == 403
     for route, method in _routes():
         if route.path in PUBLIC_BY_DESIGN:
             continue

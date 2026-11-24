@@ -18,16 +18,22 @@ const PRIORITY_LABELS = { emergency: 'Emergency', high: 'High', medium: 'Medium'
 const cgBadge = (p) => (p ? `<span class="badge ${esc(p.level)}">${esc(PRIORITY_LABELS[p.level] || p.level)}</span>` : '');
 const fmtDay = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-// ---------------------------------------------------------------- shared: the overview of one patient (cached briefly)
+// ---------------------------------------------------------------- shared: recheck access whenever a patient page opens
 
-const overviewCache = { pid: null, at: 0, data: null };
+const overviewLabel = { pid: null, name: '' };
+let overviewRequest = 0;
 
-async function getOverview(pid, force = false) {
-  if (!force && overviewCache.pid === pid && Date.now() - overviewCache.at < 20000) return overviewCache.data;
+async function getOverview(pid) {
+  const request = ++overviewRequest;
   const data = await api('GET', `/caregiver/patients/${pid}/overview`);
   data.label = data.nickname || data.patient.name;                 // what this caregiver calls them: "Mum"
-  Object.assign(overviewCache, { pid, at: Date.now(), data });
+  if (request === overviewRequest) Object.assign(overviewLabel, { pid, name: data.label });
   return data;
+}
+
+function invalidateOverview(pid) {
+  overviewRequest++;
+  if (overviewLabel.pid === pid) Object.assign(overviewLabel, { pid: null, name: '' });
 }
 
 const FAMILY_COLOURS = ['rose', 'blue', 'amber', 'violet'];            // not green: that is You
@@ -45,13 +51,15 @@ function patientFrame(root, o, active, bodyHtml) {
     <div class="plain-head"><h1 class="page-title">${esc(who)}</h1><span class="pgl">${esc(PAGE_LABELS[active] || '')}</span></div>`;
   root.innerHTML = `${head}<div class="stack"><div class="cg-body">${bodyHtml}</div></div>`;
   if (active !== 'today') return;
-  root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => { window.location.hash = '#/'; }));
+  root.querySelector('#cgRemovePerson').addEventListener('click', () => openRemovePerson(o.patient.id, o.label, () => {
+    if (root.isConnected) window.location.hash = '#/';
+  }));
   root.querySelector('#cgRename').addEventListener('click', async () => {
     const next = window.prompt(`What do you call ${o.patient.name}? (e.g. Mum, Dad)`, o.nickname || '');
     if (next === null) return;
     await api('PATCH', `/caregiver/patients/${o.patient.id}/nickname`, { nickname: next.trim() || null });
-    o.nickname = next.trim() || null;
-    getOverview(o.patient.id, true).then(() => route());
+    invalidateOverview(o.patient.id);
+    if (root.isConnected) route();
   });
 }
 
@@ -67,7 +75,7 @@ function openRemovePerson(pid, who, onDone) {
     e.target.disabled = true;
     try {
       await api('POST', `/caregiver/patients/${pid}/unlink`);
-      overviewCache.pid = null;
+      invalidateOverview(pid);
       m.remove();
       onDone();
     } catch (err) { m.querySelector('#cgRmPersonMsg').textContent = err.message; e.target.disabled = false; }
@@ -208,7 +216,7 @@ async function openShareMine(you) {
     m.querySelector('.safety-modal').innerHTML = `
       <h3>Send this to who will look after you</h3>
       <div class="am-code" aria-label="Your code">${esc(code)}</div>
-      <p class="reg-meta" style="text-align:center;">Works once, for 7 days. They'll see your medicines only after they enter it. You can remove them any time in Settings.</p>
+      <p class="reg-meta" style="text-align:center;">Works once, for 7 days. When they redeem it, they can see your medicines and full Care Report, including symptom history and any clinical notes. You can remove their access any time in Settings.</p>
       <div class="am-share">
         <a class="primary" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(text)}">Share on WhatsApp</a>
         ${navigator.share ? '<button class="ghost" id="smShare" type="button">Share…</button>' : ''}
@@ -298,7 +306,6 @@ function wireLinkForm(root) {
 function startAddMedicine(pid, patientName, how, onDone) {
   MedWizard.patientId = () => pid;
   MedWizard.onAdded = (med, out, when) => {
-    overviewCache.pid = null;
     const clashes = [...(out.conflicts || []).map((c) => c.medicines.join(' + ')),
       ...(out.interactions || []).map((i) => `${capName(i.drug_a)} + ${capName(i.drug_b)}`)];
     const m = showSafetyModal(`
@@ -332,7 +339,7 @@ function openAddMedicinePopup(pid, name, onDone) {
 
 async function pageToday(root, pid) {
   root.innerHTML = '<div class="empty">Loading…</div>';
-  const o = await getOverview(pid, true);
+  const o = await getOverview(pid);
   const next = (o.upcoming_doses || []).find((d) => ['pending', 'snoozed'].includes(d.state));
   // A missed dose wins the top card; with nothing missed it is the next dose. Filled from today's timeline below.
   const topCard = (missed) => {
@@ -362,13 +369,16 @@ async function pageToday(root, pid) {
     });
   };
   wireRemind();
-  root.querySelector('#cgAddMedBtn').addEventListener('click', () => openAddMedicinePopup(pid, o.label, () => route()));
+  root.querySelector('#cgAddMedBtn').addEventListener('click', () => openAddMedicinePopup(pid, o.label, () => {
+    if (root.isConnected) route();
+  }));
+  const top = root.querySelector('#cgTop');
   DayTimeline.mount(root.querySelector('#cgDay'), pid, {
     onLoaded: (data) => {
-      if (data.date !== data.today) return;                                   // looking at another day: the top card stays about now
+      if (!top.isConnected || data.date !== data.today) return;                // the top card stays about the current person's day
       const missed = data.doses.filter((d) => d.state === 'missed').pop() || null;
       if (!missed) return;
-      root.querySelector('#cgTop').innerHTML = topCard(missed);
+      top.innerHTML = topCard(missed);
       wireRemind();
     },
   });
@@ -455,7 +465,7 @@ function openRemoveMedicine(id, name, onDone) {
     <div class="sm-actions"><button class="primary small" id="cgRmYes">Remove</button><button class="ghost small" id="cgRmNo">Cancel</button></div>`);
   m.querySelector('#cgRmNo').addEventListener('click', () => m.remove());
   m.querySelector('#cgRmYes').addEventListener('click', async () => {
-    try { await api('DELETE', `/medicines/${id}`); m.remove(); overviewCache.pid = null; onDone(); }
+    try { await api('DELETE', `/medicines/${id}`); m.remove(); onDone(); }
     catch (e) { m.querySelector('.sm-headline').textContent = e.message; }
   });
 }
@@ -514,7 +524,7 @@ async function pageHistory(root, pid) {
       }).join('')
       + Array.from({ length: (7 - ((lead + dim) % 7)) % 7 }, (_, i) => out(i + 1)).join('');
     const [sy, sm, sd] = sel.split('-').map(Number);
-    const chips = [['all', 'All'], ...names].map(([id, label]) => `<button class="hc-chip${id === med ? ' on' : ''}" type="button" data-med="${esc(id)}" aria-pressed="${id === med}">${esc(label)}</button>`).join('');
+    const chips = [['all', 'All'], ...names].map(([id, label]) => `<button class="hc-chip${id === med ? ' on' : ''}" type="button" data-med="${esc(id)}" aria-pressed="${id === med}" title="${esc(label)}">${esc(label)}</button>`).join('');
     const title = sel === data.today ? `Today, ${sd} ${new Date(sy, sm - 1, sd).toLocaleDateString(undefined, { month: 'short' })}`
       : new Date(sy, sm - 1, sd).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
     box.innerHTML = `
@@ -525,7 +535,7 @@ async function pageHistory(root, pid) {
         <div class="hc-legend">${Object.entries(DOTS).map(([k, t]) => `<span><i class="hc-dot ${k}" aria-hidden="true"></i>${t[0].toUpperCase() + t.slice(1)}</span>`).join('')}</div>
       </div>
       <h3 class="hc-daytitle">${esc(title)}</h3>
-      <div class="dtl hc-tl">${DayTimeline.listHtml(byDay[sel] || [], sel, data.today)}</div>`;
+      <div class="dtl hc-tl" role="region" aria-label="Doses for selected day" tabindex="0">${DayTimeline.listHtml(byDay[sel] || [], sel, data.today)}</div>`;
     box.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { sel = b.dataset.day; draw(); }));
     box.querySelectorAll('[data-med]').forEach((b) => b.addEventListener('click', () => { med = b.dataset.med; draw(); }));
     box.querySelectorAll('[data-shift]').forEach((b) => b.addEventListener('click', () => load(shiftMonth(month, Number(b.dataset.shift)))));

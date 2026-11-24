@@ -12,7 +12,7 @@ from sqlalchemy import text  # noqa: E402
 
 import delete_user as du  # noqa: E402
 from conftest import register_and_login  # noqa: E402
-from db import (CareNote, Dose, Feedback, ReminderLog, SessionLocal, engine, init_db)  # noqa: E402
+from db import (CareNote, Dose, Feedback, PasswordRecovery, ReminderLog, SessionLocal, engine, init_db)  # noqa: E402
 from main import app  # noqa: E402
 from timing_helpers import add_medicine, new_patient  # noqa: E402
 
@@ -47,10 +47,17 @@ def count(table, where="1=1", **params):
 
 def test_deleting_a_patient_user_removes_the_whole_tree_and_nothing_else():
     w = make_world()
+    with SessionLocal() as db:
+        for user in (w["user"], w["other_user"]):
+            db.add(PasswordRecovery(user_id=user["id"], requested_at=datetime.utcnow()))
+        db.commit()
     with engine.begin() as conn:
         deleted = du.delete_user(conn, w["user"]["id"])          # SQLite enforces foreign keys inside, so a wrong order would raise
     assert deleted["users"] == 1 and deleted["patients"] == 1 and deleted["medicines"] == 1 and deleted["doses"] == 2
     assert deleted["reminder_log"] == 1 and deleted["care_notes"] == 1
+    assert deleted["password_recovery"] == 1
+    assert count("password_recovery", "user_id = :i", i=w["user"]["id"]) == 0
+    assert count("password_recovery", "user_id = :i", i=w["other_user"]["id"]) == 1
     assert count("users", "id = :i", i=w["user"]["id"]) == 0
     assert count("patients", "id = :i", i=w["pid"]) == 0 and count("medicines", "id = :i", i=w["med"]) == 0
     assert count("feedback", "user_id = :i", i=w["user"]["id"]) == 0

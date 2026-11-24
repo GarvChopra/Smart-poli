@@ -1,4 +1,4 @@
-"""The two read endpoints behind the Family redesign: one day's doses, and adherence over 1 / 7 / 30 days."""
+"""Read endpoints behind the Family redesign: daily doses, adherence and the History calendar."""
 import os
 import sys
 from datetime import datetime, timedelta
@@ -90,3 +90,27 @@ def test_calendar_returns_one_month_of_doses_for_a_linked_caregiver_only_and_ref
     assert cg.get(f"/caregiver/patients/{pid}/calendar", params={"month": "soon"}).status_code == 422
     assert cg.get(f"/caregiver/patients/{pid}/calendar", params={"month": "2099-01"}).status_code == 422
     assert TestClient(app).get(f"/caregiver/patients/{pid}/calendar").status_code in (401, 403)
+
+
+def test_calendar_keeps_recorded_doses_after_removal_and_omits_cancelled_doses():
+    pid, patient, cg = _world()
+    past = MIDNIGHT.replace(day=1) - timedelta(days=2)
+    future = MIDNIGHT + timedelta(days=2)
+    outcomes = ["taken", "missed", "skipped"]
+    mid, dose_ids = add_medicine(
+        pid, "Removed medicine", [past + timedelta(hours=h) for h in (8, 12, 20)] + [future],
+        states=outcomes + ["pending"],
+    )
+
+    removed = patient.delete(f"/medicines/{mid}")
+    assert removed.status_code == 200
+    assert removed.json()["upcoming_doses_cancelled"] == 1
+
+    calendar_url = f"/caregiver/patients/{pid}/calendar"
+    history = cg.get(calendar_url, params={"month": past.strftime("%Y-%m")})
+    assert history.status_code == 200
+    assert [(dose["dose_id"], dose["state"]) for dose in history.json()["doses"]] == list(zip(dose_ids[:3], outcomes))
+
+    upcoming = cg.get(calendar_url, params={"month": future.strftime("%Y-%m")})
+    assert upcoming.status_code == 200
+    assert upcoming.json()["doses"] == []

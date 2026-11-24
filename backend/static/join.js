@@ -75,6 +75,7 @@
         <li>see your medicines and today's doses</li>
         <li>see which doses you took or missed</li>
         <li>see your notes and emergency card</li>
+        <li>see your full Care Report, including symptom history and any clinical notes</li>
         <li>add a medicine for you (you'll see who added it)</li>
         <li>send you a reminder</li>
       </ul>
@@ -119,6 +120,7 @@
       <ul class="join-list">
         <li>see ${who}'s medicines and today's doses</li>
         <li>see which doses were taken or missed</li>
+        <li>see their full Care Report, including symptom history and any clinical notes</li>
         <li>add a medicine for ${who}, and send a reminder</li>
         <li>get an alert when a dose is missed</li>
       </ul>

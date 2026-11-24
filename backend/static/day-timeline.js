@@ -57,9 +57,10 @@ const DayTimeline = (() => {
       if (mine !== latest) return;
       today = data.today;
       const doses = data.doses || [];
+      const rows = listHtml(doses, data.date, today);
       el.innerHTML = `<div class="day-strip">${stripHtml(today, data.date)}</div>
         <div class="tl-shadow" aria-hidden="true"></div>
-        ${listHtml(doses, data.date, today)}`;
+        ${doses.length ? `<div class="dtl-scroll" role="region" aria-label="Doses for selected day" tabindex="0">${rows}</div>` : rows}`;
       el.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => show(b.dataset.day)));
       if (opts.onLoaded) opts.onLoaded(data);
     }

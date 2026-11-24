@@ -140,6 +140,11 @@ def test_insecure_config_is_warned_and_can_be_made_fatal(monkeypatch, caplog):
         main._check_secure_config()
     monkeypatch.setattr(auth, "JWT_SECRET", "a-long-random-production-secret-value-0123456789")
     monkeypatch.delenv("SMARTPOLI_SKIP_TWILIO_SIGNATURE", raising=False)
+    monkeypatch.delenv("SMARTPOLI_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("SMARTPOLI_PUBLIC_BASE_URL", raising=False)
+    with pytest.raises(RuntimeError, match="SMARTPOLI_PUBLIC_BASE_URL"):
+        main._check_secure_config()
+    monkeypatch.setenv("SMARTPOLI_PUBLIC_BASE_URL", "https://app.example.test")
     main._check_secure_config()   # secure config starts cleanly
 
 

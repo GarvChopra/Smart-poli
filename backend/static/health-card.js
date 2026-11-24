@@ -160,7 +160,7 @@ async function mountHealthCard(container, patientId, opts = {}) {
   const cg = !!opts.caregiver;
   container.innerHTML = `<div class="empty">Loading ${cg ? 'the' : 'your'} card…</div>`;
   const data = await api('GET', `/patients/${patientId}/emergency-card`);
-  const cardUrl = `${window.location.origin}${data.card_path}`;
+  const cardUrl = data.card_url;
 
   container.innerHTML = `
     <div class="hc-page">

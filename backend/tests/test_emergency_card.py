@@ -65,6 +65,38 @@ def test_emergency_flag_appears_after_emergency_triage():
         assert "EMERGENCY" in r.text
 
 
+def test_emergency_share_links_use_the_configured_origin(monkeypatch):
+    import main
+    import qrcode
+
+    monkeypatch.delenv("SMARTPOLI_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("SMARTPOLI_PUBLIC_BASE_URL", "https://care.example.test/")
+    qr_urls = []
+    pdf_urls = []
+    make_qr = qrcode.make
+
+    def record_qr(url, **kwargs):
+        qr_urls.append(url)
+        return make_qr(url, **kwargs)
+
+    def record_pdf(data, url, photo):
+        pdf_urls.append(url)
+        return b"%PDF-test"
+
+    monkeypatch.setattr(qrcode, "make", record_qr)
+    monkeypatch.setattr(main, "build_wallet_card_pdf", record_pdf)
+    with TestClient(app) as client:
+        register_and_login(client)
+        pid = client.post("/patients", json={"name": "Card Test"}).json()["id"]
+        card = f"/patients/{pid}/emergency-card"
+        via_proxy = {"Host": "proxy.example.test", "X-Forwarded-Host": "edge.example.test"}
+        data = client.get(card, headers=via_proxy).json()
+        assert data["card_url"] == "https://care.example.test" + data["card_path"]
+        assert client.get(card + "/qr.png", headers=via_proxy).status_code == 200
+        assert client.get(card + "/card.pdf", headers=via_proxy).status_code == 200
+    assert qr_urls == pdf_urls == [data["card_url"]]
+
+
 def test_patient_edit_updates_allergies():
     with TestClient(app) as client:
         register_and_login(client)

@@ -28,11 +28,25 @@ document.getElementById('a11yToggleBtn').addEventListener('click', () => {
 const hamburgerBtn = document.getElementById('hamburgerBtn');
 const navDrawer = document.getElementById('navDrawer');
 const navOverlay = document.getElementById('navOverlay');
-function openDrawer() { navDrawer.classList.add('open'); navOverlay.classList.add('open'); hamburgerBtn.setAttribute('aria-expanded', 'true'); }
-function closeDrawer() { navDrawer.classList.remove('open'); navOverlay.classList.remove('open'); hamburgerBtn.setAttribute('aria-expanded', 'false'); }
+const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+function openDrawer() {
+  navDrawer.inert = false;
+  navDrawer.classList.add('open');
+  navOverlay.classList.add('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'true');
+  closeDrawerBtn.focus();
+}
+function closeDrawer() {
+  navDrawer.inert = true;
+  navDrawer.classList.remove('open');
+  navOverlay.classList.remove('open');
+  hamburgerBtn.setAttribute('aria-expanded', 'false');
+  hamburgerBtn.focus();
+}
 hamburgerBtn.addEventListener('click', openDrawer);
-document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
+closeDrawerBtn.addEventListener('click', closeDrawer);
 navOverlay.addEventListener('click', closeDrawer);
+navDrawer.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 let famOpen = true;                 // the Family list in the menu: open on the Family page, rolled up once a person is chosen
 let navFamily = null;               // who is in that list (from /caregiver/home)
 let drawerPath = '/';
@@ -59,7 +73,7 @@ function renderDrawerNav(path) {
   if (famOpen) html += `<div class="drop" id="famList"><a class="m${path === '/' ? ' open' : ''}" href="#/">All family</a>${people}<a class="m you" href="/">You</a></div>`;
   if (m) {
     const pid = m[1];
-    const name = overviewCache.pid === Number(pid) && overviewCache.data ? overviewCache.data.label : 'This person';
+    const name = overviewLabel.pid === Number(pid) ? overviewLabel.name : 'This person';
     html += `<div class="who">${esc(name)}</div>` + MENU_PAGES.map(([key, label]) => link(`#/p/${pid}/${key}`, label, m[2] === key)).join('');
   }
   html += link('#/settings', 'Settings', path === '/settings');
@@ -69,9 +83,18 @@ function renderDrawerNav(path) {
 
 const PAGE_FOR = { today: pageToday, history: pageHistory, report: pageReport, notes: pageNotes, emergency: pageEmergency };
 
+function routePath() {
+  return (window.location.hash || '#/').replace(/^#/, '') || '/';
+}
+
 async function route() {
-  const root = document.getElementById('page');
-  const path = (window.location.hash || '#/').replace(/^#/, '') || '/';
+  const page = document.getElementById('page');
+  const path = routePath();
+  // Each route owns its own mount. A late response can only write into the
+  // previous, detached mount, including callbacks started by that page.
+  const root = document.createElement('div');
+  page.replaceChildren(root);
+  const isCurrent = () => root.parentNode === page && routePath() === path;
   try {
     let m;
     famOpen = path === '/';
@@ -80,12 +103,24 @@ async function route() {
     else if (path === '/feedback') pageFeedback(root);
     else if ((m = path.match(/^\/p\/(\d+)\/medicines$/))) { window.location.hash = `#/p/${m[1]}/history`; return; }   // the old Medicines page: History took its place
     else if ((m = path.match(/^\/p\/(\d+)\/(today|history|report|notes|emergency)$/))) await PAGE_FOR[m[2]](root, Number(m[1]));
-    else window.location.hash = '#/';
+    else { window.location.hash = '#/'; return; }
+    if (!isCurrent()) return;
     renderDrawerNav(path);
-    api('GET', '/caregiver/home').then((h) => { navFamily = h.family; renderDrawerNav(drawerPath); }).catch(() => {});
+    api('GET', '/caregiver/home').then((h) => {
+      if (!isCurrent()) return;
+      navFamily = h.family;
+      renderDrawerNav(drawerPath);
+    }).catch(() => {});
     window.scrollTo(0, 0);
   } catch (e) {
+    if (!isCurrent()) return;
     const gone = /not linked|403/i.test(e.message || '') || e.status === 403;
+    const pid = Number(path.match(/^\/p\/(\d+)\//)?.[1]);
+    if (gone && pid) {
+      invalidateOverview(pid);
+      if (navFamily) navFamily = navFamily.filter((member) => member.id !== pid);
+      renderDrawerNav('/');
+    }
     root.innerHTML = gone
       ? `<div class="card"><h3>You're no longer linked to this patient</h3><p class="reg-meta">The patient may have removed your access.</p><a class="primary" href="#/">Back to your patients</a></div>`
       : `<div class="card"><h3>Something went wrong</h3><p class="reg-meta">${esc(e.message || 'Please try again.')}</p><a href="#/">Back to your patients</a></div>`;
