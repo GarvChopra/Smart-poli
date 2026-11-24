@@ -67,18 +67,46 @@ function renderDrawerNav(path) {
   drawerPath = path;
   const m = path.match(/^\/p\/(\d+)\/(\w+)$/);
   const open = m ? Number(m[1]) : null;
-  const link = (href, label, on) => `<a class="cg-menu-link${on ? ' active' : ''}" href="${href}">${esc(label)}</a>`;
-  const people = (navFamily || []).map((f) => `<a class="m${open === f.id ? ' open' : ''}" href="#/p/${f.id}/today">${esc(f.label)}</a>`).join('');
-  let html = `<button class="cg-menu-link fam-toggle" type="button" aria-expanded="${famOpen}"${famOpen ? ' aria-controls="famList"' : ''}>Family<span class="dd-chev" aria-hidden="true">${famOpen ? '▾' : '▸'}</span></button>`;
-  if (famOpen) html += `<div class="drop" id="famList"><a class="m${path === '/' ? ' open' : ''}" href="#/">All family</a>${people}<a class="m you" href="/">You</a></div>`;
-  if (m) {
-    const pid = m[1];
-    const name = overviewLabel.pid === Number(pid) ? overviewLabel.name : 'This person';
-    html += `<div class="who">${esc(name)}</div>` + MENU_PAGES.map(([key, label]) => link(`#/p/${pid}/${key}`, label, m[2] === key)).join('');
+  const link = (href, label, className) => {
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.className = className;
+    anchor.textContent = label;
+    return anchor;
+  };
+  const menuLink = (href, label, active) => link(href, label, active ? 'cg-menu-link active' : 'cg-menu-link');
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'cg-menu-link fam-toggle';
+  toggle.setAttribute('aria-expanded', String(famOpen));
+  toggle.textContent = 'Family';
+  const chevron = document.createElement('span');
+  chevron.className = 'dd-chev';
+  chevron.setAttribute('aria-hidden', 'true');
+  chevron.textContent = famOpen ? '▾' : '▸';
+  toggle.append(chevron);
+  const entries = [toggle];
+  if (famOpen) {
+    toggle.setAttribute('aria-controls', 'famList');
+    const list = document.createElement('div');
+    list.className = 'drop';
+    list.id = 'famList';
+    list.append(link('#/', 'All family', path === '/' ? 'm open' : 'm'));
+    for (const member of navFamily || []) {
+      if (!Number.isSafeInteger(member.id) || member.id < 1) continue;
+      list.append(link(`#/p/${member.id}/today`, member.label, open === member.id ? 'm open' : 'm'));
+    }
+    list.append(link('/', 'You', 'm you'));
+    entries.push(list);
   }
-  html += link('#/settings', 'Settings', path === '/settings');
-  html += link('#/feedback', 'Feedback', path === '/feedback');
-  nav.innerHTML = html;
+  if (m) {
+    const name = document.createElement('div');
+    name.className = 'who';
+    name.textContent = overviewLabel.pid === open ? overviewLabel.name : 'This person';
+    entries.push(name, ...MENU_PAGES.map(([key, label]) => menuLink(`#/p/${m[1]}/${key}`, label, m[2] === key)));
+  }
+  entries.push(menuLink('#/settings', 'Settings', path === '/settings'), menuLink('#/feedback', 'Feedback', path === '/feedback'));
+  nav.replaceChildren(...entries);
 }
 
 const PAGE_FOR = { today: pageToday, history: pageHistory, report: pageReport, notes: pageNotes, emergency: pageEmergency };

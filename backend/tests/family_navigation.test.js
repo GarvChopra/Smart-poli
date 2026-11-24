@@ -6,7 +6,19 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'static', 'caregiver.js'), 'utf8');
 
-function navigationFixture() {
+function drawerElement(tag) {
+  return {
+    tag,
+    children: [],
+    attributes: {},
+    addEventListener() {},
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+  };
+}
+
+function navigationFixture(family = []) {
   const shell = {
     child: null,
     replaceChildren(child) {
@@ -15,7 +27,7 @@ function navigationFixture() {
       child.parentNode = this;
     },
   };
-  const drawer = { addEventListener() {}, innerHTML: '' };
+  const drawer = drawerElement('nav');
   const window = { location: { hash: '' }, addEventListener() {}, scrollTo() {} };
   const requests = new Map();
   const pageToday = (mount, patientId) => new Promise((resolve, reject) => {
@@ -35,12 +47,13 @@ function navigationFixture() {
         if (id === 'drawerNav') return drawer;
         return { addEventListener() {} };
       },
-      createElement: () => ({ parentNode: null, innerHTML: '' }),
+      createElement: drawerElement,
     },
     requireRole: () => null,
     esc: String,
     overviewLabel: {},
-    api: async () => ({ family: [] }),
+    api: async () => ({ family }),
+    pagePatients() {},
     pageToday,
     pageHistory() {},
     pageReport() {},
@@ -52,6 +65,10 @@ function navigationFixture() {
     shell,
     drawer,
     requests,
+    openFamily() {
+      window.location.hash = '#/';
+      return context.route();
+    },
     go(patientId) {
       window.location.hash = `#/p/${patientId}/today`;
       return context.route();
@@ -68,8 +85,20 @@ test('a late Family page response cannot overwrite the active member or their me
   requests.get(3).finish('Mum');
   await mum;
   assert.equal(shell.child.innerHTML, 'Dad');
-  assert.match(drawer.innerHTML, /href="#\/p\/4\/today"/);
-  assert.doesNotMatch(drawer.innerHTML, /href="#\/p\/3\/today"/);
+  const links = drawer.children.filter(child => child.tag === 'a').map(child => child.href);
+  assert.ok(links.includes('#/p/4/today'));
+  assert.ok(!links.includes('#/p/3/today'));
+});
+
+test('Family drawer creates internal links and puts member names in text nodes', async () => {
+  const label = 'Mum & Dad <Family>';
+  const { drawer, openFamily } = navigationFixture([{ id: 4, label }, { id: 'unknown', label: 'Invalid member' }]);
+  await openFamily();
+  const list = drawer.children.find(child => child.id === 'famList');
+  assert.equal(list.children.length, 3);
+  assert.equal(list.children[1].href, '#/p/4/today');
+  assert.equal(list.children[1].textContent, label);
+  assert.equal(list.children[1].children.length, 0);
 });
 
 test('a stale Family route error cannot replace the active member', async () => {
