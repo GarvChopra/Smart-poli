@@ -235,7 +235,8 @@ document.getElementById('tourBtn').addEventListener('click', () => { closeDrawer
 
 function renderNoPatientState() {
   const view = document.getElementById(`view-${state.activeTab}`);
-  if (view && state.activeTab !== 'settings') view.innerHTML = '<div class="empty">One moment…</div>';
+  const mount = state.activeTab === 'care' ? document.getElementById('settingsCareTeam') : view;
+  if (mount && state.activeTab !== 'settings') mount.innerHTML = '<div class="empty">One moment…</div>';
   askFirstProfile();
 }
 
@@ -309,10 +310,11 @@ function renderActiveTab() {
   if (state.activeTab === 'triage') renderTriage();
   if (state.activeTab === 'report') renderReport();
   if (state.activeTab === 'timeline') renderTimeline();
+  if (state.activeTab === 'care') renderSettingsCareTeam();
   if (state.activeTab === 'emergency') renderEmergencyCard();
   if (state.activeTab === 'feedback') SmartFeedback.renderFeedbackPage(document.getElementById('view-feedback'));
   if (state.activeTab === 'settings') {
-    renderSettingsCareTeam(); renderSettingsWhatsApp();
+    renderSettingsWhatsApp();
     renderNotificationsCard(document.getElementById('settingsNotifications'), state.patientId);
     renderRoutineCard(document.getElementById('settingsRoutine'), state.patientId);
     renderSettingsPersonal();
@@ -2099,23 +2101,54 @@ async function renderEmergencyCard() {
 // Care-team linking lives in Settings (moved off the emergency card screen).
 async function renderSettingsCareTeam() {
   const mount = document.getElementById('settingsCareTeam');
-  if (!state.patientId) { mount.innerHTML = ''; return; }
+  const patientId = state.patientId;
+  if (!patientId) { mount.innerHTML = ''; return; }
+  mount.innerHTML = '<div class="empty">Loading…</div>';
+  let clinicianEnabled = false;
+  try { clinicianEnabled = !!(await api('GET', '/auth/google/config')).doctor_enabled; } catch (_) { /* feature stays hidden if config is unavailable */ }
+  if (state.patientId !== patientId || state.activeTab !== 'care') return;
   mount.innerHTML = `
-    <div class="card" id="careTeamCard">
-      <div class="card-head">${iconBadge('teal', 'shield')}<h3>Care team</h3></div>
-      <p style="color:var(--ink-soft);font-size:13px;">Link a caregiver (a family member or someone who looks after you).
-        They can see your medicines and doses, and add a medicine for you — you'll see who added it and can remove it.
-        They can also see your full Care Report, including symptom history and any clinical notes.
-        Nothing is shared until you generate a code and they redeem it.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <button class="ghost small" id="genCaregiverCodeBtn">Link a caregiver</button>
+    <section class="care-page" aria-label="Care team">
+      <div class="care-page-intro">
+        <div>${iconBadge('teal', 'users')}<div><p class="care-kicker">YOUR CARE TEAM</p><h2>Care, connected</h2></div></div>
+        <p>Keep the people involved in your care in one place.</p>
       </div>
-      <div id="careTeamGenerated"></div>
-      <div id="caregiverLinksList"></div>
-    </div>
+      ${clinicianEnabled ? `
+      <section class="care-connection-card" id="doctorCareCard">
+        <div class="care-connection-head"><div class="care-doctor-avatar" aria-hidden="true">+</div><div><p class="care-kicker">CLINICIAN CONNECTION</p><h3>Share your record, your way</h3></div></div>
+        <p class="care-lead">Choose exactly what a clinician can review. You can remove their access whenever you need to.</p>
+        <div class="doctor-share-options" role="group" aria-label="Choose what to share with a clinician">
+          <label class="share-choice"><span>${iconBadge('teal', 'pill')}<span><strong>Current medicines</strong><small>Your active medicine list</small></span></span><input type="checkbox" name="doctorShareScope" value="current_medicines" checked><i aria-hidden="true"></i></label>
+          <label class="share-choice"><span>${iconBadge('teal', 'shield')}<span><strong>Allergies</strong><small>Allergy information you recorded</small></span></span><input type="checkbox" name="doctorShareScope" value="allergies"><i aria-hidden="true"></i></label>
+          <label class="share-choice"><span>${iconBadge('teal', 'chartBar')}<span><strong>Dose check-ins</strong><small>Taken, skipped or missed entries</small></span></span><input type="checkbox" name="doctorShareScope" value="dose_checkins"><i aria-hidden="true"></i></label>
+          <label class="share-choice"><span>${iconBadge('teal', 'fileText')}<span><strong>Symptoms and visit notes</strong><small>Recent health notes you chose to keep</small></span></span><input type="checkbox" name="doctorShareScope" value="visit_notes"><i aria-hidden="true"></i></label>
+        </div>
+        <div class="care-connection-foot"><span>Only the selected items are shared.</span><button class="primary small" id="genDoctorCodeBtn">Create clinician link</button></div>
+        <div id="doctorCareGenerated"></div>
+      </section>
+      <section class="care-section" id="doctorLinksList"></section>` : ''}
+      <section class="care-section caregiver-section" id="careTeamCard">
+        <div class="care-section-head"><div><p class="care-kicker">FAMILY SUPPORT</p><h3>Caregivers</h3></div><button class="ghost small" id="genCaregiverCodeBtn">Link a caregiver</button></div>
+        <p class="care-subtle">A caregiver can help with medicines and doses. You can see who added a medicine and remove their access. They can also see your full Care Report, including symptom history and clinical notes.</p>
+        <div id="careTeamGenerated"></div><div id="caregiverLinksList"></div>
+      </section>
+    </section>
   `;
   document.getElementById('genCaregiverCodeBtn').addEventListener('click', () => generateLinkCode('caregiver'));
+  if (clinicianEnabled) document.getElementById('genDoctorCodeBtn').addEventListener('click', generateDoctorLinkCode);
   await renderCareTeamLists();
+}
+
+async function generateDoctorLinkCode() {
+  const scopes = [...document.querySelectorAll('[name="doctorShareScope"]:checked')].map(input => input.value);
+  if (!scopes.length) {
+    document.getElementById('doctorCareGenerated').innerHTML = '<p class="reg-meta" role="status">Choose at least one item to share.</p>';
+    return;
+  }
+  const result = await api('POST', `/patients/${state.patientId}/doctor-links`, { scopes });
+  const target = document.getElementById('doctorCareGenerated');
+  target.innerHTML = `<div class="care-code-panel"><div><p class="care-kicker">ONE-TIME CLINICIAN CODE</p><strong>${escHtml(result.code)}</strong><p>Show this code to your clinician. They can only see the items you selected.</p></div>${iconBadge('teal', 'link')}</div>`;
+  await renderDoctorLinks();
 }
 
 async function renderSettingsWhatsApp() {
@@ -2149,17 +2182,12 @@ async function generateLinkCode(kind) {
 async function renderCareTeamLists() {
   const caregiverLinks = await api('GET', `/patients/${state.patientId}/caregiver-links`);
 
-  const listHtml = (links, label) => links.length ? links.map(l => `
-    <div class="dose-row">
-      <div style="flex:1;">
-        ${escHtml(l.caregiver_name || `${label} (code ${l.code}, not yet redeemed)`)}
-        <span class="badge ${l.status === 'active' ? 'verified' : l.status === 'revoked' ? 'needs_confirmation' : 'review'}">${l.status}</span>
-      </div>
-      ${l.status !== 'revoked' ? `<button class="ghost small" data-revoke-link="${l.id}" data-revoke-kind="${label}">Revoke</button>` : ''}
-    </div>
-  `).join('') : `<div class="empty">No ${label}s linked yet.</div>`;
+  const listHtml = caregiverLinks.length ? caregiverLinks.map(link => `
+    <div class="care-person-row"><div class="care-person-avatar" aria-hidden="true">${escHtml((link.caregiver_name || 'C').slice(0, 1).toUpperCase())}</div><div class="care-person-copy"><strong>${escHtml(link.caregiver_name || (link.status === 'pending' ? `Invite ${link.code}` : 'Caregiver'))}</strong><small>${link.status === 'active' ? 'Can help with medicines and doses' : link.status === 'pending' ? 'Waiting for them to connect' : 'Access removed'}</small></div><span class="care-status ${escHtml(link.status)}">${escHtml(link.status)}</span>${link.status !== 'revoked' ? `<button class="ghost small" data-revoke-link="${link.id}">Remove</button>` : ''}</div>
+  `).join('') : '<div class="care-empty">No caregivers connected yet.</div>';
+  document.getElementById('caregiverLinksList').innerHTML = listHtml;
 
-  document.getElementById('caregiverLinksList').innerHTML = `<h4 style="margin-top:14px;">Caregivers</h4>${listHtml(caregiverLinks, 'caregiver')}`;
+  if (document.getElementById('doctorLinksList')) await renderDoctorLinks();
 
   document.querySelectorAll('[data-revoke-link]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -2167,6 +2195,64 @@ async function renderCareTeamLists() {
       await renderCareTeamLists();
     });
   });
+}
+
+async function renderDoctorLinks() {
+  const target = document.getElementById('doctorLinksList');
+  if (!target) return;
+  const links = await api('GET', `/patients/${state.patientId}/doctor-links`);
+  const active = links.filter(link => link.status === 'active' && link.doctor_user_id);
+  const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  const todayIso = today.toISOString().slice(0, 10);
+  const readableScopes = scopes => (scopes || []).map(scope => ({current_medicines:'Medicines',allergies:'Allergies',dose_checkins:'Dose check-ins',visit_notes:'Notes'})[scope] || scope);
+  target.innerHTML = `<div class="care-section-head"><div><p class="care-kicker">YOUR CLINICIANS</p><h3>Connected care</h3></div></div>` + (links.length ? `<div class="care-clinician-list">${links.map(link => `
+    <article class="care-clinician-row ${escHtml(link.status)}"><div class="care-doctor-avatar" aria-hidden="true">${escHtml((link.doctor_name || 'C').slice(0, 1).toUpperCase())}</div><div class="care-person-copy"><strong>${escHtml(link.doctor_name || (link.status === 'pending' ? `Invite ${link.code}` : 'Clinician'))}</strong><small>${link.status === 'active' ? 'Connected to your care record' : link.status === 'pending' ? 'Waiting for clinician to connect' : 'Access removed'}</small><div class="scope-pills">${readableScopes(link.scopes).map(scope => `<span>${escHtml(scope)}</span>`).join('') || '<span>Nothing shared</span>'}</div></div><span class="care-status ${escHtml(link.status)}">${escHtml(link.status)}</span>${link.status !== 'revoked' ? `<button class="ghost small" data-revoke-doctor-link="${Number(link.id)}">Remove</button>` : ''}</article>`).join('')}</div>` : '<div class="care-empty">No clinician connected yet. Create a link when you are ready.</div>') + (active.length ? `
+    <section class="care-visit-section"><div class="care-section-head"><div><p class="care-kicker">NEXT VISIT</p><h3>Request a visit</h3></div></div>
+    ${active.map(link => `<div class="card doctor-visit-request"><strong>${escHtml(link.doctor_name || 'Your clinician')}</strong>
+      <div class="field-inline" style="margin-top:10px;">
+        <label for="visitDate-${link.id}">Choose a day</label><input id="visitDate-${link.id}" type="date" min="${todayIso}" value="${todayIso}">
+      </div>
+      <div class="field-inline"><label for="visitTime-${link.id}">Time preference</label><select id="visitTime-${link.id}"><option value="any">Any time</option><option value="morning">Morning</option><option value="afternoon">Afternoon</option><option value="evening">Evening</option></select></div>
+      <button class="primary small" data-request-visit="${Number(link.doctor_user_id)}" data-link-id="${Number(link.id)}">Request visit</button><div class="reg-meta" id="visitStatus-${link.id}" role="status"></div>
+    </div>`).join('')}
+    <div class="care-section-head visit-history-heading"><div><p class="care-kicker">VISIT HISTORY</p><h3>Your visit requests</h3></div></div><div id="patientVisitRequests" class="patient-visit-requests"><div class="care-empty">Loading…</div></div></section>` : '');
+  target.querySelectorAll('[data-revoke-doctor-link]').forEach(button => button.addEventListener('click', async () => {
+    await api('POST', `/doctor-links/${Number(button.dataset.revokeDoctorLink)}/revoke`);
+    await renderDoctorLinks();
+  }));
+  target.querySelectorAll('[data-request-visit]').forEach(button => button.addEventListener('click', async () => {
+    const linkId = Number(button.dataset.linkId), status = document.getElementById(`visitStatus-${linkId}`);
+    const date = document.getElementById(`visitDate-${linkId}`).value;
+    if (!date) { status.textContent = 'Choose a day first.'; return; }
+    button.disabled = true;
+    try {
+      await api('POST', `/patients/${state.patientId}/appointments`, {
+        doctor_user_id: Number(button.dataset.requestVisit), visit_date: date,
+        time_preference: document.getElementById(`visitTime-${linkId}`).value,
+      });
+      status.textContent = 'Request sent. Your clinician will confirm a time.';
+      await renderPatientVisitRequests();
+    } catch (error) { status.textContent = error.message || 'Could not send the request.'; }
+    finally { button.disabled = false; }
+  }));
+  if (active.length) await renderPatientVisitRequests();
+}
+
+async function renderPatientVisitRequests() {
+  const target = document.getElementById('patientVisitRequests');
+  if (!target) return;
+  const visits = await api('GET', `/patients/${state.patientId}/appointments`);
+  target.innerHTML = visits.length ? visits.map(visit => `
+    <div class="dose-row"><div style="flex:1;min-width:0;"><strong>${new Date(`${visit.visit_date}T12:00:00`).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})}</strong>
+      <div class="reg-meta">${escHtml(visit.doctor_name)} · ${visit.scheduled_at ? new Date(visit.scheduled_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : `${escHtml(visit.time_preference)} preference`}</div>
+      ${visit.token_number ? `<div class="reg-meta">Clinic token <strong>${visit.token_number}</strong></div>` : ''}</div>
+      <span class="badge ${visit.status === 'confirmed' || visit.status === 'checked_in' || visit.status === 'called' ? 'verified' : visit.status === 'cancelled' ? 'needs_confirmation' : 'review'}">${escHtml(visit.status.replace(/_/g, ' '))}</span>
+      ${['requested','confirmed'].includes(visit.status) ? `<button class="ghost small" data-cancel-visit="${Number(visit.id)}">Cancel</button>` : ''}</div>
+  `).join('') : '<div class="empty">No visit requests yet.</div>';
+  target.querySelectorAll('[data-cancel-visit]').forEach(button => button.addEventListener('click', async () => {
+    await api('POST', `/appointments/${Number(button.dataset.cancelVisit)}/cancel`);
+    await renderPatientVisitRequests();
+  }));
 }
 
 // ---------------------------------------------------------------- voice

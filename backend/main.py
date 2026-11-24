@@ -85,7 +85,7 @@ from auth import (
     PERSON_ROLES,
     get_current_user, require_patient_write_access, require_patient_read_access,
     require_medicine_write_access, require_dose_write_access, require_prescription_write_access,
-    has_write_access, has_read_access, can_add_medicine, is_linked_caregiver, doctor_role_enabled,
+    has_write_access, has_read_access, doctor_has_scope, can_add_medicine, is_linked_caregiver, doctor_role_enabled,
 )
 from nudges import compute_nudges
 from clock import patient_now, is_valid_timezone, patient_timezone
@@ -1698,8 +1698,8 @@ def add_clinical_note(patient_id: int, body: ClinicalNoteCreate, user: User = De
                        db: Session = Depends(get_db_session)):
     if user.role != "doctor":
         raise HTTPException(403, "Only a doctor account can add a clinical note.")
-    if not has_read_access(db, user, patient_id):
-        raise HTTPException(403, "You are not linked to this patient.")
+    if not doctor_has_scope(db, user, patient_id, "visit_notes"):
+        raise HTTPException(403, "The patient has not shared visit notes with you.")
     get_patient_or_404(db, patient_id)
     log_audit(db, patient_id, f"doctor:{user.id}:{user.name}", "clinical_note", body.note)
     return {"logged": True}

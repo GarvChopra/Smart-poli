@@ -18,7 +18,7 @@ from conftest import register_and_login  # noqa: E402
 
 
 def _link_doctor(client, patient_id):
-    r = client.post(f"/patients/{patient_id}/doctor-links")
+    r = client.post(f"/patients/{patient_id}/doctor-links", json={"scopes": ["current_medicines", "allergies", "dose_checkins", "visit_notes"]})
     code = r.json()["code"]
     register_and_login(client, role="doctor", name="Dr. Priority")
     client.post("/doctor/link/redeem", json={"code": code})
@@ -143,7 +143,7 @@ def test_doctor_patients_sorted_emergency_first():
         register_and_login(client, role="patient", name="Calm Owner")
         r = client.post("/patients", json={"name": "Calm Patient"})
         calm_id = r.json()["id"]
-        calm_link = client.post(f"/patients/{calm_id}/doctor-links").json()["code"]
+        calm_link = client.post(f"/patients/{calm_id}/doctor-links", json={"scopes": ["current_medicines", "allergies", "dose_checkins", "visit_notes"]}).json()["code"]
 
         register_and_login(client, role="patient", name="Urgent Owner")
         r = client.post("/patients", json={"name": "Urgent Patient"})
@@ -152,7 +152,7 @@ def test_doctor_patients_sorted_emergency_first():
             "patient_id": urgent_id, "symptom_ids": ["chest_pain"],
             "answers": {"difficulty_breathing": True},
         })
-        urgent_link = client.post(f"/patients/{urgent_id}/doctor-links").json()["code"]
+        urgent_link = client.post(f"/patients/{urgent_id}/doctor-links", json={"scopes": ["current_medicines", "allergies", "dose_checkins", "visit_notes"]}).json()["code"]
 
         register_and_login(client, role="doctor", name="Dr. Sort")
         client.post("/doctor/link/redeem", json={"code": calm_link})

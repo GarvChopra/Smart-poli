@@ -23,7 +23,7 @@ import jwt
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
-from db import get_db_session, User, Patient, CaregiverLink, DoctorLink, Medicine, Dose, Prescription, RevokedToken
+from db import get_db_session, User, Patient, CaregiverLink, DoctorLink, DoctorShareConsent, Medicine, Dose, Prescription, RevokedToken
 
 JWT_SECRET = os.getenv("SMARTPOLI_JWT_SECRET") or "dev-only-insecure-secret-change-me-in-.env"
 JWT_ALGO = "HS256"
@@ -167,6 +167,31 @@ def _has_active_doctor_link(db: Session, user: User, patient_id: int) -> bool:
     ).first() is not None
 
 
+def doctor_link_for_patient(db: Session, user: User, patient_id: int):
+    if user.role != "doctor" or not doctor_role_enabled():
+        return None
+    return db.query(DoctorLink).filter(
+        DoctorLink.patient_id == patient_id,
+        DoctorLink.doctor_user_id == user.id,
+        DoctorLink.status == "active",
+    ).first()
+
+
+def doctor_has_scope(db: Session, user: User, patient_id: int, scope: str) -> bool:
+    """Missing consent rows grant no clinician access (safe for legacy links)."""
+    link = doctor_link_for_patient(db, user, patient_id)
+    if not link:
+        return False
+    consent = db.query(DoctorShareConsent).filter(DoctorShareConsent.doctor_link_id == link.id).first()
+    if not consent:
+        return False
+    try:
+        import json
+        return scope in json.loads(consent.scopes)
+    except (TypeError, ValueError):
+        return False
+
+
 def has_read_access(db: Session, user: User, patient_id: int) -> bool:
     """Owner, or an explicitly linked (active) caregiver/doctor. Used for
     everything that only VIEWS a patient's records."""
@@ -178,7 +203,9 @@ def has_read_access(db: Session, user: User, patient_id: int) -> bool:
     if user.role in PERSON_ROLES:
         return _has_active_caregiver_link(db, user, patient_id)
     if user.role == "doctor":
-        return doctor_role_enabled() and _has_active_doctor_link(db, user, patient_id)
+        # Clinicians use scoped endpoints in doctor_router; generic patient and
+        # caregiver endpoints must not become a consent bypass.
+        return False
     return False
 
 

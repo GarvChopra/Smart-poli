@@ -170,7 +170,7 @@ function openDeleteAccount() {
 function requireRole(expectedRole) {
   const auth = getAuth();
   if (!auth || !auth.token || !auth.user) {
-    window.location.href = '/login';
+    window.location.href = window.location.pathname === '/doctor' ? '/login?role=doctor' : '/login';
     return null;
   }
   const same = auth.user.role === expectedRole || (PERSON_ROLES.includes(expectedRole) && PERSON_ROLES.includes(auth.user.role));

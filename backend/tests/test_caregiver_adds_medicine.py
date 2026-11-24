@@ -110,7 +110,8 @@ def test_with_the_doctor_role_off_there_is_no_doctor_anything(doctor_off):
     page = TestClient(app).get("/doctor", follow_redirects=False)
     assert page.status_code == 307 and page.headers["location"] == "/login"
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "app.js"), encoding="utf-8").read()
-    assert "Link a doctor" not in js and "/doctor-links" not in js
+    assert "doctor_enabled" in js and "clinicianEnabled ?" in js
+    assert "genDoctorCodeBtn" in js and "/doctor-links" in js
 
 
 def test_the_caregiver_sees_the_same_medicines_as_the_patient_not_unconfirmed_or_removed_ones(world):

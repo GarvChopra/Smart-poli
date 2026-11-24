@@ -20,6 +20,14 @@
   <p class="auth-tagline">Turn a confusing prescription into an understandable treatment journey.</p>
 
   <div class="card auth-card">
+    <div class="auth-audience" id="authAudience" hidden>
+      <span class="auth-audience-label">Continue as</span>
+      <div class="auth-audience-options" role="group" aria-label="Choose account type">
+        <button type="button" class="auth-audience-option active" data-role="patient" aria-pressed="true">Patient</button>
+        <button type="button" class="auth-audience-option" data-role="doctor" aria-pressed="false">Clinician</button>
+      </div>
+      <p id="authAudienceHint">Manage your medicines and care journey.</p>
+    </div>
     <div class="auth-tabs" role="tablist">
       <button type="button" class="auth-tab active" data-mode="login">Log in</button>
       <button type="button" class="auth-tab" data-mode="register">Create account</button>

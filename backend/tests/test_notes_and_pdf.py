@@ -36,7 +36,7 @@ def test_clinical_notes_require_a_real_linked_doctor_and_reuse_audit_log():
 
         # Patient issues an invite code and the doctor redeems it.
         client.headers["Authorization"] = patient_auth
-        r = client.post(f"/patients/{patient_id}/doctor-links")
+        r = client.post(f"/patients/{patient_id}/doctor-links", json={"scopes": ["visit_notes"]})
         assert r.status_code == 200
         code = r.json()["code"]
 

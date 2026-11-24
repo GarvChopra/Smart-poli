@@ -21,13 +21,91 @@ body.doctor-page main.content {
 /* the patient bar's name + "Switch patient" wrap instead of squeezing */
 body.doctor-page .current-patient-bar { flex-wrap: wrap; }
 
+/* A long medicine list stays inside its own scroll region; the selected
+   prescription and dose timeline remain visible beside it. */
+body.doctor-page .doctor-prescriptions-title { margin-top: 26px; }
+body.doctor-page .doctor-prescriptions-card { min-width: 0; }
+body.doctor-page .doctor-rx-count { display: inline-grid; place-items: center; min-width: 30px; min-height: 30px; padding: 0 8px; border-radius: 999px; background: var(--teal-soft); color: var(--teal-dark); font-size: 12px; font-weight: 700; }
+body.doctor-page .doctor-rx-layout { display: grid; grid-template-columns: minmax(235px, .72fr) minmax(0, 1.35fr); gap: 18px; align-items: start; min-width: 0; }
+body.doctor-page .doctor-rx-list { display: grid; gap: 6px; min-width: 0; }
+body.doctor-page .doctor-rx-list.is-scrollable { max-height: min(44vh, 370px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-gutter: stable; }
+body.doctor-page .doctor-rx-select { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 62px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); text-align: left; }
+body.doctor-page .doctor-rx-select:hover { border-color: var(--teal); }
+body.doctor-page .doctor-rx-select[aria-pressed="true"] { border-color: var(--teal); background: var(--teal-soft); box-shadow: inset 3px 0 var(--teal); }
+body.doctor-page .doctor-rx-select-copy { min-width: 0; }
+body.doctor-page .doctor-rx-select-copy strong,
+body.doctor-page .doctor-rx-select-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.doctor-page .doctor-rx-select-copy strong { font-size: 13px; }
+body.doctor-page .doctor-rx-select-copy small { margin-top: 3px; color: var(--ink-soft); font-size: 10px; }
+body.doctor-page .doctor-rx-select .badge { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.doctor-page .doctor-rx-detail { min-width: 0; padding: 3px 2px; }
+body.doctor-page .doctor-rx-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+body.doctor-page .doctor-rx-detail-head > div { min-width: 0; }
+body.doctor-page .doctor-rx-detail-head small { color: var(--ink-soft); font-size: 10px; }
+body.doctor-page .doctor-rx-detail-head h3 { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 19px; }
+body.doctor-page .doctor-rx-instructions { margin: 7px 0; color: var(--ink-soft); font-size: 12px; }
+body.doctor-page .doctor-rx-meta { margin-bottom: 16px; color: var(--ink-soft); font-size: 11px; }
+body.doctor-page .doctor-rx-meta strong { color: var(--ink); }
+body.doctor-page .doctor-dose-history { min-width: 0; border-top: 1px solid var(--line); padding-top: 12px; }
+body.doctor-page .doctor-dose-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+body.doctor-page .doctor-dose-heading h4 { margin: 0; font-size: 14px; }
+body.doctor-page .doctor-dose-heading small { color: var(--ink-soft); font-size: 10px; }
+body.doctor-page .doctor-dose-days { display: grid; grid-template-columns: repeat(7, minmax(42px, 1fr)); gap: 3px; overflow-x: auto; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--teal-soft); }
+body.doctor-page .doctor-dose-day { display: grid; justify-items: center; align-content: center; gap: 3px; min-width: 42px; min-height: 48px; padding: 3px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-soft); font: inherit; font-size: 9px; }
+body.doctor-page .doctor-dose-day strong { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 8px; color: var(--ink); font-size: 11px; }
+body.doctor-page .doctor-dose-day[aria-pressed="true"] { color: var(--teal-dark); font-weight: 700; }
+body.doctor-page .doctor-dose-day[aria-pressed="true"] strong { background: var(--teal); color: #fff; }
+body.doctor-page .doctor-dose-list { max-height: 290px; overflow-y: auto; overscroll-behavior: contain; margin-top: 10px; padding-right: 4px; scrollbar-gutter: stable; }
+body.doctor-page .doctor-dose-row { position: relative; display: grid; grid-template-columns: 66px 12px minmax(0, 1fr); gap: 9px; min-height: 56px; }
+body.doctor-page .doctor-dose-row:not(:last-child)::before { position: absolute; top: 12px; bottom: 0; left: 71px; width: 1px; background: var(--line); content: ""; }
+body.doctor-page .doctor-dose-time { color: var(--ink-soft); font-size: 10px; }
+body.doctor-page .doctor-dose-rail { z-index: 1; width: 9px; height: 9px; margin-top: 3px; border: 2px solid var(--teal); border-radius: 50%; background: var(--surface); }
+body.doctor-page .doctor-dose-copy { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 0 9px; border-bottom: 1px solid var(--line); }
+body.doctor-page .doctor-dose-row:last-child .doctor-dose-copy { border-bottom: 0; }
+body.doctor-page .doctor-dose-copy strong { font-size: 11px; }
+body.doctor-page .doctor-dose-copy small { flex-basis: 100%; color: var(--ink-soft); font-size: 9px; }
+body.doctor-page .doctor-dose-state { display: inline-flex; padding: 3px 7px; border-radius: 999px; background: var(--teal-soft); color: var(--ink-soft); font-size: 9px; font-weight: 650; }
+body.doctor-page .doctor-dose-state.is-taken { color: var(--teal-dark); }
+body.doctor-page .doctor-dose-state.is-missed { background: var(--alarm-soft); color: var(--alarm); }
+body.doctor-page .doctor-dose-footnote { display: block; margin-top: 8px; color: var(--ink-soft); font-size: 9px; }
+body.doctor-page .doctor-rx-review { margin-top: 13px; border-top: 1px solid var(--line); }
+body.doctor-page .doctor-rx-review > summary { min-height: 44px; padding: 10px 0 6px; color: var(--teal-dark); cursor: pointer; font-size: 11px; font-weight: 700; list-style: none; }
+body.doctor-page .doctor-rx-review > summary::-webkit-details-marker,
+body.doctor-page .doctor-write-card > summary::-webkit-details-marker { display: none; }
+body.doctor-page .doctor-rx-review-body { padding-bottom: 8px; }
+body.doctor-page .doctor-rx-review-body .raw { overflow-wrap: anywhere; }
+body.doctor-page .doctor-confidence-list { max-height: 150px; overflow-y: auto; margin: 8px 0; padding-right: 4px; }
+body.doctor-page .doctor-correction-history { margin-top: 7px; color: var(--ink-soft); font-size: 11px; overflow-wrap: anywhere; }
+body.doctor-page .doctor-write-card { margin-top: 16px; }
+body.doctor-page .doctor-write-card > summary { display: flex; min-height: 48px; cursor: pointer; list-style: none; }
+body.doctor-page .doctor-write-toggle { display: inline-flex; align-items: center; margin-left: auto; color: var(--teal-dark); font-size: 12px; font-weight: 700; }
+body.doctor-page .doctor-write-note { color: var(--ink-soft); font-size: 12px; }
+body.doctor-page .doctor-write-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+body.doctor-page .doctor-form-status { margin-top: 6px; font-size: 12px; }
+
+@media (max-width: 760px) {
+  body.doctor-page .doctor-rx-layout { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  body.doctor-page .doctor-rx-list.is-scrollable { max-height: min(36vh, 290px); }
+  body.doctor-page .doctor-dose-list { max-height: 250px; }
+  body.doctor-page .doctor-dose-days { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+  body.doctor-page .doctor-dose-day { min-width: 0; }
+  body.doctor-page .doctor-rx-detail-head h3 { font-size: 18px; }
+}
+
+@media (max-width: 400px) {
+  body.doctor-page .doctor-rx-select { grid-template-columns: minmax(0, 1fr); }
+  body.doctor-page .doctor-rx-select .badge { justify-self: start; }
+  body.doctor-page .doctor-dose-row { grid-template-columns: 54px 11px minmax(0, 1fr); gap: 7px; }
+  body.doctor-page .doctor-dose-row:not(:last-child)::before { left: 59px; }
+}
+
 /* long medicine names / raw OCR text never push the card wider than the screen */
 body.doctor-page .medicine-line strong,
 body.doctor-page .medicine-line .raw { overflow-wrap: anywhere; }
 body.doctor-page .change-row .value { text-align: right; overflow-wrap: anywhere; }
 
 /* correction form: field + value + reason in one row once there's room */
-@media (min-width: 761px) {
+@media (min-width: 1180px) {
   body.doctor-page .correction-form {
     display: grid;
     grid-template-columns: minmax(130px, 180px) 1fr 1.4fr auto;
@@ -37,6 +115,14 @@ body.doctor-page .change-row .value { text-align: right; overflow-wrap: anywhere
   body.doctor-page .correction-form select,
   body.doctor-page .correction-form input { margin-bottom: 0; }
   body.doctor-page .correction-form > div { grid-column: 1 / -1; }
+}
+
+@media (min-width: 761px) and (max-width: 1179px) {
+  body.doctor-page .correction-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  body.doctor-page .correction-form select,
+  body.doctor-page .correction-form input { width: 100%; min-width: 0; box-sizing: border-box; margin-bottom: 0; }
+  body.doctor-page .correction-form button { justify-self: start; }
+  body.doctor-page .correction-form > div { grid-column: 1; }
 }
 
 /* Patients-tab preview of the selected patient: laptop only */
@@ -125,4 +211,57 @@ body.doctor-page .patient-preview { display: none; }
 
 @media (max-width: 400px) {
   body.doctor-page .stat-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* Care Connection record shell */
+body.doctor-page .doctor-welcome { display:flex; align-items:center; justify-content:space-between; gap:18px; margin: 8px 0 22px; }
+body.doctor-page .doctor-welcome h1 { margin: 4px 0 6px; }
+body.doctor-page .doctor-welcome p { color:var(--ink-soft); margin:0; }
+body.doctor-page .doctor-welcome .eyebrow { color:var(--teal-dark); font-size:11px; font-weight:700; letter-spacing:.12em; }
+body.doctor-page .doctor-record-tabs { display:flex; gap:6px; border-bottom:1px solid var(--line); margin: 8px 0 18px; overflow-x:auto; }
+body.doctor-page .doctor-record-tabs button { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--ink-soft); padding:11px 16px; white-space:nowrap; cursor:pointer; font:inherit; }
+body.doctor-page .doctor-record-tabs button.active { color:var(--teal-dark); border-color:var(--teal); font-weight:650; }
+/* Summary mirrors the Care Connection record: four useful facts, not a
+   wall of clinician metadata. The prescription and visit tabs retain the
+   detailed, scrollable information when it is needed. */
+body.doctor-page .doctor-summary { margin-top: 22px; }
+body.doctor-page .doctor-summary-head { display:flex; align-items:center; gap:12px; margin:0 0 16px; }
+body.doctor-page .doctor-summary-head h2 { margin:0; font-size:clamp(22px, 2.1vw, 30px); }
+body.doctor-page .doctor-summary-head p { margin:3px 0 0; color:var(--ink-soft); font-size:13px; }
+body.doctor-page .doctor-summary-avatar { display:grid; place-items:center; flex:0 0 auto; width:46px; height:46px; border-radius:15px; background:var(--teal-soft); color:var(--teal-dark); font-size:14px; font-weight:750; }
+body.doctor-page .doctor-summary-priority { margin-left:auto; }
+body.doctor-page .doctor-summary-card { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); overflow:hidden; border:1px solid var(--line); border-radius:20px; background:var(--surface); box-shadow:0 10px 26px rgba(25, 64, 57, .06); }
+body.doctor-page .doctor-summary-cell { min-height:126px; padding:20px; border-bottom:1px solid var(--line); }
+body.doctor-page .doctor-summary-cell:nth-child(odd) { border-right:1px solid var(--line); }
+body.doctor-page .doctor-summary-cell:nth-last-child(-n + 2) { border-bottom:0; }
+body.doctor-page .doctor-summary-label { display:block; margin-bottom:10px; color:var(--ink-soft); font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+body.doctor-page .doctor-summary-cell strong { font-size:16px; line-height:1.35; overflow-wrap:anywhere; }
+body.doctor-page .doctor-summary-cell p { margin:0; color:var(--ink-soft); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+body.doctor-page .doctor-summary-med-list { display:grid; gap:6px; }
+body.doctor-page .doctor-summary-med-list span { display:flex; align-items:center; gap:7px; font-size:14px; font-weight:650; overflow-wrap:anywhere; }
+body.doctor-page .doctor-summary-med-list span::before { width:7px; height:7px; border-radius:50%; background:var(--teal); content:""; }
+body.doctor-page .doctor-summary-medicines p { margin-top:8px; }
+body.doctor-page .doctor-summary-alerts { display:grid; gap:8px; margin-top:14px; }
+@media (max-width:600px) {
+  body.doctor-page .doctor-summary { margin-top:16px; }
+  body.doctor-page .doctor-summary-card { grid-template-columns:1fr; border-radius:16px; }
+  body.doctor-page .doctor-summary-cell { min-height:auto; padding:17px; border-right:0 !important; border-bottom:1px solid var(--line) !important; }
+  body.doctor-page .doctor-summary-cell:last-child { border-bottom:0 !important; }
+  body.doctor-page .doctor-summary-priority { display:none; }
+}
+body.doctor-page .doctor-inline { display:flex; gap:8px; flex-wrap:wrap; }
+body.doctor-page .doctor-inline input { flex:1 1 180px; min-width:0; }
+body.doctor-page .doctor-dose-history > h4 { margin:16px 0 8px; }
+body.doctor-page .doctor-appointment-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 0; border-top:1px solid var(--line); }
+body.doctor-page .doctor-appointment-main { display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1 1 230px; min-width:0; }
+body.doctor-page .doctor-appointment-main > span:not(.badge):not(.doctor-token) { color:var(--ink-soft); font-size:13px; }
+body.doctor-page .doctor-confirm-time { display:grid; gap:4px; font-size:12px; color:var(--ink-soft); }
+body.doctor-page .doctor-token { color:var(--teal-dark); font-weight:700; }
+body.doctor-page .doctor-appointment-row > button { flex:0 0 auto; }
+@media (max-width:600px) {
+  body.doctor-page .doctor-welcome { align-items:flex-start; flex-direction:column; }
+  body.doctor-page .doctor-welcome > button { width:100%; }
+  body.doctor-page .doctor-record-tabs { margin-inline:-4px; }
+  body.doctor-page .doctor-record-tabs button { padding-inline:12px; }
+  body.doctor-page .doctor-appointment-row > button { flex:1 1 100%; }
 }

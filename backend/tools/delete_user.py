@@ -46,6 +46,8 @@ STEPS = [
     ("audit_log", f"patient_id IN {P}"),
     ("caregiver_links", f"patient_id IN {P} OR caregiver_user_id = :u"),
     ("caregiver_prefs", f"patient_id IN {P} OR user_id = :u"),
+    ("doctor_share_consents", f"doctor_link_id IN (SELECT id FROM doctor_links WHERE patient_id IN {P} OR doctor_user_id = :u)"),
+    ("care_appointments", f"patient_id IN {P} OR doctor_user_id = :u"),
     ("doctor_links", f"patient_id IN {P} OR doctor_user_id = :u"),
     ("emergency_card_profiles", f"patient_id IN {P}"),
     ("emergency_card_tokens", f"patient_id IN {P}"),

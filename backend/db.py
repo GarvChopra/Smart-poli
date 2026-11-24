@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey, UniqueConstraint,
+    create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, Date, ForeignKey, UniqueConstraint,
     event, inspect, select, text
 )
 from sqlalchemy.orm import column_property, declarative_base, sessionmaker, relationship, Session
@@ -120,6 +120,35 @@ class DoctorLink(Base):
     status = Column(String, nullable=False, default="pending")  # 'pending' | 'active' | 'revoked'
     created_at = Column(DateTime, default=datetime.utcnow)
     accepted_at = Column(DateTime, nullable=True)
+
+
+class DoctorShareConsent(Base):
+    """Patient-selected record sections visible to one clinician link."""
+    __tablename__ = "doctor_share_consents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    doctor_link_id = Column(Integer, ForeignKey("doctor_links.id"), nullable=False, unique=True, index=True)
+    scopes = Column(Text, nullable=False, default="[]")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CareAppointment(Base):
+    """Patient-requested clinic visit shared by the patient and linked clinician."""
+    __tablename__ = "care_appointments"
+    __table_args__ = (UniqueConstraint("doctor_user_id", "visit_date", "token_number", name="uq_visit_doctor_date_token"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    doctor_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    visit_date = Column(Date, nullable=False, index=True)
+    time_preference = Column(String, nullable=False, default="any")  # morning | afternoon | evening | any
+    scheduled_at = Column(DateTime, nullable=True)                   # clinician confirmed slot
+    status = Column(String, nullable=False, default="requested")    # requested | confirmed | checked_in | called | completed | cancelled
+    token_number = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    checked_in_at = Column(DateTime, nullable=True)
+    called_at = Column(DateTime, nullable=True)
 
 
 class MedicineCorrection(Base):

@@ -39,9 +39,11 @@ def id_token(email, key=KEY, **over):
 
 def test_config_shows_button_only_when_client_id_set(monkeypatch):
     c = TestClient(app)
-    assert c.get("/auth/google/config").json() == {"enabled": True, "client_id": CLIENT_ID}
+    assert c.get("/auth/google/config").json() == {"enabled": True, "client_id": CLIENT_ID, "doctor_enabled": True}
+    monkeypatch.delenv("SMARTPOLI_DOCTOR_ROLE", raising=False)
+    assert c.get("/auth/google/config").json()["doctor_enabled"] is False
     monkeypatch.delenv("SMARTPOLI_GOOGLE_CLIENT_ID")
-    assert c.get("/auth/google/config").json() == {"enabled": False, "client_id": None}
+    assert c.get("/auth/google/config").json() == {"enabled": False, "client_id": None, "doctor_enabled": False}
     assert c.post("/auth/google", json={"credential": id_token("x@gmail.com")}).status_code == 401
 
 
@@ -94,6 +96,9 @@ def test_doctor_signup_is_closed_and_not_offered(monkeypatch):
     r = TestClient(app).post("/auth/register", json={"email": "doc.closed@example.com", "password": "password123", "name": "D", "role": "doctor"})
     assert r.status_code == 400 and "not open" in r.json()["detail"]
     assert 'value="doctor"' not in (STATIC / "login.html").read_text(encoding="utf-8")
+    login_js = (STATIC / "login.js").read_text(encoding="utf-8")
+    assert "audience.hidden = !doctorEnabled" in login_js
+    assert "role: selectedRole === 'doctor' ? 'doctor' : 'both'" in login_js
 
 
 def test_password_limits_never_crash_or_truncate():

@@ -1,86 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SmartPoli — doctor</title>
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/doctor.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPoli — Care connection</title>
+<link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/doctor.css">
 </head>
-<body class="doctor-page">
-<div id="app">
-
-  <header class="topbar no-print">
-    <div class="topbar-row">
-      <button class="hamburger-btn" id="hamburgerBtn" aria-label="Open menu" aria-expanded="false" aria-controls="navDrawer">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
-      </button>
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
-    </div>
-  </header>
-
-  <div class="nav-drawer-overlay no-print" id="navOverlay"></div>
-  <nav class="pill-nav nav-drawer no-print" id="navDrawer" aria-label="Main">
-    <div class="nav-drawer-head">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>SmartPoli</div>
-      <button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button>
-    </div>
-    <button data-tab="patients" data-icon="users" class="active"><span class="nav-label">Patients</span></button>
-    <button data-tab="overview" data-icon="alertCircle"><span class="nav-label">Overview</span></button>
+<body class="doctor-page"><div id="app">
+  <header class="topbar no-print"><div class="topbar-row"><button class="hamburger-btn" id="hamburgerBtn" aria-label="Open menu" aria-expanded="false" aria-controls="navDrawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button><div class="brand"><span class="brand-mark"></span>SmartPoli</div></div></header>
+  <div class="nav-drawer-overlay no-print" id="navOverlay"></div><nav class="pill-nav nav-drawer no-print" id="navDrawer" aria-label="Clinician workspace">
+    <div class="nav-drawer-head"><div class="brand"><span class="brand-mark"></span>SmartPoli</div><button class="ghost small" id="closeDrawerBtn" aria-label="Close menu">✕</button></div>
+    <button data-tab="patients" data-icon="users" class="active"><span class="nav-label">Connected patients</span></button>
+    <button data-tab="overview" data-icon="clipboard"><span class="nav-label">Summary</span></button>
     <button data-tab="prescriptions" data-icon="fileText"><span class="nav-label">Prescriptions</span></button>
-    <button data-tab="adherence" data-icon="chartBar"><span class="nav-label">Adherence</span></button>
-    <button data-tab="triage" data-icon="stethoscope"><span class="nav-label">Triage history</span></button>
-    <button data-tab="notes" data-icon="clipboard"><span class="nav-label">Notes</span></button>
+    <button data-tab="triage" data-icon="history"><span class="nav-label">Visits</span></button>
     <button data-tab="settings" data-icon="settings"><span class="nav-label">Settings</span></button>
   </nav>
-
-  <div class="body-row">
-    <main class="content">
-      <section id="view-patients">
-        <h2>Linked patients</h2>
-        <input type="text" id="patientSearchInput" placeholder="Search patients by name..." style="margin-bottom:12px;">
-        <div id="patientPicker" class="patient-picker-grid"></div>
-        <button class="primary small" id="linkPatientBtn" style="margin-top:12px;">+ Link a patient</button>
-        <div id="linkForm" style="display:none;" class="card">
-          <h3>Link a patient</h3>
-          <p style="color:var(--ink-soft);font-size:13px;">Ask the patient to generate an invite code from their
-            SmartPoli app (Emergency card tab → Link doctor), then enter it here.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <input type="text" id="linkCodeInput" placeholder="8-character code" style="flex:1 1 160px;min-width:0;text-transform:uppercase;">
-            <button class="primary" id="redeemLinkBtn">Link</button>
-            <button class="ghost" id="cancelLinkBtn">Cancel</button>
-          </div>
-          <div id="linkStatus" style="margin-top:8px;font-size:13px;color:var(--ink-soft);"></div>
-        </div>
-        <!-- laptop only (doctor.css hides it on smaller screens): the selected
-             patient's overview right under the picker, so the tab isn't empty -->
-        <div id="patientPreview" class="overview-grid patient-preview"></div>
-      </section>
-
-      <div id="currentPatientBar" class="current-patient-bar" style="display:none;"></div>
-
-      <section id="view-overview" class="overview-grid" style="display:none;"></section>
-      <section id="view-prescriptions" style="display:none;"></section>
-      <section id="view-adherence" style="display:none;"></section>
-      <section id="view-triage" style="display:none;"></section>
-      <section id="view-notes" style="display:none;"></section>
-      <section id="view-settings" style="display:none;">
-        <h2>Settings</h2>
-        <div class="card">
-          <div class="card-head"><h3>Preferences</h3></div>
-          <button class="ghost" id="a11yToggleBtn" title="Larger text and buttons" aria-pressed="false">Aa Larger text</button>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Account</h3></div>
-          <div class="session-chip" id="sessionChip"></div>
-        </div>
-      </section>
-    </main>
-  </div>
-</div>
-
-<script src="/static/auth.js"></script>
-<script src="/static/icons.js"></script>
-<script src="/static/doctor.js"></script>
-</body>
-</html>
+  <div class="body-row"><main class="content">
+    <section id="view-patients"><div class="doctor-welcome"><div><p class="eyebrow">CARE CONNECTION</p><h1>Your patients</h1><p>Patient records appear here after they connect with you.</p></div><button class="primary" id="linkPatientBtn">Connect patient</button></div>
+      <input type="search" id="patientSearchInput" aria-label="Search connected patients" placeholder="Search connected patients" style="margin-bottom:12px">
+      <div id="patientPicker" class="patient-picker-grid"></div>
+      <div id="linkForm" class="card" style="display:none"><h3>Enter patient invite code</h3><p>Ask the patient to share their SmartPoli connection code.</p><div class="doctor-inline"><input id="linkCodeInput" placeholder="8-character code" maxlength="12"><button class="primary" id="redeemLinkBtn">Connect</button><button class="ghost" id="cancelLinkBtn">Cancel</button></div><div id="linkStatus" role="status"></div></div>
+    </section>
+    <div id="currentPatientBar" class="current-patient-bar" style="display:none"></div>
+    <div id="recordTabs" class="doctor-record-tabs" role="tablist" aria-label="Patient record" style="display:none"><button data-record-tab="overview" class="active">Summary</button><button data-record-tab="prescriptions">Prescriptions</button><button data-record-tab="triage">Visits</button></div>
+    <section id="view-overview" class="overview-grid" style="display:none"></section><section id="view-prescriptions" style="display:none"></section><section id="view-triage" style="display:none"></section>
+    <section id="view-settings" style="display:none"><h1>Settings</h1><div class="card"><div class="session-chip" id="sessionChip"></div><button class="ghost" id="a11yToggleBtn">Aa Larger text</button></div></section>
+  </main></div>
+</div><script src="/static/auth.js"></script><script src="/static/icons.js"></script><script src="/static/day-timeline.js"></script><script src="/static/doctor.js"></script></body></html>

@@ -2,11 +2,17 @@
 
 (function redirectIfAlreadyLoggedIn() {
   const auth = getAuth();
-  if (auth && auth.token && auth.user) window.location.href = landingAfterLogin(auth.user.role, window.location.search);
+  const intendedRole = new URLSearchParams(window.location.search).get('role');
+  if (auth && auth.token && auth.user && (!intendedRole || auth.user.role === intendedRole)) {
+    window.location.href = landingAfterLogin(auth.user.role, window.location.search);
+  }
 })();
 
 let mode = 'login';
+let selectedRole = new URLSearchParams(window.location.search).get('role') === 'doctor' ? 'doctor' : 'patient';
+let doctorEnabled = false;
 let recoveryEnabled = false;
+
 const forgotPassword = document.getElementById('forgotPassword');
 
 async function loadRecoveryOption() {
@@ -19,6 +25,32 @@ async function loadRecoveryOption() {
   }
 }
 loadRecoveryOption();
+
+function updateAudienceUI() {
+  const audience = document.getElementById('authAudience');
+  if (!audience) return;
+  audience.hidden = !doctorEnabled;
+  audience.querySelectorAll('[data-role]').forEach(button => {
+    const active = button.dataset.role === selectedRole;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  document.getElementById('authAudienceHint').textContent = selectedRole === 'doctor'
+    ? 'Open your clinician workspace and connected patient records.'
+    : 'Manage your medicines and care journey.';
+}
+
+(async function loadAccountOptions() {
+  try { doctorEnabled = !!(await (await fetch('/auth/google/config')).json()).doctor_enabled; }
+  catch (_) { doctorEnabled = false; }
+  updateAudienceUI();
+})();
+
+document.querySelectorAll('.auth-audience-option').forEach(button => button.addEventListener('click', () => {
+  selectedRole = button.dataset.role;
+  updateAudienceUI();
+  document.getElementById('authError').textContent = '';
+}));
 
 if (new URLSearchParams(window.location.search).get('deleted') === '1') {
   const note = document.getElementById('authError');
@@ -53,7 +85,7 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
       if (!name) throw new Error('Please enter your name.');
       const res = await fetch('/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name, remember: document.getElementById('remember').checked }),
+        body: JSON.stringify({ email, password, name, role: selectedRole === 'doctor' ? 'doctor' : 'both', remember: document.getElementById('remember').checked }),
       });
       body = await res.json();
       if (!res.ok) throw new Error(body.detail || 'Could not create that account.');
@@ -64,6 +96,11 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
       });
       body = await res.json();
       if (!res.ok) throw new Error(body.detail || 'Incorrect email or password.');
+    }
+    if ((selectedRole === 'doctor') !== (body.user.role === 'doctor')) {
+      throw new Error(selectedRole === 'doctor'
+        ? 'This is not a clinician account. Switch to Patient or use your clinician account.'
+        : 'This is a clinician account. Switch to Clinician to continue.');
     }
     setAuth(body.token, body.user);
     window.location.href = landingAfterLogin(body.user.role, window.location.search);
@@ -87,7 +124,7 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
   async function send(credential) {
     const res = await fetch('/auth/google', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential, remember: true }),
+      body: JSON.stringify({ credential, role: selectedRole === 'doctor' ? 'doctor' : 'both', remember: true }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || 'Google sign-in failed. Try again.');
@@ -98,6 +135,11 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
     errorEl.textContent = '';
     try {
       const body = await send(resp.credential);
+      if ((selectedRole === 'doctor') !== (body.user.role === 'doctor')) {
+        throw new Error(selectedRole === 'doctor'
+          ? 'This Google account is not a clinician account. Use your clinician account.'
+          : 'This is a clinician account. Switch to Clinician to continue.');
+      }
       setAuth(body.token, body.user);
       window.location.href = landingAfterLogin(body.user.role, window.location.search);
     } catch (err) {

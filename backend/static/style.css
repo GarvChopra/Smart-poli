@@ -565,12 +565,21 @@ body.auth-body { display: flex; align-items: center; justify-content: center; mi
 .auth-account .auth-card button.primary[type="submit"]:focus-visible { box-shadow: var(--focus-ring); }
 .auth-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 600; }
 .auth-link[hidden], .reset-form[hidden] { display: none; }
+.auth-audience { margin: 0 0 18px; }
+.auth-audience-label { display:block; font-size:12px; color:var(--ink-soft); margin:0 0 7px 4px; }
+.auth-audience-options { display:flex; padding:4px; gap:4px; background:var(--paper); border-radius:999px; }
+.auth-audience-option { flex:1; min-height:38px; border:0; border-radius:999px; background:transparent; color:var(--ink-soft); font:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+.auth-audience-option.active { background:var(--surface); color:var(--teal-dark); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.auth-audience p { margin:8px 4px 0; color:var(--ink-soft); font-size:12px; }
 .auth-tabs { display: flex; gap: 4px; background: var(--paper); border-radius: 999px; padding: 4px; margin-bottom: 18px; }
 .auth-tab { flex: 1; border: none; border-radius: 999px; background: transparent; color: var(--ink-soft); min-height: 36px; padding: 6px 10px; }
 .auth-tab:hover { background: transparent; color: var(--ink); }
 .auth-tab.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
 .auth-hint { font-size: 11.5px; color: var(--ink-soft); margin-top: 4px; }
 .auth-error { color: var(--alarm); font-size: 13px; margin-top: 10px; min-height: 1em; }
+.doctor-visit-request { margin:10px 0; }
+.doctor-visit-request .field-inline { margin:8px 0; }
+.patient-visit-requests .dose-row { flex-wrap:wrap; }
 .auth-demo-note { font-size: 12px; color: var(--ink-soft); margin-top: 18px; text-align: center; line-height: 1.7; }
 .auth-demo-note code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
 
@@ -1622,3 +1631,61 @@ nav.pill-nav.nav-drawer > * { flex-shrink: 0; }
 .rp-medbox { max-height: 190px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 /* the medicine chips scroll inside the card; they must never widen the page */
 .cg-body, #hcCal, .hc-cal, .hc-scroller, .hc-tl { min-width: 0; max-width: 100%; }
+
+/* Care team: follows the Care Connection journey rather than exposing raw
+   form controls and test-state rows. The actual permissions and appointment
+   endpoints remain unchanged; this only gives them the same visual language. */
+.care-page { max-width: 920px; margin: 0 auto; padding-bottom: 28px; }
+.care-page-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin:4px 0 20px; }
+.care-page-intro > div { display:flex; align-items:center; gap:11px; }
+.care-page-intro .icon-badge { width:42px; height:42px; border-radius:14px; }
+.care-kicker { margin:0 0 3px; font:700 10px 'Figtree',sans-serif; letter-spacing:.1em; color:var(--ink-soft); }
+.care-page h2,.care-page h3 { margin:0; font-family:'Figtree',sans-serif; color:var(--ink); }
+.care-page h2 { font-size:25px; letter-spacing:-.025em; }
+.care-page h3 { font-size:17px; }
+.care-page-intro > p { max-width:245px; margin:0 0 2px; color:var(--ink-soft); font-size:13px; line-height:1.45; }
+.care-connection-card { background:linear-gradient(135deg,#fff 0%,#f4fbf8 100%); border:1px solid #d9ece5; border-radius:22px; padding:22px; box-shadow:var(--shadow-card); }
+.care-connection-head { display:flex; align-items:center; gap:12px; }
+.care-doctor-avatar,.care-person-avatar { width:42px; height:42px; display:grid; place-items:center; flex:0 0 auto; border-radius:14px; background:var(--teal); color:#fff; font:800 17px 'Figtree',sans-serif; }
+.care-connection-head .care-doctor-avatar { background:var(--teal-soft); color:var(--teal-dark); }
+.care-lead { max-width:560px; margin:14px 0 16px; color:var(--ink-soft); font-size:14px; line-height:1.5; }
+.doctor-share-options { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+.share-choice { min-height:72px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:#fff; border:1px solid var(--line); border-radius:15px; cursor:pointer; transition:border-color .18s ease,box-shadow .18s ease,background .18s ease; }
+.share-choice:has(input:checked) { border-color:#a9d9c9; background:#fbfffd; box-shadow:0 4px 12px -10px rgba(13,125,104,.45); }
+.share-choice > span { display:flex; align-items:center; gap:9px; min-width:0; }
+.share-choice .icon-badge { width:31px; height:31px; border-radius:10px; flex:0 0 auto; }
+.share-choice .icon-badge svg { width:16px; height:16px; }
+.share-choice strong,.share-choice small { display:block; }
+.share-choice strong { font:700 13px 'Figtree',sans-serif; }
+.share-choice small { margin-top:2px; color:var(--ink-soft); font-size:11px; line-height:1.35; }
+.share-choice input { position:absolute; opacity:0; pointer-events:none; }
+.share-choice > i { position:relative; width:35px; height:21px; flex:0 0 auto; border-radius:99px; background:#d8dfdc; transition:background .18s ease; }
+.share-choice > i::after { content:""; position:absolute; top:3px; left:3px; width:15px; height:15px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .18s ease; }
+.share-choice input:checked + i { background:var(--teal); }
+.share-choice input:checked + i::after { transform:translateX(14px); }
+.share-choice:focus-within { box-shadow:var(--focus-ring); }
+.care-connection-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; color:var(--ink-soft); font-size:12px; }
+.care-code-panel { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:14px; padding:14px 16px; background:#edf8f4; border-radius:15px; color:var(--teal-dark); }
+.care-code-panel strong { display:block; margin:2px 0; font:800 22px 'Figtree',monospace; letter-spacing:.08em; color:var(--ink); }
+.care-code-panel p:last-child { margin:4px 0 0; color:var(--ink-soft); font-size:12px; }
+.care-code-panel .icon-badge { flex:0 0 auto; background:#fff; }
+.care-section { margin-top:18px; padding:19px 22px; background:var(--surface); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow-card); }
+.care-section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.care-subtle { margin:0 0 13px; color:var(--ink-soft); font-size:13px; line-height:1.45; }
+.care-clinician-list { display:grid; gap:9px; }
+.care-clinician-row,.care-person-row { display:flex; align-items:center; gap:11px; padding:11px 0; border-top:1px solid var(--line); }
+.care-clinician-row:first-child { border-top:0; }
+.care-person-row + .care-person-row { border-top:1px solid var(--line); }
+.care-person-avatar { width:34px; height:34px; border-radius:50%; background:#dff2eb; color:var(--teal-dark); font-size:13px; }
+.care-person-copy { flex:1; min-width:0; }
+.care-person-copy strong,.care-person-copy small { display:block; }
+.care-person-copy strong { font:700 14px 'Figtree',sans-serif; }
+.care-person-copy small { margin-top:3px; color:var(--ink-soft); font-size:12px; }
+.care-status { flex:0 0 auto; padding:5px 8px; border-radius:99px; background:#edf8f4; color:var(--teal-dark); font:700 11px 'Figtree',sans-serif; text-transform:capitalize; }
+.care-status.pending { background:var(--amber-soft); color:#9d6500; }.care-status.revoked { background:var(--alarm-soft); color:var(--alarm); }
+.scope-pills { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }.scope-pills span { padding:3px 6px; background:var(--paper); border-radius:99px; color:var(--ink-soft); font-size:10px; }
+.care-empty { padding:16px 0 2px; color:var(--ink-soft); font-size:13px; }
+.care-visit-section { margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }.visit-history-heading { margin-top:18px; }
+.doctor-visit-request { padding:15px !important; border:1px solid var(--line); background:var(--paper); box-shadow:none; }.doctor-visit-request .field-inline { display:grid; gap:4px; }.doctor-visit-request input,.doctor-visit-request select { width:100%; min-height:42px; }
+.patient-visit-requests .dose-row { padding:12px 0; border-top:1px solid var(--line); }
+@media (max-width:700px) { .care-page-intro { align-items:flex-start; flex-direction:column; gap:8px; }.care-page-intro > p { max-width:100%; }.doctor-share-options { grid-template-columns:1fr; }.care-connection-card,.care-section { padding:16px; border-radius:18px; }.care-connection-foot { align-items:flex-start; flex-direction:column; }.care-connection-foot .primary { width:100%; min-height:44px; }.care-clinician-row,.care-person-row { align-items:flex-start; flex-wrap:wrap; }.care-clinician-row > .ghost,.care-person-row > .ghost { margin-left:45px; }.care-status { margin-left:auto; }.share-choice { min-height:66px; } }

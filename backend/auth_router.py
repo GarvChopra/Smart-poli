@@ -108,7 +108,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db_ses
 @router.get("/google/config")
 def google_config():
     """Whether to show "Continue with Google", and the (public) client id the button needs."""
-    return {"enabled": google_auth.is_enabled(), "client_id": google_auth.client_id() or None}
+    return {"enabled": google_auth.is_enabled(), "client_id": google_auth.client_id() or None,
+            "doctor_enabled": doctor_role_enabled()}
 
 
 def find_account_for_email(db: Session, email: str) -> Optional[User]:

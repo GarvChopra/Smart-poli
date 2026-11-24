@@ -12,7 +12,8 @@ from sqlalchemy import text  # noqa: E402
 
 import delete_user as du  # noqa: E402
 from conftest import register_and_login  # noqa: E402
-from db import (CareNote, Dose, Feedback, PasswordRecovery, ReminderLog, SessionLocal, engine, init_db)  # noqa: E402
+from db import (CareAppointment, CareNote, DoctorLink, DoctorShareConsent, Dose, Feedback, PasswordRecovery,
+                ReminderLog, SessionLocal, engine, init_db)  # noqa: E402
 from main import app  # noqa: E402
 from timing_helpers import add_medicine, new_patient  # noqa: E402
 
@@ -50,12 +51,19 @@ def test_deleting_a_patient_user_removes_the_whole_tree_and_nothing_else():
     with SessionLocal() as db:
         for user in (w["user"], w["other_user"]):
             db.add(PasswordRecovery(user_id=user["id"], requested_at=datetime.utcnow()))
+        link = DoctorLink(patient_id=w["pid"], doctor_user_id=w["cg_user"]["id"], code="DELETE-TEST")
+        db.add(link)
+        db.flush()
+        db.add(DoctorShareConsent(doctor_link_id=link.id, scopes='["visit_notes"]'))
+        db.add(CareAppointment(patient_id=w["pid"], doctor_user_id=w["cg_user"]["id"],
+                               visit_date=datetime.utcnow().date()))
         db.commit()
     with engine.begin() as conn:
         deleted = du.delete_user(conn, w["user"]["id"])          # SQLite enforces foreign keys inside, so a wrong order would raise
     assert deleted["users"] == 1 and deleted["patients"] == 1 and deleted["medicines"] == 1 and deleted["doses"] == 2
     assert deleted["reminder_log"] == 1 and deleted["care_notes"] == 1
     assert deleted["password_recovery"] == 1
+    assert deleted["doctor_share_consents"] == deleted["care_appointments"] == deleted["doctor_links"] == 1
     assert count("password_recovery", "user_id = :i", i=w["user"]["id"]) == 0
     assert count("password_recovery", "user_id = :i", i=w["other_user"]["id"]) == 1
     assert count("users", "id = :i", i=w["user"]["id"]) == 0
